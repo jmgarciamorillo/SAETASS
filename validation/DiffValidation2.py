@@ -43,7 +43,7 @@ print(D_values)
 print("Characteristic diffusion time (yr):", r_end**2 / D_values[0])
 
 # Source term (Q)
-Q = np.zeros(num_points)
+Q = np.zeros(num_points + 1)
 # Q = np.delete(1 / r**2, len(r) - 1)
 
 # Prepare solver

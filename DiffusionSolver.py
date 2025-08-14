@@ -119,7 +119,7 @@ class DiffusionSolver(SubproblemSolver):
             rhs_matrix @ current_f_values
             + Ucc
             - tildeUcc
-            + self.delta_t * self.Q_values
+            + self.delta_t * self.Q_values[:-1]
         )
 
         return sol
