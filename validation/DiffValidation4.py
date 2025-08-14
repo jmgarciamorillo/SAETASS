@@ -23,14 +23,15 @@ f_end = 0.0
 # Spatial and temporal grids
 r = np.linspace(r_0, r_end, num_points + 1)
 t_steps = 200
-t_grid = np.linspace(0, 2, t_steps)  # yr
+t_grid = np.linspace(0, 3, t_steps)  # yr
 
 # Initial profile: zero everywhere
 f_values = np.zeros(num_points + 1)
 
 # Diffusion coefficient
 D_0 = 1
-D_values = D_0 * r**2
+eps = 0.01
+D_values = D_0 * (r + eps) ** 2
 
 # Print characteristic diffusion time
 print("Characteristic diffusion time (yr):", r_end**2 / D_values[0])
@@ -38,7 +39,6 @@ print("Characteristic diffusion time (yr):", r_end**2 / D_values[0])
 # Source term (Q)
 Q_0 = 4
 Q = Q_0 * r
-Q = np.delete(Q, len(r) - 1)  # Remove last element to match f_values length
 
 
 # Prepare solver
@@ -81,8 +81,11 @@ for idx, curve_idx in enumerate(indices):
     )
 
 # Analytical steady-state: f(r) = Q_0/(4*D_0)*(1 - r)
-analytical = (Q_0 / (4 * D_0)) * (1 - r)
-ax.plot(r, analytical, "k--", label="Analytical ($Q_0/(4D_0)(1-r)$)")
+analytical = (Q_0 / (4 * D_0)) * (
+    (1 - 2 * eps * np.log(eps + 1) - eps**2 / (eps + 1))
+    - (r - 2 * eps * np.log(eps + r) - eps**2 / (eps + r))
+)
+ax.plot(r, analytical, "k--")
 
 ax.set_xlabel("$r$")
 ax.set_ylabel("Solution $f(t,r)$")
@@ -95,7 +98,7 @@ legend_elements = [
         [0],
         color="k",
         linestyle="--",
-        label="Steady state $\left(\\frac{Q_0}{4D_0}(1-r)\\right)$",
+        label="Steady state",
     ),
 ]
 ax.legend(handles=legend_elements)

@@ -38,8 +38,8 @@ print(D_values)
 print("Characteristic diffusion time (yr):", r_end**2 / D_values[0])
 
 # Source term (Q): constant injection in a narrow region near r=0 (delta-like)
-Q = np.zeros(num_points)
-for i in range(num_points):
+Q = np.zeros(num_points + 1)
+for i in range(num_points + 1):
     if r[i] < 0.05:  # Width of the Dirac delta
         Q[i] = 1000  # Constant injection rate
     else:

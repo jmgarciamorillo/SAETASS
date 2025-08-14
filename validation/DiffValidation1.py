@@ -37,7 +37,7 @@ for i in range(num_points + 1):
 D_values = np.ones(num_points + 1)
 
 # Source term (Q)
-Q = np.zeros(num_points)
+Q = np.zeros(num_points + 1)
 # Q = np.delete(1 / r**2, len(r) - 1)
 
 # Prepare solver
