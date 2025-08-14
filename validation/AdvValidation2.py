@@ -13,8 +13,8 @@ from AdvectionSolver import AdvectionSolver
 
 # Parameters
 r_0 = 0.0
-r_end = 3.0
-num_points = 1000
+r_end = 40.0  # parsec
+num_points = 2000
 
 # Spatial and temporal grids
 r = np.linspace(r_0, r_end, num_points + 1)
@@ -22,20 +22,21 @@ t_steps = 2001  # At least 200 time steps
 t_grid = np.linspace(0, 2.0, t_steps)
 
 
-# Initial profile (Gaussian)
+# Initial profile (zero everywhere for this test)
 def f_0(r):
-    return np.exp(-0.5 * ((r - 0.3) / 0.1) ** 2)
+    return np.zeros_like(r)
 
 
 f_values = f_0(r)
 
 
-# Velocity field (constant for this test)
-v_field_n = np.ones_like(r)
-v_field_n1 = np.ones_like(r)
+# Velocity field (constant and equal to 10 km/s in pc/yr)
+v_field_n = np.ones_like(r) * 10  # Convert km/s approx to pc/yr
+v_field_n1 = np.ones_like(r) * 10  # Same for next time step
 
-# Source term (Q)
-Q = np.zeros(len(r) - 1)
+# Source term (Q) a spike at r=1 parsec
+Q = np.zeros_like(r)
+Q = np.where((r >= 0.9) & (r <= 1.1), 40, 0)  # Small spike in the source term
 
 # Prepare solver
 solver = AdvectionSolver(
@@ -56,15 +57,15 @@ for n in range(1, num_timesteps + 1):
     f_evolution.append(np.copy(solver._f_values))
 
 # Analytical solution for comparison
-f_analytical = []
-for n in range(t_steps):
-    t = t_grid[n]
-    u0 = 1.0
-    r_shifted = r - u0 * t
-    mask = r_shifted > 0
-    f_ana = np.zeros_like(r)
-    f_ana[mask] = ((r[mask] - u0 * t) / r[mask]) ** 2 * f_0(r_shifted[mask])
-    f_analytical.append(f_ana)
+# f_analytical = []
+# for n in range(t_steps):
+#     t = t_grid[n]
+#     u0 = 1.0
+#     r_shifted = r - u0 * t
+#     mask = r_shifted > 0
+#     f_ana = np.zeros_like(r)
+#     f_ana[mask] = ((r[mask] - u0 * t) / r[mask]) ** 2 * f_0(r_shifted[mask])
+#     f_analytical.append(f_ana)
 
 # Plotting
 import matplotlib as mpl
@@ -77,19 +78,19 @@ plot_indices = np.linspace(0, t_steps - 1, 20, dtype=int)
 
 for idx, plot_idx in enumerate(plot_indices):
     alpha = 0.2 + 0.8 * (idx + 1) / 20
-    ax.plot(
-        r,
-        f_analytical[plot_idx],
-        color=colors[idx],
-        alpha=alpha,
-        linestyle="--",
-        label="Analytical" if idx == 19 else None,
-    )
+    # ax.plot(
+    #     r,
+    #     f_analytical[plot_idx],
+    #     color=colors[idx],
+    #     #alpha=alpha,
+    #     linestyle="--",
+    #     label="Analytical" if idx == 19 else None,
+    # )
     ax.plot(
         r,
         f_evolution[plot_idx],
         color=colors[idx],
-        alpha=alpha,
+        # alpha=alpha,
         linestyle="-",
         label="Numerical" if idx == 19 else None,
     )
@@ -100,7 +101,7 @@ from matplotlib.lines import Line2D
 
 legend_elements = [
     Line2D([0], [0], color="k", linestyle="-", label="Numerical"),
-    Line2D([0], [0], color="k", linestyle="--", label="Analytical"),
+    # Line2D([0], [0], color="k", linestyle="--", label="Analytical"),
 ]
 ax.legend(handles=legend_elements)
 ax.grid()
