@@ -144,7 +144,9 @@ class SubproblemSolver(ABC):
         f_calclulation = self._f_values[:-1]  # Exclude the last point for calculations
 
         for n in range(1, num_timesteps + 1):
-            # print(f"Time step {n}\n")  # Including a print statement for debugging
+            print(
+                f"    [DEBUG SubSolver] Time step {n}/{num_timesteps} | max(f)={np.max(f_calclulation):.4g} min(f)={np.min(f_calclulation):.4g}"
+            )
 
             # These methods are specific to each problem and are abstract
             problem_coeffs = self._compute_problem_specific_coefficients()
@@ -157,5 +159,9 @@ class SubproblemSolver(ABC):
             f_calclulation = self._solve_timestep(lhs_matrix, rhs_vector)
 
         sol = np.append(f_calclulation, self._f_values[-1])  # Append the last point
+
+        print(
+            f"    [DEBUG SubSolver] Simulation finished | max(f)={np.max(sol):.4g} min(f)={np.min(sol):.4g}"
+        )
 
         return sol

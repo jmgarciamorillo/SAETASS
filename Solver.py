@@ -60,6 +60,9 @@ class Solver:
         self.subsolvers = []
         self._initialize_subsolvers(**kwargs)
 
+        self.global_step = 0
+        self.total_steps = len(self.t_grid) - 1
+
     def _refined_t_grid(self, t_grid, n_sub):
         """Return a refined t_grid for n_sub substeps per global step."""
         num_timesteps = len(t_grid) - 1
@@ -98,12 +101,20 @@ class Solver:
         Returns the new state.
         """
         f_current = np.copy(f_start)
-        for _ in range(n_steps):
+        for step_idx in range(n_steps):
+            self.global_step += 1
+            print(
+                f"[Solver DEBUG] Global step {self.global_step}/{self.total_steps} | max(f)={np.max(f_current):.4g} min(f)={np.min(f_current):.4g}"
+            )
             for i, op in enumerate(self.operators):
                 subsolver = self.subsolvers[i]
                 n_sub = self.substeps_per_op[op]
+                print(f"  [Solver DEBUG] Operator '{op}' | substeps: {n_sub}")
                 subsolver._f_values = np.copy(f_current)
                 f_current = subsolver.run_simulation(n_sub)
+        print(
+            f"[Solver DEBUG] Advance finished | max(f)={np.max(f_current):.4g} min(f)={np.min(f_current):.4g}"
+        )
         return f_current
 
     def run(self):
