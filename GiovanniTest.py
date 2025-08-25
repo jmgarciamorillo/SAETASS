@@ -17,7 +17,7 @@ from Solver import Solver
 r_0 = 0.0 * u.pc
 r_Inj = 1.0 * u.pc  # parsec
 r_end = 100.0 * u.pc  # parsec
-num_points = 8000
+num_points = 2000
 eta_B = 0.1  # Magnetic field efficiency
 L_wind = 1e38 * u.erg / u.s  # erg/s
 M_dot = 1e-4 * const.M_sun / u.yr
@@ -25,7 +25,7 @@ rho_0 = const.m_p / u.cm**3
 t_b = 1 * u.Myr
 eta_inj = 0.1
 v_w = np.sqrt(2 * L_wind / M_dot)
-t_end = 1 * u.yr
+t_end = 1 * u.Myr
 p_chosen = (1 * u.GeV / const.c).to("cm*g/s")
 # convert p_chosen to velocity using relativistic formula
 v_p = (
@@ -94,8 +94,8 @@ f_values = np.zeros(num_points + 1)
 
 # Velocity profile: inside TS, v(r) = v_w, in bubble, v(r) = v_w/4*(R_TS/r)**2, ouside bubble, v(r) = 0
 v_field = np.zeros_like(r)
-v_field[r_wind] = v_w.to("pc/yr").value
-v_field[r_buble] = v_w.to("pc/yr").value / 4 * (R_TS.to("pc").value / r[r_buble]) ** 2
+v_field[r_wind] = v_w.to("pc/Myr").value
+v_field[r_buble] = v_w.to("pc/Myr").value / 4 * (R_TS.to("pc").value / r[r_buble]) ** 2
 plt.plot(r, v_field, label="Velocity field v(r)")
 # Caracteristic advection time
 print(
@@ -104,8 +104,8 @@ print(
 
 # Diffusion coefficient:
 D_values = 1 / 3 * v_p * np.sqrt(r_L * r_Inj)
-D_values[r_ISM] = 0.1 * u.pc**2 / u.yr  # constant diffusion in ISM
-plt.plot(r, D_values.to("pc**2/yr").value, label="Diffusion Coefficient D(r)")
+D_values[r_ISM] = 3e18 * u.cm**2 / u.s  # constant diffusion in ISM
+plt.plot(r, D_values.to("pc**2/Myr").value, label="Diffusion Coefficient D(r)")
 # Caracteristic diffusion time
 print(
     f"Characteristic diffusion time: {((R_b- R_TS)**2 / 4/D_values[int(num_points/2)]).to("kyr").value} kyr"
@@ -122,12 +122,12 @@ Q[(r >= 0.99 * R_TS.to("pc").value) & (r <= 1.01 * R_TS.to("pc").value)] = (
     * u.pc ** (-1)
     * (u.GeV / const.c) ** (-1)
 )
-Q[Q != 0] = 1
+Q[Q != 0] = 100
 # plt.plot(r, Q, label="Source term Q(r)")
 
 # Prepare solver parameters
 advection_params = {"v_field_n": v_field, "v_field_n1": v_field}
-diffusion_params = {"D_values": D_values.to("pc**2/yr").value * 10000}
+diffusion_params = {"D_values": D_values.to("pc**2/Myr").value}
 
 # Operator splitting: advection then diffusion
 solver = Solver(
@@ -138,7 +138,7 @@ solver = Solver(
     Q_values=Q,
     advection_params=advection_params,
     diffusion_params=diffusion_params,
-    substeps={"advection": 1, "diffusion": 1},
+    substeps={"advection": 10, "diffusion": 1},
 )
 
 import matplotlib as mpl
