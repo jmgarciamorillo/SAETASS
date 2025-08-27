@@ -1,14 +1,17 @@
 import numpy as np
+import inspect
 
 from AdvectionSolver import AdvectionSolver
 from DiffusionSolver import DiffusionSolver
 from LossSolver import LossSolver
+from AdvectionFVSolverv2 import AdvectionFVSolver
 
 # Map operator names to their solver classes
 SUBSOLVER_MAP = {
     "advection": AdvectionSolver,
     "diffusion": DiffusionSolver,
     "loss": LossSolver,
+    "advectionFV": AdvectionFVSolver,
 }
 
 
@@ -23,6 +26,7 @@ class Solver:
         advection_params: dict = None,
         diffusion_params: dict = None,
         loss_params: dict = None,
+        advectionFV_params: dict = None,
         substeps: dict = None,
         **kwargs,
     ):
@@ -40,11 +44,22 @@ class Solver:
             "advection": advection_params or {},
             "diffusion": diffusion_params or {},
             "loss": loss_params or {},
+            "advectionFV": advectionFV_params or {},
         }
         self.substeps = substeps or {}
 
-        # Determine which operators are present
-        self.operators = [op for op in SUBSOLVER_MAP if op in self.problem_type]
+        # Determine which operators are present and print for debugging
+        print(f"[Solver DEBUG] Problem type: {self.problem_type}")
+        print(f"[Solver DEBUG] Available operators: {list(SUBSOLVER_MAP.keys())}")
+        # Parse operators from problem_type, ensuring 'advectionFV' and 'advection' are not both included by substring
+        # Parse operators from problem_type, handling exact operator names split by '-'
+        self.operators = []
+        # Split by '-' and normalize to lowercase for matching
+        ops_in_type = [op.strip().lower() for op in self.problem_type.split("-")]
+        for op in SUBSOLVER_MAP:
+            if op.lower() in ops_in_type:
+                self.operators.append(op)
+        print(f"[Solver DEBUG] Using operators: {self.operators}")
         self.n_os = len(self.operators)
 
         if self.n_os == 0:
@@ -84,16 +99,53 @@ class Solver:
             else:
                 t_grid_refined = self.t_grid
 
-            self.subsolvers.append(
-                solver_class(
-                    self.x_grid,
-                    t_grid_refined,
-                    self.f_values,
-                    Q_values=self.Q_split,
-                    **self.params[op],
-                    **kwargs,
+            # Special-case the AdvectionFVSolver which does NOT follow the SubproblemSolver API
+            if op == "advectionFV":
+                # prefer explicit advectionFV_params passed to Solver constructor
+                fv_params = (
+                    kwargs.get("advectionFV_params")
+                    or self.params.get("advectionFV", {})
+                    or {}
                 )
-            )
+                # Use v_centers directly from provided keys
+                if "v_centers" in fv_params:
+                    v_centers = np.asarray(fv_params["v_centers"], dtype=float)
+                elif "v_field_n" in fv_params:
+                    v_centers = np.asarray(fv_params["v_field_n"], dtype=float)
+                else:
+                    raise ValueError(
+                        "advectionFV requires 'v_centers' or 'v_field_n' in advectionFV_params"
+                    )
+
+                # Prepare remaining kwargs accepted by AdvectionFVSolver constructor
+                # Inspect signature to filter allowed params
+                sig = inspect.signature(solver_class.__init__)
+                allowed = set(sig.parameters.keys()) - {"self"}
+                init_kwargs = {
+                    k: v
+                    for k, v in fv_params.items()
+                    if k in allowed and k != "v_centers"
+                }
+                # pass r_faces and v_centers as the first two args
+                self.subsolvers.append(
+                    solver_class(
+                        self.x_grid,
+                        v_centers,
+                        **init_kwargs,
+                    )
+                )
+            else:
+                # Regular subsolver construction (assumes SubproblemSolver interface)
+                self.subsolvers.append(
+                    solver_class(
+                        self.x_grid,
+                        t_grid_refined,
+                        self.f_values,
+                        Q_values=self.Q_split,
+                        **self.params[op],
+                        **kwargs,
+                    )
+                )
 
     def _advance(self, f_start, n_steps):
         """
@@ -110,8 +162,39 @@ class Solver:
                 subsolver = self.subsolvers[i]
                 n_sub = self.substeps_per_op[op]
                 print(f"  [Solver DEBUG] Operator '{op}' | substeps: {n_sub}")
-                subsolver._f_values = np.copy(f_current)
-                f_current = subsolver.run_simulation(n_sub)
+
+                # Special handling for AdvectionFVSolver (not following SubproblemSolver API)
+                if op == "advectionFV":
+                    # compute global dt for this global step from the top-level t_grid
+                    gs = self.global_step
+                    if gs <= 0 or gs >= len(self.t_grid):
+                        # fallback: use single delta_t estimate
+                        dt_global = float(self.t_grid[-1] - self.t_grid[0]) / max(
+                            1, self.total_steps
+                        )
+                    else:
+                        dt_global = float(self.t_grid[gs] - self.t_grid[gs - 1])
+
+                    dt_sub = dt_global / max(1, n_sub)
+
+                    # f_current is already centered values (length M-1)
+                    U_centers = np.asarray(f_current, dtype=float)
+                    if U_centers.ndim != 1 or U_centers.size != self.x_grid.size - 1:
+                        raise ValueError(
+                            "f_current must be centered values of length M-1 for advectionFV"
+                        )
+
+                    # perform n_sub subcycles calling advance(U_centers, dt_sub)
+                    for _ in range(n_sub):
+                        U_centers = subsolver.advance(
+                            U_centers, dt_sub
+                        )  # returns centers U (length M-1)
+
+                    f_current = U_centers  # updated centered array after advectionFV
+                else:
+                    # Regular SubproblemSolver-based operator
+                    subsolver._f_values = np.copy(f_current)
+                    f_current = subsolver.run_simulation(n_sub)
         print(
             f"[Solver DEBUG] Advance finished | max(f)={np.max(f_current):.4g} min(f)={np.min(f_current):.4g}"
         )
