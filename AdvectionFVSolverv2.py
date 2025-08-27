@@ -29,7 +29,7 @@ class AdvectionFVSolver:
         self,
         r_faces: np.ndarray,  # length N+1, r_faces[0]=0
         v_centers: np.ndarray,  # length N (vel at centers)
-        limiter: Literal["minmod", "vanleer"] = "minmod",
+        limiter: Literal["minmod", "vanleer", "mc"] = "minmod",
         cfl: float = 0.8,
         inflow_value_W: float = 0.0,
         order: Literal[1, 2] = 2,
@@ -54,8 +54,8 @@ class AdvectionFVSolver:
         if self.v_centers.shape != (self.N,):
             raise ValueError("v_centers must have shape (N,)")
 
-        if limiter not in {"minmod", "vanleer"}:
-            raise ValueError("limiter must be 'minmod' or 'vanleer'")
+        if limiter not in {"minmod", "vanleer", "mc"}:
+            raise ValueError("limiter must be 'minmod', 'vanleer' or 'mc'")
         self.limiter = limiter
         self.cfl = float(cfl)
         self.inflow_value_W = float(inflow_value_W)
@@ -172,6 +172,7 @@ class AdvectionFVSolver:
         # 6) update
         W_new = W - (dt / self.dr) * (F[1:] - F[:-1])
         U_new = W_new / (self.r_centers**2)
+        print(f"[AdvectionFVSolver] max|U| after step: {np.max(np.abs(U_new)):.4g}")
         return U_new
 
     # ---------------- internal helpers ----------------
@@ -200,9 +201,15 @@ class AdvectionFVSolver:
 
         if self.limiter == "minmod":
             slopes_interior = minmod_multi(dL, dR, dC)
-        else:  # vanLeer (generalized)
+        elif self.limiter == "vanleer":  # generalized
             prod = dL * dR
             slopes_interior = np.where(prod > 0.0, (2.0 * prod) / (dL + dR), 0.0)
+        elif self.limiter == "mc":
+            slopes_interior = minmod_multi(
+                2.0 * dL, 2.0 * dR, 0.5 * dC
+            )  # TODO: check factor 0.5
+        else:  # should not happen due to earlier check, but just in case satate it is not implemented
+            raise NotImplementedError("limiter must be 'minmod', 'vanleer' or 'mc'")
 
         slopes[1:-1] = slopes_interior
         slopes[0] = 0.0
@@ -220,7 +227,7 @@ if __name__ == "__main__":
     r_centers = 0.5 * (r_faces[1:] + r_faces[:-1])
 
     # velocity piecewise
-    v_centers = np.where(r_centers < 0.5, 1.0, 0.5)
+    v_centers = np.where(r_centers < 0.5, 1.0, 0.05)
 
     solver = AdvectionFVSolver(
         r_faces=r_faces,
@@ -232,7 +239,7 @@ if __name__ == "__main__":
     )
 
     # --- Initial condition u(r) and plotting
-    U = np.where((r_centers > 0.2) & (r_centers < 0.3), 1.0, 0.0)
+    U = np.where((r_centers > 0.4) & (r_centers < 0.5), 1.0, 0.0)
 
     plt.ion()
     fig, ax = plt.subplots()
@@ -253,35 +260,119 @@ if __name__ == "__main__":
     ax2.legend()
     plt.show()
 
-    # --- Analytical solution for spherical advection (f_0/r^2)
-    def analytical_solution(r, t, v_func, r0=0.25, width=0.1):
+    # --- Analytical solution for spherical advection (general v(r)) - REPLACED ---
+    def analytical_solution(r, t, v_func, r0=0.45, width=0.1, u0_func=None):
         """
-        Analytical solution for an initial top-hat (unit amplitude) centered at r0
-        advected with velocity v0 = v_func(r0). For constant v0 the exact solution
-        in spherical symmetry (conserved W = r^2 u) is
+        Compute analytical (characteristic) solution for an initial profile u0 advected
+        by a time-independent radial velocity field v(r) > 0.
 
-            u(r,t) = (r_init / r)^2 * u0(r_init)   with   r_init = r - v0 * t
+        This routine finds, for each target radius r_tar, the initial radius r_init such
+        that the travel time along characteristics from r_init to r_tar equals t:
 
-        where u0 is the initial profile (here a top-hat of amplitude 1 around r0).
+            t = ∫_{r_init}^{r_tar} 1 / v(s) ds
+
+        Then conservation of W = r^2 u gives
+
+            u(r_tar, t) = (r_init^2 / r_tar^2) * u0(r_init)
+
+        Notes and assumptions:
+        - v_func must be a callable v_func(r_array) -> array_like (vectorized) or
+          accept scalar r and return scalar. The implementation vectorizes safety.
+        - This handles spatially varying and discontinuous (piecewise) v(r) by
+          numerically integrating 1/v and inverting the map s(r)=∫_0^r 1/v.
+        - If t is larger than the travel time from r=0 to r_tar, we set r_init=0.
+        - If r_tar == 0 we return the value at small radius (use neighbor) to avoid
+          division by zero; callers may enforce u(0)=u(1).
+        - u0_func(r) provides the initial primitive u at radius r; if None, a top-hat
+          centered at r0 with width is assumed (used in the earlier example).
         """
-        r = np.asarray(r)
-        # evaluate characteristic speed for the initial parcel at r0
-        v0 = v_func(r0) if callable(v_func) else float(v_func)
+        r = np.asarray(r, dtype=float)
+        if np.any(r < 0):
+            raise ValueError("r must be non-negative")
 
-        # initial position corresponding to current r
-        r_init = r - v0 * t
+        # prepare initial profile function
+        if u0_func is None:
 
-        # initial top-hat profile: u0(r_init) = 1.0 if within width around r0, else 0
-        init_mask = (r_init > 0.0) & (np.abs(r_init - r0) < 0.5 * width)
+            def u0_func_local(rq):
+                rq = np.asarray(rq)
+                return np.where((rq > 0.0) & (np.abs(rq - r0) < 0.45 * width), 1.0, 0.0)
 
-        u = np.zeros_like(r, dtype=float)
-        # apply conservation of W = r^2 u  => u = (r_init^2 / r^2) * u0(r_init)
-        valid = init_mask & (r > 0.0)
-        u[valid] = (r_init[valid] / r[valid]) ** 2 * 1.0
+            u0_fn = u0_func_local
+        else:
+            u0_fn = u0_func
+
+        # build an evaluation grid for inversion: use a fine grid up to max(r)
+        rmax = float(np.max(r))
+        if rmax <= 0.0:
+            # trivial case: all at zero
+            return np.zeros_like(r)
+
+        ngrid = max(2001, int(10 * r.size))  # sufficiently fine
+        r_eval = np.linspace(0.0, rmax, ngrid)
+
+        # evaluate v on the grid (vectorize callable if needed)
+        v_eval = np.asarray(v_func(r_eval)) if callable(v_func) else np.asarray(v_func)
+        v_eval = np.asarray(v_eval, dtype=float)
+
+        # safety: where v_eval <= 0 (stalled or inward flow) we avoid division by zero.
+        # For robust behavior, treat non-positive velocities as very small positive values
+        # when computing travel times outward; but warn the user.
+        if np.any(v_eval <= 0.0):
+            # we choose to treat non-positive v as tiny positive to allow forward integration;
+            # this avoids infinities but the physical meaning is limited. Prefer a warning.
+            import warnings
+
+            warnings.warn(
+                "analytical_solution: v(r) has non-positive values; treating them as small positive for travel-time integration."
+            )
+            v_eval = np.where(v_eval <= 0.0, 1e-12, v_eval)
+
+        # cumulative integral s(r) = ∫_0^r 1/v(s) ds using trapezoidal rule
+        invv = 1.0 / v_eval
+        # cumulative trapezoid
+        s = np.empty_like(r_eval)
+        s[0] = 0.0
+        # s[i] = s[i-1] + 0.5*(invv[i-1]+invv[i])*(r_eval[i]-r_eval[i-1])
+        diffs = np.diff(r_eval)
+        s[1:] = np.cumsum(0.5 * (invv[:-1] + invv[1:]) * diffs)
+
+        # now for each target r_tar compute s_tar and target s_init = s_tar - t
+        s_tar = np.interp(r, r_eval, s)
+        s_init_target = s_tar - float(t)
+
+        # if s_init_target <= 0 => r_init at or below 0, set r_init = 0
+        # otherwise invert s -> r_init by linear interpolation of s(r_eval)
+        # s is non-decreasing since invv >= 0 (we forced positivity)
+        r_init = np.empty_like(r)
+        # for values <=0 set to 0
+        mask_neg = s_init_target <= 0.0
+        r_init[mask_neg] = 0.0
+        mask_pos = ~mask_neg
+        if np.any(mask_pos):
+            # s is monotonically increasing; invert with interp
+            r_init[mask_pos] = np.interp(s_init_target[mask_pos], s, r_eval)
+
+        # compute u0 at r_init
+        u0_at_rinit = u0_fn(r_init)
+
+        # build solution u(r,t) = (r_init^2 / r^2) * u0(r_init), with care at r==0
+        u = np.zeros_like(r)
+        nonzero_mask = r > 0.0
+        # where r>0 and r_init>=0
+        valid = nonzero_mask & (r_init >= 0.0)
+        u[valid] = (r_init[valid] ** 2) / (r[valid] ** 2) * u0_at_rinit[valid]
+
+        # handle r==0: set to neighbor value to avoid division by zero
+        if r.size >= 2:
+            u[r == 0.0] = u[np.where(r > 0.0)[0][0]]
+        else:
+            u[r == 0.0] = u0_at_rinit[r == 0.0]
 
         return u
 
-    v_func = lambda r: 1.0 if r < 0.5 else 0.5
+    # v_func
+    def v_func(r):
+        return np.where(r < 0.5, 1.0, 0.05)
 
     # --- Time loop
 

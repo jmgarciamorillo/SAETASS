@@ -92,14 +92,14 @@ t_grid = np.linspace(0, t_end.value, t_steps)
 # Initial profile: zero everywhere
 f_values = np.zeros(num_points + 1)
 
-# Velocity profile: inside TS, v(r) = v_w, in bubble, v(r) = v_w/4*(R_TS/r)**2, ouside bubble, v(r) = 0
+# Velocity profile: inside TS, v(r) = v_w, in bubble, v(r) = v_w/4*(R_TS/r)**2, outside bubble, v(r) = 0
 v_field = np.zeros_like(r)
 v_field[r_wind] = v_w.to("pc/Myr").value
 v_field[r_buble] = v_w.to("pc/Myr").value / 4 * (R_TS.to("pc").value / r[r_buble]) ** 2
 plt.plot(r, v_field, label="Velocity field v(r)")
 # Caracteristic advection time
 print(
-    f"Characteristic advection time: {(R_TS*4/(3*v_w)*((R_b/R_TS)**3-1)).to("kyr").value} kyr"
+    f"Characteristic advection time: {(R_TS*4/(3*v_w)*((R_b/R_TS)**3-1)).to('kyr').value} kyr"
 )
 
 # Diffusion coefficient:
@@ -126,19 +126,27 @@ Q[Q != 0] = 100
 # plt.plot(r, Q, label="Source term Q(r)")
 
 # Prepare solver parameters
-advection_params = {"v_field_n": v_field, "v_field_n1": v_field}
-diffusion_params = {"D_values": D_values.to("pc**2/Myr").value}
+# For advectionFV we pass v_centers via advectionFV_params
+advectionFV_params = {
+    "v_centers": v_field * 1000,
+    "order": 2,
+    "limiter": "minmod",
+    "cfl": 0.8,
+}
 
-# Operator splitting: advection then diffusion
+diffusion_params = {"D_values": D_values.to("pc**2/Myr").value * 0.01}
+
+# Operator splitting: advectionFV then diffusion
+# Important: pass f_values as centers for advectionFV (length M-1)
 solver = Solver(
     x_grid=r,
     t_grid=t_grid,
     f_values=f_values,
-    problem_type="advection-diffusion",
+    problem_type="advectionFV-diffusion",
     Q_values=Q,
-    advection_params=advection_params,
+    advectionFV_params=advectionFV_params,  # will be used for advectionFV in Solver
     diffusion_params=diffusion_params,
-    substeps={"advection": 10, "diffusion": 1},
+    substeps={"advectionFV": 1, "diffusion": 1},
 )
 
 import matplotlib as mpl
@@ -154,7 +162,7 @@ fig, ax = plt.subplots(figsize=(10, 5))
 ax.set_xlabel("$r$ (pc)")
 ax.set_ylabel("$f(t, r)$")
 
-diff_str = f"D = {D_values.to("pc**2/yr").value[0]:.2f} pc$^2$/yr"
+diff_str = f"D = {D_values.to('pc**2/yr').value[0]:.2f} pc$^2$/yr"
 adv_str = r"$v(r)$ as defined in code"
 inj_str = r"$Q=100$ at $r \approx R_{TS}$"
 
@@ -163,7 +171,7 @@ ax.set_title(
     f"{diff_str}, {adv_str}\n{inj_str}"
 )
 ax.set_xlim(0, r_end.value)
-ax.set_ylim(1e-3, 1e1)
+ax.set_ylim(1e-6, 1e1)
 ax.grid(True)
 fig.tight_layout()
 
@@ -191,7 +199,7 @@ cbar.set_label("$t$ (yr)")
 
 current_step = 0
 for next_plot_step in indices:
-    steps_to_advance = next_plot_step - current_step
+    steps_to_advance = int(next_plot_step - current_step)
     if steps_to_advance > 0:
         f_current = solver.step(steps_to_advance)
         current_step = next_plot_step
@@ -200,10 +208,10 @@ for next_plot_step in indices:
 
     line.set_ydata(f_current)
     ax.set_title(
-        f"Advection-Diffusion, $t$={t_grid[current_step]:.2f} yr\n"
+        f"Advection-Diffusion, $t$={t_grid[int(current_step)]:.2f} yr\n"
         f"{diff_str}, {adv_str}\n{inj_str}"
     )
     plt.pause(0.05)
 
 plt.ioff()
-plt.show()  # <-- Add this line to keep the plot open after
+plt.show()  #
