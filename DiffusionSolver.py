@@ -18,8 +18,8 @@ class DiffusionSolver(SubproblemSolver):
         """Initializes the diffusion solver with spatial and temporal grids."""
 
         # Extract parameters
-        D_values = params.get("D_values", None)
-        if D_values is None:
+        self.D_values = params.get("D_values", None)
+        if self.D_values is None:
             raise ValueError("D_values parameter is required for DiffusionSolver.")
         Q_values = params.get("Q_values", None)
         logger.debug(
@@ -28,7 +28,7 @@ class DiffusionSolver(SubproblemSolver):
         if Q_values is None:
             raise ValueError("Q_values parameter is required for DiffusionSolver.")
 
-        super().__init__(x_grid, t_grid, 1, f_values, Q_values, **kwargs)
+        super().__init__(x_grid, t_grid, 3, f_values, Q_values, **kwargs)
         self.delta_r = self.delta_x
         self.r0 = self.domain_start
         if not np.isclose(self.r0, 0.0):
@@ -36,14 +36,13 @@ class DiffusionSolver(SubproblemSolver):
                 "DiffusionSolver requires the spatial domain to start at r=0."
             )
 
-        self.f_end = f_values[
-            -1
-        ]  # Assuming f_values includes also the boundary condition and not only the interior points
-        self.D_values = D_values if D_values is not None else np.zeros_like(x_grid)
+        self.f_end = params.get("f_end", 0.0)
+        if self.f_end < 0 or None:
+            raise ValueError("You must provide a non-negative f_end value.")
 
-        # Ensure f_values starts with a non-zero value
-        if np.isclose(f_values[0], 0.0):
-            f_values[0] = 1e-10  # or any other small value
+        # # Ensure f_values starts with a non-zero value
+        # if np.isclose(f_values[0], 0.0):
+        #    f_values[0] = 1e-10  # or any other small value
 
     def _get_num_timesteps(self) -> int:
         """Returns the number of time steps in the temporal grid."""

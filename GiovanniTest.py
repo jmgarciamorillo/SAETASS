@@ -114,7 +114,7 @@ print(
 
 # Diffusion coefficient:
 D_values = 1 / 3 * v_p * np.sqrt(r_L * r_Inj)
-D_values[r_ISM] = 1e12 * 3e18 * u.cm**2 / u.s  # constant diffusion in ISM
+D_values[r_ISM] = 3e28 * u.cm**2 / u.s  # constant diffusion in ISM
 plt.plot(r, D_values.to("pc**2/Myr").value, label="Diffusion Coefficient D(r)")
 # Caracteristic diffusion time
 print(
@@ -148,6 +148,7 @@ advectionFV_params = {
 diffusion_params = {
     "D_values": 10 * D_values.to("pc**2/Myr").value,
     "Q_values": Q,
+    "f_end": 0.1,
 }
 source_params = {"Q_values": Q}
 op_params = {
