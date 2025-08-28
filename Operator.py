@@ -31,8 +31,10 @@ class Operator(Protocol):
 
     x_grid: np.ndarray
     t_grid: np.ndarray
+    f_values: np.ndarray
+    operator_params: dict
 
-    def step(self, n_steps: int) -> np.ndarray: ...
+    def advance(self, n_steps: int) -> np.ndarray: ...
 
     def run(self) -> np.ndarray: ...
 

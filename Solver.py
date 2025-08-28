@@ -6,12 +6,17 @@ from DiffusionSolver import DiffusionSolver
 from LossSolver import LossSolver
 from AdvectionFVSolverv2 import AdvectionFVSolver
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 # Map operator names to their solver classes
 SUBSOLVER_MAP = {
     "advection": AdvectionSolver,
     "diffusion": DiffusionSolver,
     "loss": LossSolver,
     "advectionFV": AdvectionFVSolver,
+    "source": None,  # Placeholder for future SourceSolver
 }
 
 
@@ -22,11 +27,7 @@ class Solver:
         t_grid: np.ndarray,
         f_values: np.ndarray,
         problem_type: str,
-        Q_values: np.ndarray = None,
-        advection_params: dict = None,
-        diffusion_params: dict = None,
-        loss_params: dict = None,
-        advectionFV_params: dict = None,
+        operator_params: dict = None,
         substeps: dict = None,
         **kwargs,
     ):
@@ -34,45 +35,42 @@ class Solver:
         Initializes the main Solver with operator splitting.
         problem_type: str, e.g. 'advection-diffusion', 'loss', etc.
         substeps: dict, e.g. {'advection': 1, 'diffusion': 1, 'loss': 1}
+        operator_params: dict, e.g. {
+            'advection': {...}, 'diffusion': {...}, 'loss': {...}, 'advectionFV': {...}
+        }
         """
         self.x_grid = x_grid
         self.t_grid = t_grid
         self.f_values = np.copy(f_values)
         self.problem_type = problem_type.lower()
-        self.Q_values = Q_values if Q_values is not None else np.zeros_like(x_grid)
-        self.params = {
-            "advection": advection_params or {},
-            "diffusion": diffusion_params or {},
-            "loss": loss_params or {},
-            "advectionFV": advectionFV_params or {},
-        }
+
+        # Store operator parameters (nested dict)
+        self.operator_params = operator_params or {}
         self.substeps = substeps or {}
 
         # Determine which operators are present and print for debugging
-        print(f"[Solver DEBUG] Problem type: {self.problem_type}")
-        print(f"[Solver DEBUG] Available operators: {list(SUBSOLVER_MAP.keys())}")
-        # Parse operators from problem_type, ensuring 'advectionFV' and 'advection' are not both included by substring
+        logger.debug(f"Problem type: {self.problem_type}")
+        logger.debug(f"Available operators: {list(SUBSOLVER_MAP.keys())}")
+
         # Parse operators from problem_type, handling exact operator names split by '-'
-        self.operators = []
-        # Split by '-' and normalize to lowercase for matching
+        self.operator_list = []
         ops_in_type = [op.strip().lower() for op in self.problem_type.split("-")]
         for op in SUBSOLVER_MAP:
             if op.lower() in ops_in_type:
-                self.operators.append(op)
-        print(f"[Solver DEBUG] Using operators: {self.operators}")
-        self.n_os = len(self.operators)
+                self.operator_list.append(op)
+        logger.debug(f"Using operators: {self.operator_list}")
+        self.n_os = len(self.operator_list)
 
         if self.n_os == 0:
             raise ValueError("No valid operators specified in problem_type.")
 
-        # Split Q_values equally among operators
-        self.Q_split = self.Q_values / self.n_os
-
         # Substeps for each operator (default 1)
-        self.substeps_per_op = {op: self.substeps.get(op, 1) for op in self.operators}
+        self.substeps_per_op = {
+            op: self.substeps.get(op, 1) for op in self.operator_list
+        }
 
         # Prepare subsolvers using the mapping
-        self.subsolvers = []
+        self.operator_subsolvers = []
         self._initialize_subsolvers(**kwargs)
 
         self.global_step = 0
@@ -91,130 +89,57 @@ class Solver:
 
     def _initialize_subsolvers(self, **kwargs):
         """Initialize subsolvers with appropriate t_grids and parameters."""
-        for op in self.operators:
+        for op in self.operator_list:
             solver_class = SUBSOLVER_MAP[op]
+
+            # Refine t_grid according to substeps
             n_sub = self.substeps_per_op[op]
             if n_sub > 1:
                 t_grid_refined = self._refined_t_grid(self.t_grid, n_sub)
             else:
                 t_grid_refined = self.t_grid
 
-            # Special-case the AdvectionFVSolver which does NOT follow the SubproblemSolver API
-            if op == "advectionFV":
-                # prefer explicit advectionFV_params passed to Solver constructor
-                fv_params = (
-                    kwargs.get("advectionFV_params")
-                    or self.params.get("advectionFV", {})
-                    or {}
-                )
-                # Use v_centers directly from provided keys
-                if "v_centers" in fv_params:
-                    v_centers = np.asarray(fv_params["v_centers"], dtype=float)
-                elif "v_field_n" in fv_params:
-                    v_centers = np.asarray(fv_params["v_field_n"], dtype=float)
-                else:
-                    raise ValueError(
-                        "advectionFV requires 'v_centers' or 'v_field_n' in advectionFV_params"
-                    )
+            op_params = self.operator_params.get(op, {})
 
-                # Prepare remaining kwargs accepted by AdvectionFVSolver constructor
-                # Inspect signature to filter allowed params
-                sig = inspect.signature(solver_class.__init__)
-                allowed = set(sig.parameters.keys()) - {"self"}
-                init_kwargs = {
-                    k: v
-                    for k, v in fv_params.items()
-                    if k in allowed and k != "v_centers"
-                }
-                # pass r_faces and v_centers as the first two args
-                self.subsolvers.append(
-                    solver_class(
-                        self.x_grid,
-                        v_centers,
-                        **init_kwargs,
-                    )
+            self.operator_subsolvers.append(
+                solver_class(
+                    self.x_grid,
+                    t_grid_refined,
+                    self.f_values,
+                    op_params,
+                    **kwargs,
                 )
-            else:
-                # Regular subsolver construction (assumes SubproblemSolver interface)
-                self.subsolvers.append(
-                    solver_class(
-                        self.x_grid,
-                        t_grid_refined,
-                        self.f_values,
-                        Q_values=self.Q_split,
-                        **self.params[op],
-                        **kwargs,
-                    )
-                )
+            )
+
+            logger.debug(f"Initialized '{op}' solver with params: {op_params}")
 
     def _advance(self, f_start, n_steps):
-        """
-        Advance the solution by n_steps from f_start.
-        Returns the new state.
-        """
+        """Advance the solution by n_steps using operator splitting."""
+
         f_current = np.copy(f_start)
+
         for step_idx in range(n_steps):
             self.global_step += 1
-            print(
-                f"[Solver DEBUG] Global step {self.global_step}/{self.total_steps} | max(f)={np.max(f_current):.4g} min(f)={np.min(f_current):.4g}"
+            logger.debug(
+                f"Global step {self.global_step}/{self.total_steps} | max(f)={np.max(f_current):.4g} min(f)={np.min(f_current):.4g}"
             )
-            for i, op in enumerate(self.operators):
-                subsolver = self.subsolvers[i]
+            for i, op in enumerate(self.operator_list):
+                subsolver = self.operator_subsolvers[i]
                 n_sub = self.substeps_per_op[op]
-                print(f"  [Solver DEBUG] Operator '{op}' | substeps: {n_sub}")
-
-                # Special handling for AdvectionFVSolver (not following SubproblemSolver API)
-                if op == "advectionFV":
-                    # compute global dt for this global step from the top-level t_grid
-                    gs = self.global_step
-                    if gs <= 0 or gs >= len(self.t_grid):
-                        # fallback: use single delta_t estimate
-                        dt_global = float(self.t_grid[-1] - self.t_grid[0]) / max(
-                            1, self.total_steps
-                        )
-                    else:
-                        dt_global = float(self.t_grid[gs] - self.t_grid[gs - 1])
-
-                    dt_sub = dt_global / max(1, n_sub)
-
-                    # f_current is already centered values (length M-1)
-                    U_centers = np.asarray(f_current, dtype=float)
-                    if U_centers.ndim != 1 or U_centers.size != self.x_grid.size - 1:
-                        raise ValueError(
-                            "f_current must be centered values of length M-1 for advectionFV"
-                        )
-
-                    # perform n_sub subcycles calling advance(U_centers, dt_sub)
-                    for _ in range(n_sub):
-                        U_centers = subsolver.advance(
-                            U_centers, dt_sub
-                        )  # returns centers U (length M-1)
-
-                    f_current = U_centers  # updated centered array after advectionFV
-                else:
-                    # Regular SubproblemSolver-based operator
-                    subsolver._f_values = np.copy(f_current)
-                    f_current = subsolver.run_simulation(n_sub)
-        print(
-            f"[Solver DEBUG] Advance finished | max(f)={np.max(f_current):.4g} min(f)={np.min(f_current):.4g}"
+                logger.debug(f"Operation '{op}' with {n_sub} substeps")
+                subsolver.f_values = np.copy(f_current)
+                f_current = subsolver.advance(n_sub)
+        logger.debug(
+            f"Advance finished | max(f)={np.max(f_current):.4g} min(f)={np.min(f_current):.4g}"
         )
         return f_current
 
     def run(self):
-        """
-        Runs the operator splitting simulation.
-        Returns the solution at the final time step.
-        """
         num_timesteps = len(self.t_grid) - 1
         f_current = self._advance(self.f_values, num_timesteps)
         return f_current
 
     def step(self, n_steps=1):
-        """
-        Advance the solution by n_steps from the current state.
-        Updates self.f_values in-place.
-        Returns the new state.
-        """
         f_current = self._advance(self.f_values, n_steps)
         self.f_values = np.copy(f_current)
         return f_current

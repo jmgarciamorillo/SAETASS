@@ -5,6 +5,16 @@ import sys
 import math
 import astropy.units as u
 import astropy.constants as const
+import logging
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    # format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    format="[%(levelname)s] %(name)s: %(message)s",
+)
+# Suppress matplotlib chatter
+logging.getLogger("matplotlib").setLevel(logging.WARNING)
+logging.getLogger("matplotlib.ticker").setLevel(logging.WARNING)
 
 # Ensure parent directory is in sys.path for imports
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "."))
@@ -104,7 +114,7 @@ print(
 
 # Diffusion coefficient:
 D_values = 1 / 3 * v_p * np.sqrt(r_L * r_Inj)
-D_values[r_ISM] = 3e18 * u.cm**2 / u.s  # constant diffusion in ISM
+D_values[r_ISM] = 1e12 * 3e18 * u.cm**2 / u.s  # constant diffusion in ISM
 plt.plot(r, D_values.to("pc**2/Myr").value, label="Diffusion Coefficient D(r)")
 # Caracteristic diffusion time
 print(
@@ -128,31 +138,39 @@ Q[Q != 0] = 100
 # Prepare solver parameters
 # For advectionFV we pass v_centers via advectionFV_params
 advectionFV_params = {
-    "v_centers": v_field * 1000,
+    "v_centers": v_field,
     "order": 2,
     "limiter": "minmod",
     "cfl": 0.8,
+    "inflow_value_W": 0.0,
 }
 
-diffusion_params = {"D_values": D_values.to("pc**2/Myr").value * 0.01}
-
+diffusion_params = {
+    "D_values": 10 * D_values.to("pc**2/Myr").value,
+    "Q_values": Q,
+}
+source_params = {"Q_values": Q}
+op_params = {
+    "advectionFV": advectionFV_params,
+    "diffusion": diffusion_params,
+    "source": source_params,
+}
 # Operator splitting: advectionFV then diffusion
 # Important: pass f_values as centers for advectionFV (length M-1)
+
 solver = Solver(
     x_grid=r,
     t_grid=t_grid,
     f_values=f_values,
     problem_type="advectionFV-diffusion",
-    Q_values=Q,
-    advectionFV_params=advectionFV_params,  # will be used for advectionFV in Solver
-    diffusion_params=diffusion_params,
+    operator_params=op_params,
     substeps={"advectionFV": 1, "diffusion": 1},
 )
 
 import matplotlib as mpl
 
 num_timesteps = len(t_grid) - 1
-num_curves = 100
+num_curves = 4000
 indices = np.linspace(0, num_timesteps, num_curves, dtype=int)
 indices = np.append(indices, num_timesteps)  # Ensure last step is included
 

@@ -1,6 +1,10 @@
 from SubproblemSolver import SubproblemSolver
 import numpy as np
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class DiffusionSolver(SubproblemSolver):
     def __init__(
@@ -8,11 +12,22 @@ class DiffusionSolver(SubproblemSolver):
         x_grid: np.ndarray,
         t_grid: np.ndarray,
         f_values: np.ndarray,
-        Q_values: np.ndarray = None,
-        D_values: np.ndarray = None,
+        params: dict,
         **kwargs,
     ):
         """Initializes the diffusion solver with spatial and temporal grids."""
+
+        # Extract parameters
+        D_values = params.get("D_values", None)
+        if D_values is None:
+            raise ValueError("D_values parameter is required for DiffusionSolver.")
+        Q_values = params.get("Q_values", None)
+        logger.debug(
+            f"Q_values: min={np.min(Q_values):.4g}, max={np.max(Q_values):.4g}"
+        )
+        if Q_values is None:
+            raise ValueError("Q_values parameter is required for DiffusionSolver.")
+
         super().__init__(x_grid, t_grid, 1, f_values, Q_values, **kwargs)
         self.delta_r = self.delta_x
         self.r0 = self.domain_start
@@ -120,6 +135,12 @@ class DiffusionSolver(SubproblemSolver):
             + Ucc
             - tildeUcc
             + self.delta_t * self.Q_values[:-1]
+        )
+        logger.debug(
+            f"Q_values: min={np.min(self.Q_values):.4g}, max={np.max(self.Q_values):.4g}"
+        )
+        logger.debug(
+            f"f_values (after computation): min={np.min(sol):.4g}, max={np.max(sol):.4g}"
         )
 
         return sol

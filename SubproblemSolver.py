@@ -2,6 +2,10 @@ import numpy as np
 from scipy.linalg import solve
 from abc import ABC, abstractmethod
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class SubproblemSolver(ABC):
 
@@ -38,7 +42,7 @@ class SubproblemSolver(ABC):
         self._x_grid_calc, self.num_points = self._get_calculation_grid()
         self._num_timesteps = self._get_num_timesteps()
 
-        self._f_values = f_values
+        self.f_values = f_values
         self.Q_values = self._initialize_source_term(Q_values)
 
     def _get_grid_data(self, grid) -> tuple:
@@ -136,16 +140,16 @@ class SubproblemSolver(ABC):
         # Using assume_a="tridiagonal" for performance if the matrix is tridiagonal
         return solve(lhs_matrix, rhs_vector, assume_a="tridiagonal")
 
-    def run_simulation(self, num_timesteps: int) -> np.ndarray:
+    def advance(self, num_timesteps: int) -> np.ndarray:
         """
-        Runs the simulation for a specified number of time steps.
+        Advances the simulation for a specified number of time steps.
         This method handles the core simulation loop without any plotting or data saving.
         """
-        f_calclulation = self._f_values[:-1]  # Exclude the last point for calculations
+        f_calclulation = self.f_values[:-1]  # Exclude the last point for calculations
 
         for n in range(1, num_timesteps + 1):
-            print(
-                f"    [DEBUG SubSolver] Time step {n}/{num_timesteps} | max(f)={np.max(f_calclulation):.4g} min(f)={np.min(f_calclulation):.4g}"
+            logger.debug(
+                f"Time step {n}/{num_timesteps} | max(f)={np.max(f_calclulation):.4g} min(f)={np.min(f_calclulation):.4g}"
             )
 
             # These methods are specific to each problem and are abstract
@@ -158,10 +162,10 @@ class SubproblemSolver(ABC):
             # This method is common and solves the linear system
             f_calclulation = self._solve_timestep(lhs_matrix, rhs_vector)
 
-        sol = np.append(f_calclulation, self._f_values[-1])  # Append the last point
+        sol = np.append(f_calclulation, self.f_values[-1])  # Append the last point
 
-        print(
-            f"    [DEBUG SubSolver] Simulation finished | max(f)={np.max(sol):.4g} min(f)={np.min(sol):.4g}"
+        logger.debug(
+            f"Simulation finished | max(f)={np.max(sol):.4g} min(f)={np.min(sol):.4g}"
         )
 
         return sol
