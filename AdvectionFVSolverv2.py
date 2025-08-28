@@ -1,6 +1,10 @@
 import numpy as np
 from typing import Literal
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def minmod_multi(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> np.ndarray:
     """Vectorized minmod for three arrays (same shape)."""
@@ -27,39 +31,41 @@ class AdvectionFVSolver:
 
     def __init__(
         self,
-        r_faces: np.ndarray,  # length N+1, r_faces[0]=0
-        v_centers: np.ndarray,  # length N (vel at centers)
-        limiter: Literal["minmod", "vanleer", "mc"] = "minmod",
-        cfl: float = 0.8,
-        inflow_value_W: float = 0.0,
-        order: Literal[1, 2] = 2,
+        r_centers: np.ndarray,
+        t_grid: np.ndarray,
+        f_values: np.ndarray,
+        params: dict,
+        **kwargs,
     ) -> None:
-        self.r_faces = np.asarray(r_faces, dtype=float)
-        if self.r_faces.ndim != 1 or self.r_faces.size < 2:
-            raise ValueError("r_faces must be 1-D array length >= 2")
-        if abs(self.r_faces[0]) > 1e-14:
-            raise ValueError("r_faces[0] must be 0.0")
-        if np.any(np.diff(self.r_faces) <= 0.0):
-            raise ValueError("r_faces must be strictly increasing")
 
-        self.N = self.r_faces.size - 1
-        self.r_centers = 0.5 * (self.r_faces[1:] + self.r_faces[:-1])
+        self.t_grid = np.asarray(t_grid, dtype=float)
+        self.f_values = np.asarray(f_values, dtype=float)
+
+        self.r_centers = np.asarray(r_centers, dtype=float)
+        if self.r_centers.ndim != 1 or self.r_centers.size < 2:
+            raise ValueError("r_centers must be 1-D array length >= 2")
+        if abs(self.r_centers[0]) > 1e-14:
+            raise ValueError("r_centers[0] must be 0.0")
+        if np.any(np.diff(self.r_centers) <= 0.0):
+            raise ValueError("r_centers must be strictly increasing")
+
+        self.N = self.r_centers.size
+        self.r_faces = np.empty(self.N + 1, dtype=float)
+        self.r_faces[1:-1] = 0.5 * (self.r_centers[1:] + self.r_centers[:-1])
+        self.r_faces[0] = self.r_centers[0] - 0.5 * (
+            self.r_centers[1] - self.r_centers[0]
+        )
+        self.r_faces[-1] = self.r_centers[-1] + 0.5 * (
+            self.r_centers[-1] - self.r_centers[-2]
+        )
         self.dr = self.r_faces[1:] - self.r_faces[:-1]  # Δr_i
         self.dx_c = self.r_centers[1:] - self.r_centers[:-1]  # center-to-center (N-1)
         # distances center->face for non-uniform reconstruction
         self.dx_L = self.r_faces[1:-1] - self.r_centers[:-1]  # for WR (from left cell)
         self.dx_R = self.r_centers[1:] - self.r_faces[1:-1]  # for WL (from right cell)
 
-        self.v_centers = np.asarray(v_centers, dtype=float)
-        if self.v_centers.shape != (self.N,):
-            raise ValueError("v_centers must have shape (N,)")
-
-        if limiter not in {"minmod", "vanleer", "mc"}:
-            raise ValueError("limiter must be 'minmod', 'vanleer' or 'mc'")
-        self.limiter = limiter
-        self.cfl = float(cfl)
-        self.inflow_value_W = float(inflow_value_W)
-        self.order = order
+        self.params = params or {}
+        self._unpack_params()
 
     # ---------------- public API ----------------
     def set_velocity(self, v_centers: np.ndarray) -> None:
@@ -70,31 +76,29 @@ class AdvectionFVSolver:
 
     def _face_velocity_interpolated(self) -> np.ndarray:
         """
-        Linear interpolation of v to internal face positions r_{i+1/2}.
-        We use a linear weight by distances (more accurate for non-uniform grids).
-        Returns array length N-1.
+        Linear interpolation of velocities from cell centers to internal face positions r_{i+1/2}.
+        Uses distance-weighted linear interpolation (works for non-uniform grids).
+        Returns
+        -------
+        v_face : np.ndarray
+            Interpolated velocities at faces, length N-1.
         """
         if self.N <= 1:
             return np.zeros(0)
-        # For face i (between centers i-1 and i): weight by distance to centers
-        # w_left = dist(center i -> face) / (dist centers)
-        # Using our precomputed dx_L/dx_R arrays:
-        # dx_total = dx_L + dx_R = r_center[i] - r_center[i-1]
-        left_weights = self.dx_R / (
-            self.dx_L + self.dx_R
-        )  # actually weight for left center when evaluating face position
-        # But safer to compute explicit linear interpolation by coordinate:
-        r_face = 0.5 * (self.r_faces[1:-1] + self.r_faces[1:-1])  # just r_faces[1:-1]
-        # simpler: use linear interpolation by distances:
+
+        # velocities at left/right centers
         v_left = self.v_centers[:-1]
         v_right = self.v_centers[1:]
-        # weight left by distance from face to right center:
-        # dist_left = r_face - r_center_left = dx_L
+
+        # distances from face to neighboring centers
         dist_left = self.dx_L
         dist_right = self.dx_R
         denom = dist_left + dist_right
-        # avoid division by zero (degenerate)
+
+        # prevent division by zero in degenerate cells
         denom = np.where(denom == 0.0, 1.0, denom)
+
+        # linear interpolation: closer center gets higher weight
         v_face = (v_left * dist_right + v_right * dist_left) / denom
         return v_face
 
@@ -108,18 +112,34 @@ class AdvectionFVSolver:
             return np.inf
         return float(self.cfl * np.min(self.dr) / vmax)
 
-    def advance(self, U: np.ndarray, dt: float) -> np.ndarray:
+    def advance(self, n_steps: int) -> np.ndarray:
         """
-        Advance U by dt. Works on W = r^2 * U internally.
+        Advance U by n_steps * dt. Works on W = r^2 * U internally.
         """
-        U = np.asarray(U, dtype=float)
+        U = np.asarray(self.f_values, dtype=float)
         if U.shape != (self.N,):
             raise ValueError("U shape mismatch")
         W = (self.r_centers**2) * U  # conservative variable
 
+        dt = float(n_steps) * np.diff(self.t_grid)[0]
+        total_time = n_steps * dt
+        dt_cfl = self.compute_dt()
+        dt_step = min(dt, dt_cfl)
+        v_faces = self._face_velocity_interpolated()
+
         if self.order == 1:
-            # Godunov upwind (first order)
-            v_faces = self._face_velocity_interpolated()
+            while total_time - dt_step > 0.0:
+                # internal fluxes length N-1: if v_face>=0 use left cell W[i-1], else right cell W[i]
+                flux_int = np.where(v_faces >= 0.0, v_faces * W[:-1], v_faces * W[1:])
+                F = np.empty(self.N + 1)
+                F[0] = 0.0
+                F[1:-1] = flux_int
+                # outer face (use last cell left-state, or inflow)
+                v_out = self.v_centers[-1]
+                W_left_outer = W[-1]
+                F[-1] = v_out * (W_left_outer if v_out >= 0.0 else self.inflow_value_W)
+                W_new = W - (dt_step / self.dr) * (F[1:] - F[:-1])
+                total_time = total_time - dt_step
             # internal fluxes length N-1: if v_face>=0 use left cell W[i-1], else right cell W[i]
             flux_int = np.where(v_faces >= 0.0, v_faces * W[:-1], v_faces * W[1:])
             F = np.empty(self.N + 1)
@@ -129,53 +149,112 @@ class AdvectionFVSolver:
             v_out = self.v_centers[-1]
             W_left_outer = W[-1]
             F[-1] = v_out * (W_left_outer if v_out >= 0.0 else self.inflow_value_W)
-            W_new = W - (dt / self.dr) * (F[1:] - F[:-1])
+            W_new = W - (total_time / self.dr) * (F[1:] - F[:-1])
             U_new = W_new / (self.r_centers**2)
+            U_new[0] = U_new[1]  # avoid issues at r=0
             return U_new
 
         # ---------------- second order MUSCL-Hancock ----------------
+
+        while total_time - dt_step > 0.0:
+            # 1) compute slopes for W in non-uniform grid (minmod / vanleer)
+            slopes = self._compute_slopes(W)  # length N (slopes at centers)
+
+            # 2) reconstruct left/right states at internal faces (t^n)
+            WL, WR = self._recontruct_face_states(W, slopes)
+
+            # 3) predictor to t^{n+1/2}
+            WLh, WRh = self._predictor_states(WL, WR, slopes, dt_step)
+
+            # 4) compute v at internal faces and fluxes by upwind using sign of v_face
+            flux_int = np.where(
+                v_faces >= 0.0, v_faces * WRh[1:-1], v_faces * WLh[1:-1]
+            )
+            F = np.empty(self.N + 1)
+            F[1:-1] = flux_int
+            # Note: if v_face>0 donor is left cell => WRh (value from left), else WLh (from right)
+
+            # 5) boundary fluxes:
+            F[0], F[-1] = self._boundary_fluxes(W, slopes, dt_step)
+
+            # 6) update
+            W_new = W - (dt_step / self.dr) * (F[1:] - F[:-1])
+            W = W_new
+            total_time = total_time - dt_step
+
+        # final step with remaining time
         # 1) compute slopes for W in non-uniform grid (minmod / vanleer)
         slopes = self._compute_slopes(W)  # length N (slopes at centers)
 
         # 2) reconstruct left/right states at internal faces (t^n)
-        WL = np.zeros(self.N + 1)  # left state of face i (value from right cell)
-        WR = np.zeros(self.N + 1)  # right state of face i (value from left cell)
-        WR[1:-1] = W[:-1] + slopes[:-1] * self.dx_L  # WR at face i uses left cell (i-1)
-        WL[1:-1] = W[1:] - slopes[1:] * self.dx_R  # WL at face i uses right cell (i)
+        WL, WR = self._recontruct_face_states(W, slopes)
 
-        # 3) predictor to t^{n+1/2}: donor-cell-based
-        WLh = WL.copy()
-        WRh = WR.copy()
-        if self.N > 1:
-            # WL* (state coming from cell i) uses v_i and slope_i
-            WLh[1:-1] -= 0.5 * dt * self.v_centers[1:] * slopes[1:]
-            # WR* (state coming from cell i-1) uses v_{i-1} and slope_{i-1}
-            WRh[1:-1] -= 0.5 * dt * self.v_centers[:-1] * slopes[:-1]
+        # 3) predictor to t^{n+1/2}
+        WLh, WRh = self._predictor_states(WL, WR, slopes, dt_step)
 
         # 4) compute v at internal faces and fluxes by upwind using sign of v_face
-        v_faces = self._face_velocity_interpolated()  # length N-1
         flux_int = np.where(v_faces >= 0.0, v_faces * WRh[1:-1], v_faces * WLh[1:-1])
+        F = np.empty(self.N + 1)
+        F[1:-1] = flux_int
         # Note: if v_face>0 donor is left cell => WRh (value from left), else WLh (from right)
 
         # 5) boundary fluxes:
-        F = np.empty(self.N + 1)
-        F[0] = 0.0
-        F[1:-1] = flux_int
-        # rightmost face:
-        # left-state at outer face (from last cell)
-        dx_to_right = self.r_faces[-1] - self.r_centers[-1]
-        W_left_outer = W[-1] + slopes[-1] * dx_to_right
-        W_left_outer_star = W_left_outer - 0.5 * dt * self.v_centers[-1] * slopes[-1]
-        v_out = self.v_centers[-1]  # proxy for face velocity
-        F[-1] = v_out * (W_left_outer_star if v_out >= 0.0 else self.inflow_value_W)
+        F[0], F[-1] = self._boundary_fluxes(W, slopes, dt_step)
 
         # 6) update
-        W_new = W - (dt / self.dr) * (F[1:] - F[:-1])
+        W_new = W - (total_time / self.dr) * (F[1:] - F[:-1])
         U_new = W_new / (self.r_centers**2)
-        print(f"[AdvectionFVSolver] max|U| after step: {np.max(np.abs(U_new)):.4g}")
+        U_new[0] = U_new[1]  # avoid issues at r=0
+
+        logger.debug(f"max |U| after step: {np.max(np.abs(U_new)):.4g}")
+
         return U_new
 
     # ---------------- internal helpers ----------------
+    def _unpack_params(self):
+        """Unpack and strictly validate parameters."""
+
+        # expected keys
+        expected_keys = {"v_centers", "limiter", "cfl", "inflow_value_W", "order"}
+        provided_keys = set(self.params.keys())
+
+        # check missing / extra
+        missing = expected_keys - provided_keys
+        extra = provided_keys - expected_keys
+        if missing:
+            raise ValueError(f"Missing required params: {missing}")
+        if extra:
+            raise ValueError(f"Unexpected params provided: {extra}")
+
+        # --- v_centers ---
+        self.v_centers = np.asarray(self.params["v_centers"], dtype=float)
+        if self.v_centers.shape != (self.N,):
+            raise ValueError(f"v_centers must have shape ({self.N},)")
+
+        # --- limiter ---
+        limiter = self.params["limiter"]
+        if limiter not in {"minmod", "vanleer", "mc"}:
+            raise ValueError("limiter must be 'minmod', 'vanleer' or 'mc'")
+        self.limiter: Literal["minmod", "vanleer", "mc"] = limiter
+
+        # --- cfl ---
+        try:
+            self.cfl: float = float(self.params["cfl"])
+        except Exception:
+            raise ValueError("cfl must be a float")
+
+        # --- inflow_value_W ---
+        try:
+            self.inflow_value_W: float = float(self.params["inflow_value_W"])
+        except Exception:
+            raise ValueError("inflow_value_W must be a float")
+
+        # --- order ---
+        order = int(self.params["order"])
+        if order not in {1, 2}:
+            raise ValueError("order must be 1 or 2")
+        self.order: Literal[1, 2] = order
+
     def _compute_slopes(self, Q: np.ndarray) -> np.ndarray:
         """
         Compute limited slopes on non-uniform grid.
@@ -216,6 +295,61 @@ class AdvectionFVSolver:
         slopes[-1] = 0.0
         return slopes
 
+    def _recontruct_face_states(
+        self, W: np.ndarray, slopes: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Reconstruct left/right states at internal faces from cell-centered values and slopes.
+        Returns WL, WR arrays of length N+1 (faces).
+        WL[i] = left state at face i (from right cell)
+        WR[i] = right state at face i (from left cell)
+        """
+        WL = np.zeros(self.N + 1)  # left state of face i (value from right cell)
+        WR = np.zeros(self.N + 1)  # right state of face i (value from left cell)
+        WR[1:-1] = W[:-1] + slopes[:-1] * self.dx_L  # WR at face i uses left cell (i-1)
+        WL[1:-1] = W[1:] - slopes[1:] * self.dx_R  # WL at face i uses right cell (i)
+        return WL, WR
+
+    def _predictor_states(
+        self, WL: np.ndarray, WR: np.ndarray, slopes: np.ndarray, dt: float
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Perform MUSCL-Hancock predictor step to advance interface states to t^{n+1/2}.
+        Each interface state is predicted using the donor cell's slope.
+        Returns WLh, WRh arrays of length N+1 (faces).
+        """
+        # donor - cell - based
+        WLh = WL.copy()
+        WRh = WR.copy()
+        if self.N > 1:
+            # WL* (state coming from cell i) uses v_i and slope_i
+            WLh[1:-1] -= 0.5 * dt * self.v_centers[1:] * slopes[1:]
+            # WR* (state coming from cell i-1) uses v_{i-1} and slope_{i-1}
+            WRh[1:-1] -= 0.5 * dt * self.v_centers[:-1] * slopes[:-1]
+        return WLh, WRh
+
+    def _boundary_fluxes(
+        self, W: np.ndarray, slopes: np.ndarray, dt: float
+    ) -> tuple[float, float]:
+        """
+        Compute fluxes at the domain boundaries (faces 0 and N).
+        Left boundary (r=0): assume symmetry => flux=0.
+        Right boundary (outer face): use last cell's left state and slope for prediction.
+        """
+
+        # Left boundary (r=0): symmetry
+        flux_L = 0.0
+
+        # Right boundary (outer face):
+        # left-state at outer face (from last cell)
+        dx_to_right = self.r_faces[-1] - self.r_centers[-1]
+        W_left_outer = W[-1] + slopes[-1] * dx_to_right
+        W_left_outer_star = W_left_outer - 0.5 * dt * self.v_centers[-1] * slopes[-1]
+        v_out = self.v_centers[-1]  # proxy for face velocity
+        flux_R = v_out * (W_left_outer_star if v_out >= 0.0 else self.inflow_value_W)
+
+        return flux_L, flux_R
+
 
 # ---------------- Example / test ----------------
 if __name__ == "__main__":
@@ -223,23 +357,29 @@ if __name__ == "__main__":
 
     R = 1.0
     N = 1500
-    r_faces = np.linspace(0.0, R, N + 1)
-    r_centers = 0.5 * (r_faces[1:] + r_faces[:-1])
+    r_centers = np.linspace(0.0, R, N)
 
     # velocity piecewise
     v_centers = np.where(r_centers < 0.5, 1.0, 0.05)
 
-    solver = AdvectionFVSolver(
-        r_faces=r_faces,
-        v_centers=v_centers,
-        limiter="minmod",  # robust for discontinuities
-        cfl=0.8,
-        inflow_value_W=0.0,
-        order=2,
-    )
-
     # --- Initial condition u(r) and plotting
     U = np.where((r_centers > 0.4) & (r_centers < 0.5), 1.0, 0.0)
+    t_grid = np.linspace(0.0, 0.2, 100)
+
+    solver_params = {
+        "v_centers": v_centers,
+        "limiter": "minmod",  # robust for discontinuities
+        "cfl": 0.8,
+        "inflow_value_W": 0.0,
+        "order": 2,
+    }
+
+    solver = AdvectionFVSolver(
+        r_centers=r_centers,
+        f_values=U,
+        params=solver_params,
+        t_grid=t_grid,
+    )
 
     plt.ion()
     fig, ax = plt.subplots()
@@ -383,13 +523,17 @@ if __name__ == "__main__":
 
     t = 0.0
     t_end = 0.2
+    i = 0
     while t < t_end:
+        i += 1
         dt = min(solver.compute_dt(), t_end - t)
-        U = solver.advance(U, dt)
+
+        U = solver.advance(1)
         t += dt
         line.set_ydata(U)
+        solver.f_values = U
         # Update analytical solution
-        U_analytical = analytical_solution(r_centers, t, v_func)
+        U_analytical = analytical_solution(r_centers, t_grid[i], v_func)
         analytical_line.set_ydata(U_analytical)
         ax.set_title(f"t = {t:.4f}")
         plt.pause(0.1)
