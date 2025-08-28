@@ -81,6 +81,8 @@ class SubproblemSolver(ABC):
                 x_grid_calc = self._x_grid[:-1]  # Excluding the last point
             case 2:  # Boundary condition at r=0 and at the end of the domain
                 x_grid_calc = self._x_grid[1:-1]  # Excluding the first and last points
+            case 3:  # Debugging diffusion
+                x_grid_calc = self._x_grid[1:]
             case _:
                 raise NotImplementedError("Boundary conditions type not implemented.")
 
@@ -145,7 +147,7 @@ class SubproblemSolver(ABC):
         Advances the simulation for a specified number of time steps.
         This method handles the core simulation loop without any plotting or data saving.
         """
-        f_calclulation = self.f_values[:-1]  # Exclude the last point for calculations
+        f_calclulation = self.f_values  # Exclude the last point for calculations
 
         for n in range(1, num_timesteps + 1):
             logger.debug(
@@ -162,10 +164,8 @@ class SubproblemSolver(ABC):
             # This method is common and solves the linear system
             f_calclulation = self._solve_timestep(lhs_matrix, rhs_vector)
 
-        sol = np.append(f_calclulation, self.f_values[-1])  # Append the last point
-
         logger.debug(
             f"Simulation finished | max(f)={np.max(sol):.4g} min(f)={np.min(sol):.4g}"
         )
 
-        return sol
+        return f_calclulation

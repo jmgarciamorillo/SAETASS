@@ -16,12 +16,12 @@ r_end = 10.0  # parsec
 num_points = 4000
 
 # Spatial and temporal grids
-r = np.linspace(r_0, r_end, num_points + 1)
+r = np.linspace(r_0, r_end, num_points)
 t_steps = 1500
 t_grid = np.linspace(0, 10, t_steps)  # yr total
 
 # Initial profile: zero everywhere
-f_values = np.zeros(num_points + 1)
+f_values = np.zeros(num_points)
 
 # Velocity profile: v(r) = 1 / r^2 if r>0.95pc, otherwise v(r)= 1/4 * 1/r^2
 v0 = 10  # pc/yr
