@@ -61,7 +61,7 @@ class DiffusionSolver(SubproblemSolver):
         # print(f"q[0] = {q[0]}")  # Debugging output
 
         # For interior points
-        for i in range(1, self.num_points):
+        for i in range(1, self.num_points - 1):
             # D[i+1] and D[i-1] are safe because x_grid_calc excludes boundaries
             q[i] = self.D_values[i] * self.delta_t / (2 * self.delta_r**2)
             s[i] = (
@@ -133,7 +133,7 @@ class DiffusionSolver(SubproblemSolver):
             rhs_matrix @ current_f_values
             + Ucc
             - tildeUcc
-            + self.delta_t * self.Q_values[:-1]
+            + self.delta_t * self.Q_values
         )
         logger.debug(
             f"Q_values: min={np.min(self.Q_values):.4g}, max={np.max(self.Q_values):.4g}"
