@@ -21,20 +21,20 @@ num_points = 3000
 f_end = 0.0
 
 # Spatial and temporal grids
-r = np.linspace(r_0, r_end, num_points + 1)
+r = np.linspace(r_0, r_end, num_points)
 t_steps = 2000
 t_grid = np.linspace(0, 10, t_steps)  # yr
 
 # Initial profile (Dirac-delta-like at r=0 with width 0.1 pc)
-f_values = np.zeros(num_points + 1)
-for i in range(num_points + 1):
+f_values = np.zeros(num_points)
+for i in range(num_points):
     if r[i] < 0.1:  # Width of the Dirac delta
         f_values[i] = 100 * (1 - (r[i] / 0.1) ** 2)  # Parabolic profile
     else:
         f_values[i] = 0  # Outside the Dirac delta region
 
 # Diffusion coefficient for particles at E = 1 GeV
-D_values = np.ones(num_points + 1) * 3e28  # cm^2/s
+D_values = np.ones(num_points) * 3e28  # cm^2/s
 # in parsec^2/yr this is
 D_values = D_values * (1.05027e-37) * (3600 * 24 * 365)  # convert to pc^2/yr
 print(D_values)
@@ -43,26 +43,26 @@ print(D_values)
 print("Characteristic diffusion time (yr):", r_end**2 / D_values[0])
 
 # Source term (Q)
-Q = np.zeros(num_points + 1)
+Q = np.zeros(num_points)
 # Q = np.delete(1 / r**2, len(r) - 1)
 
+dif_param = {
+    "D_values": D_values,
+    "Q_values": Q,
+    "f_end": f_end,
+}
+
 # Prepare solver
-solver = DiffusionSolver(
-    x_grid=r,
-    t_grid=t_grid,
-    f_values=f_values,
-    Q_values=Q,
-    D_values=D_values,
-)
+solver = DiffusionSolver(x_grid=r, t_grid=t_grid, f_values=f_values, params=dif_param)
 
 # Run simulation
 num_timesteps = len(t_grid) - 1
 f_evolution = [np.copy(f_values)]  # Store initial condition for plotting
 
 for n in range(1, num_timesteps + 1):
-    print(f"Step {n}: max={solver._f_values.max()}, min={solver._f_values.min()}")
-    solver._f_values = solver.run_simulation(1)
-    f_evolution.append(np.copy(solver._f_values))
+    print(f"Step {n}: max={solver.f_values.max()}, min={solver.f_values.min()}")
+    solver.f_values = solver.advance(1)
+    f_evolution.append(np.copy(solver.f_values))
 
 # Plotting
 import matplotlib as mpl

@@ -82,7 +82,7 @@ class SubproblemSolver(ABC):
             case 2:  # Boundary condition at r=0 and at the end of the domain
                 x_grid_calc = self._x_grid[1:-1]  # Excluding the first and last points
             case 3:  # Debugging diffusion
-                x_grid_calc = self._x_grid[1:]
+                x_grid_calc = self._x_grid
             case _:
                 raise NotImplementedError("Boundary conditions type not implemented.")
 
@@ -165,7 +165,7 @@ class SubproblemSolver(ABC):
             f_calclulation = self._solve_timestep(lhs_matrix, rhs_vector)
 
         logger.debug(
-            f"Simulation finished | max(f)={np.max(sol):.4g} min(f)={np.min(sol):.4g}"
+            f"Simulation finished | max(f)={np.max(f_calclulation):.4g} min(f)={np.min(f_calclulation):.4g}"
         )
 
         return f_calclulation

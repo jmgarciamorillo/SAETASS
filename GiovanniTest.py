@@ -26,7 +26,7 @@ from Solver import Solver
 # Parameters
 r_0 = 0.0 * u.pc
 r_Inj = 1.0 * u.pc  # parsec
-r_end = 100.0 * u.pc  # parsec
+r_end = 500.0 * u.pc  # parsec
 num_points = 2000
 eta_B = 0.1  # Magnetic field efficiency
 L_wind = 1e38 * u.erg / u.s  # erg/s
@@ -62,7 +62,7 @@ rho_w = 3 * M_dot / (4 * math.pi * (R_TS**2) * v_w)
 # print(f"R_TS: {R_TS.to('pc')}, R_b: {R_b.to('pc')}")
 
 # Spatial and temporal grids
-r = np.linspace(r_0.value, r_end.value, num_points + 1)
+r = np.linspace(r_0.value, r_end.value, num_points)
 r_wind = r < R_TS.to("pc").value
 r_buble = (r >= R_TS.to("pc").value) & (r <= R_b.to("pc").value)
 r_ISM = r > R_b.to("pc").value
@@ -96,11 +96,13 @@ r_L[r_buble] = (
 r_L[r_ISM] = 0 * u.cm
 
 
-t_steps = 4000
+t_steps = 10000
 t_grid = np.linspace(0, t_end.value, t_steps)
 
-# Initial profile: zero everywhere
-f_values = np.zeros(num_points + 1)
+# Initial profile: zero everywhere, but the end, where small gausssian until f_end
+f_end = 0.0001
+f_values = np.zeros(num_points)
+f_values = f_values + f_end * np.exp(-((r - r_end.to("pc").value) ** 2) / 2)
 
 # Velocity profile: inside TS, v(r) = v_w, in bubble, v(r) = v_w/4*(R_TS/r)**2, outside bubble, v(r) = 0
 v_field = np.zeros_like(r)
@@ -114,7 +116,7 @@ print(
 
 # Diffusion coefficient:
 D_values = 1 / 3 * v_p * np.sqrt(r_L * r_Inj)
-D_values[r_ISM] = 3e28 * u.cm**2 / u.s  # constant diffusion in ISM
+D_values[r_ISM] = 10e2 * 3e28 * u.cm**2 / u.s  # constant diffusion in ISM
 plt.plot(r, D_values.to("pc**2/Myr").value, label="Diffusion Coefficient D(r)")
 # Caracteristic diffusion time
 print(
@@ -148,7 +150,7 @@ advectionFV_params = {
 diffusion_params = {
     "D_values": 10 * D_values.to("pc**2/Myr").value,
     "Q_values": Q,
-    "f_end": 0.1,
+    "f_end": f_end,
 }
 source_params = {"Q_values": Q}
 op_params = {

@@ -21,32 +21,37 @@ num_points = 200
 f_end = 0.0
 
 # Spatial and temporal grids
-r = np.linspace(r_0, r_end, num_points + 1)
+r = np.linspace(r_0, r_end, num_points)
 t_steps = 21
 t_grid = np.linspace(0, 0.2, t_steps)
 
 # Initial profile (sinc-like)
-f_values = np.zeros(num_points + 1)
-for i in range(num_points + 1):
+f_values = np.zeros(num_points)
+for i in range(num_points):
     if r[i] == 0:
         f_values[i] = math.pi / 2
     else:
         f_values[i] = 1 / (2 * r[i]) * np.sin(math.pi * r[i])
 
 # Diffusion coefficient
-D_values = np.ones(num_points + 1)
+D_values = np.ones(num_points)
 
 # Source term (Q)
-Q = np.zeros(num_points + 1)
+Q = np.zeros(num_points)
 # Q = np.delete(1 / r**2, len(r) - 1)
 
+
+dif_param = {
+    "D_values": D_values,
+    "Q_values": Q,
+    "f_end": f_end,
+}
 # Prepare solver
 solver = DiffusionSolver(
     x_grid=r,
     t_grid=t_grid,
     f_values=f_values,
-    Q_values=Q,
-    D_values=D_values,
+    params=dif_param,
 )
 
 # Run simulation
@@ -54,17 +59,16 @@ num_timesteps = len(t_grid) - 1
 f_evolution = [np.copy(f_values)]  # Store initial condition for plotting
 
 for n in range(1, num_timesteps + 1):
-    solver._f_values = solver.run_simulation(1)  # Advance one step
+    solver.f_values = solver.advance(1)  # Advance one step
     # Store a copy of the current solution (including boundary for plotting)
-    f_evolution.append(np.copy(solver._f_values))
-
+    f_evolution.append(np.copy(solver.f_values))
 
 # Analytical solution for comparison
 f_analytical = []
 for n in range(t_steps):
     t = t_grid[n]
-    f_ana = np.zeros(num_points + 1)
-    for i in range(num_points + 1):
+    f_ana = np.zeros(num_points)
+    for i in range(num_points):
         if r[i] == 0:
             f_ana[i] = math.pi / 2 * np.exp(-math.pi**2 * D_values[i] * t)
         else:
