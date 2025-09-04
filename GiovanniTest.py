@@ -23,11 +23,88 @@ if parent_dir not in sys.path:
 
 from Solver import Solver
 
+
+########################
+def get_theoretical_profile(r, r_buble, r_ISM, v_w, D_values, R_TS, R_b, f_gal, f_TS):
+
+    # Ensure correct units for calculations
+    v_b = v_w.to("pc/Myr") / 4
+    D_b = D_values[r_buble][int(sum(r_buble) // 2)].to("pc**2/Myr")
+    D_out = D_values[r_ISM][0].to("pc**2/Myr")
+
+    # α(r,p)
+    alpha = (v_b * R_TS / D_b) * (1.0 - R_TS / (r[r_buble] * u.pc))
+
+    # α_b = α(r=R_b,p)
+    alpha_b = (v_b * R_TS / D_b) * (1.0 - R_TS / R_b)
+
+    # β(p)
+    beta = (D_out * R_b) / (v_b * R_TS**2)
+
+    # f_b(r,p) / f_TS
+    numerator = (
+        np.exp(alpha) + beta * (np.exp(alpha_b) - np.exp(alpha))
+    ) + f_gal / f_TS * beta * (np.exp(alpha) - 1.0)
+    denominator = 1.0 + beta * (np.exp(alpha_b) - 1.0)
+    f_b_over_ts = numerator / denominator
+
+    # f_out(r,p) / f_TS
+    f_out_over_ts = f_b_over_ts[-1] * (R_b / (r[r_ISM] * u.pc)) + f_gal / f_TS * (
+        1.0 - R_TS / (r[r_ISM] * u.pc)
+    )
+
+    # Concatenate the profiles
+    f_b = f_b_over_ts
+    f_out = f_out_over_ts
+
+    return np.append(f_b, f_out)
+
+
+# ======== Definitions =======
+Mp = const.m_p
+c = const.c
+E = lambda Ek: Ek + Mp * c**2
+p = lambda Ek: np.sqrt((E(Ek) ** 2 - (Mp * c**2) ** 2) / c**2)
+LorenzBeta = lambda Ek: np.sqrt(1 - (Mp * c**2 / E(Ek)) ** 2)
+
+# =========== Cosmic ray sea ========================
+Kcr = (
+    0.4544
+    * 10**-4
+    / (45**2 * const.c.value)
+    * (u.cm * u.GeV / const.c.to("cm s-1")) ** -3
+    / 100
+)
+f_sea = (
+    4
+    * np.pi
+    / c.to("cm s-1")
+    * (1 * u.GeV / c.to("cm s-1")) ** 2
+    * Kcr
+    * (LorenzBeta(1 * u.GeV) ** -1)
+    * (1 * u.GeV / (45 * u.GeV)) ** -4.85
+    * (1 + (1 * u.GeV / (336 * u.GeV)) ** 5.54) ** 0.024
+)
+C = 1.882 * 10**-9 * (u.eV**-1 * u.cm**-2 * u.s**-1 * u.sr**-1)
+# Jsea_Voy=C*(E(Eax)/(1*u.MeV))**0.129*(1+E(Eax)/(624.5*u.MeV))**-2.829
+Jsea_Voy = (
+    C * (1 * u.GeV / (1 * u.MeV)) ** 0.129 * (1 + 1 * u.GeV / (624.5 * u.MeV)) ** -2.829
+).to("eV-1 cm-2 s-1 sr-1")
+fsea_Voy = Jsea_Voy * (4 * np.pi * u.sr) / c
+f_sea_Mix = f_sea * (1 * u.GeV > 90 * u.GeV) + fsea_Voy * (1 * u.GeV < 90 * u.GeV)
+
+f_end = f_sea_Mix.value
+
+f_end = 0
+
+
+########################
+
 # Parameters
 r_0 = 0.0 * u.pc
 r_Inj = 1.0 * u.pc  # parsec
 r_end = 500.0 * u.pc  # parsec
-num_points = 2000
+num_points = 6000
 eta_B = 0.1  # Magnetic field efficiency
 L_wind = 1e38 * u.erg / u.s  # erg/s
 M_dot = 1e-4 * const.M_sun / u.yr
@@ -35,7 +112,7 @@ rho_0 = const.m_p / u.cm**3
 t_b = 1 * u.Myr
 eta_inj = 0.1
 v_w = np.sqrt(2 * L_wind / M_dot)
-t_end = 1 * u.Myr
+t_end = 1.2 * u.Myr
 p_chosen = (1 * u.GeV / const.c).to("cm*g/s")
 # convert p_chosen to velocity using relativistic formula
 v_p = (
@@ -96,13 +173,12 @@ r_L[r_buble] = (
 r_L[r_ISM] = 0 * u.cm
 
 
-t_steps = 10000
+t_steps = 6000
 t_grid = np.linspace(0, t_end.value, t_steps)
 
 # Initial profile: zero everywhere, but the end, where small gausssian until f_end
-f_end = 0.0001
 f_values = np.zeros(num_points)
-f_values = f_values + f_end * np.exp(-((r - r_end.to("pc").value) ** 2) / 2)
+
 
 # Velocity profile: inside TS, v(r) = v_w, in bubble, v(r) = v_w/4*(R_TS/r)**2, outside bubble, v(r) = 0
 v_field = np.zeros_like(r)
@@ -115,12 +191,14 @@ print(
 )
 
 # Diffusion coefficient:
-D_values = 1 / 3 * v_p * np.sqrt(r_L * r_Inj)
-D_values[r_ISM] = 10e2 * 3e28 * u.cm**2 / u.s  # constant diffusion in ISM
+D_values = 1 / 3 * v_p * r_L ** (1 / 3) * r_Inj ** (2 / 3)
+# D_values = 1 / 3 * v_p * np.sqrt(r_L * r_Inj)
+# D_values = 1 / 3 * v_p * r_L
+D_values[r_ISM] = 3e28 * u.cm**2 / u.s  # constant diffusion in ISM
 plt.plot(r, D_values.to("pc**2/Myr").value, label="Diffusion Coefficient D(r)")
 # Caracteristic diffusion time
 print(
-    f"Characteristic diffusion time: {((R_b- R_TS)**2 / 4/D_values[int(num_points/2)]).to("kyr").value} kyr"
+    f"Characteristic diffusion time: {((R_b - R_TS) ** 2 / (4 * D_values[int(num_points/2)])).to('kyr').value} kyr"
 )
 
 
@@ -134,7 +212,7 @@ Q[(r >= 0.99 * R_TS.to("pc").value) & (r <= 1.01 * R_TS.to("pc").value)] = (
     * u.pc ** (-1)
     * (u.GeV / const.c) ** (-1)
 )
-Q[Q != 0] = 100
+Q[Q != 0] = 1000
 # plt.plot(r, Q, label="Source term Q(r)")
 
 # Prepare solver parameters
@@ -148,14 +226,14 @@ advectionFV_params = {
 }
 
 diffusion_params = {
-    "D_values": 10 * D_values.to("pc**2/Myr").value,
+    "D_values": D_values.to("pc**2/Myr").value,
     "Q_values": Q,
     "f_end": f_end,
 }
 source_params = {"Q_values": Q}
 op_params = {
     "advectionFV": advectionFV_params,
-    "diffusion": diffusion_params,
+    "diffusionFV": diffusion_params,
     "source": source_params,
 }
 # Operator splitting: advectionFV then diffusion
@@ -165,74 +243,170 @@ solver = Solver(
     x_grid=r,
     t_grid=t_grid,
     f_values=f_values,
-    problem_type="advectionFV-diffusion",
+    problem_type="advectionFV-diffusionFV",
     operator_params=op_params,
-    substeps={"advectionFV": 1, "diffusion": 1},
+    substeps={"advectionFV": 1, "diffusionFV": 1},
 )
-
 import matplotlib as mpl
 
+# Toggle: True -> live plotting each step; False -> store 20 curves and plot once at end
+plot_in_runtime = False
+
 num_timesteps = len(t_grid) - 1
-num_curves = 4000
-indices = np.linspace(0, num_timesteps, num_curves, dtype=int)
-indices = np.append(indices, num_timesteps)  # Ensure last step is included
 
-plt.ion()
-fig, ax = plt.subplots(figsize=(10, 5))
-(line,) = ax.semilogy(r, f_values, color="b")
-ax.set_xlabel("$r$ (pc)")
-ax.set_ylabel("$f(t, r)$")
+if plot_in_runtime:
+    # Dense live plotting (as before)
+    num_curves = min(4000, max(2, num_timesteps))
+    indices = np.linspace(0, num_timesteps, num_curves, dtype=int)
+    indices = np.unique(
+        np.append(indices, num_timesteps)
+    )  # Ensure last step is included
 
-diff_str = f"D = {D_values.to('pc**2/yr').value[0]:.2f} pc$^2$/yr"
-adv_str = r"$v(r)$ as defined in code"
-inj_str = r"$Q=100$ at $r \approx R_{TS}$"
-
-ax.set_title(
-    "Advection-Diffusion with Injection at $R_{TS}$\n"
-    f"{diff_str}, {adv_str}\n{inj_str}"
-)
-ax.set_xlim(0, r_end.value)
-ax.set_ylim(1e-6, 1e1)
-ax.grid(True)
-fig.tight_layout()
-
-# Draw dashed vertical lines for the injection zone
-R_TS_pc = R_TS.to("pc").value
-R_b_pc = R_b.to("pc").value
-ax.axvline(
-    0.99 * R_TS_pc, color="k", linestyle="--", linewidth=1, label="Injection zone"
-)
-ax.axvline(1.01 * R_TS_pc, color="k", linestyle="--", linewidth=1)
-
-# Additional vertical lines for termination shock and bubble
-ax.axvline(R_TS_pc, color="r", linestyle="--", linewidth=1.5, label="Termination shock")
-ax.axvline(R_b_pc, color="g", linestyle="--", linewidth=1.5, label="Bubble boundary")
-
-ax.legend(loc="upper right")
-
-sm = mpl.cm.ScalarMappable(
-    cmap=plt.cm.rainbow,
-    norm=plt.Normalize(vmin=t_grid[indices[0]], vmax=t_grid[indices[-1]]),
-)
-sm.set_array([])
-cbar = fig.colorbar(sm, ax=ax, pad=0.02)
-cbar.set_label("$t$ (yr)")
-
-current_step = 0
-for next_plot_step in indices:
-    steps_to_advance = int(next_plot_step - current_step)
-    if steps_to_advance > 0:
-        f_current = solver.step(steps_to_advance)
-        current_step = next_plot_step
-    else:
-        f_current = solver.f_values  # Already at this step
-
-    line.set_ydata(f_current)
-    ax.set_title(
-        f"Advection-Diffusion, $t$={t_grid[int(current_step)]:.2f} yr\n"
-        f"{diff_str}, {adv_str}\n{inj_str}"
+    plt.ion()
+    fig, ax = plt.subplots(figsize=(10, 5))
+    (line,) = ax.semilogy(r, f_values, color="b")
+    (lineGio,) = ax.semilogy(
+        r[r_buble | r_ISM],
+        np.zeros_like(r[r_buble | r_ISM]),
+        "k",
+        label="Theoretical",
+        linewidth=2,
     )
-    plt.pause(0.05)
+    ax.set_xlabel("$r$ (pc)")
+    ax.set_ylabel("$f(t, r)$")
 
-plt.ioff()
-plt.show()  #
+    ax.set_title(f"Giovanni model test ($t$=0 Myr)")
+    ax.set_xlim(0, r_end.value)
+    ax.set_ylim(1e-6, 1e1)
+    ax.grid(True)
+    fig.tight_layout()
+
+    # Draw dashed vertical lines for the injection zone
+    R_TS_pc = R_TS.to("pc").value
+    R_b_pc = R_b.to("pc").value
+    ax.axvline(
+        0.99 * R_TS_pc, color="k", linestyle="--", linewidth=1, label="Injection zone"
+    )
+    ax.axvline(1.01 * R_TS_pc, color="k", linestyle="--", linewidth=1)
+
+    # Additional vertical lines for termination shock and bubble
+    ax.axvline(
+        R_TS_pc, color="r", linestyle="--", linewidth=1.5, label="Termination shock"
+    )
+    ax.axvline(
+        R_b_pc, color="g", linestyle="--", linewidth=1.5, label="Bubble boundary"
+    )
+
+    ax.legend(loc="upper right")
+
+    sm = mpl.cm.ScalarMappable(
+        cmap=plt.cm.rainbow,
+        norm=plt.Normalize(vmin=t_grid[0], vmax=t_grid[-1]),
+    )
+    sm.set_array([])
+    cbar = fig.colorbar(sm, ax=ax, pad=0.02)
+    cbar.set_label("$t$ (Myr)")
+
+    current_step = 0
+    for next_plot_step in indices:
+        steps_to_advance = int(next_plot_step - current_step)
+        if steps_to_advance > 0:
+            f_current = solver.step(steps_to_advance)
+            current_step = next_plot_step
+        else:
+            f_current = solver.f_values  # Already at this step
+
+        # Theoretical profile (scaled by instantaneous TS level)
+        ts_level = f_current[r_buble][10] if np.any(r_buble) else 1.0
+        f_gio_current = get_theoretical_profile(
+            r, r_buble, r_ISM, v_w, D_values, R_TS, R_b, 0, ts_level
+        )
+        line.set_ydata(f_current / ts_level)
+        lineGio.set_ydata(f_gio_current)
+        ax.set_title(f"Giovanni model test ($t$={t_grid[int(current_step)]:.4f} Myr)")
+        plt.pause(0.05)
+
+    plt.ioff()
+    plt.show()
+
+else:
+    # Batch mode: store 20 curves (including first and last) and plot once at the end
+    sample_count = 20
+    sample_indices = np.linspace(0, num_timesteps, sample_count, dtype=int)
+    sample_indices = np.unique(np.append(sample_indices, [0, num_timesteps]))
+
+    stored_curves = []  # normalized curves
+    stored_times = []
+
+    current_step = 0
+    f_current = solver.f_values
+    # Save initial curve
+    ts_level = f_current[r_buble][10] if np.any(r_buble) else 1.0
+    stored_curves.append(f_current / ts_level)
+    stored_times.append(t_grid[0])
+
+    for next_sample in sample_indices[1:]:
+        steps_to_advance = int(next_sample - current_step)
+        if steps_to_advance > 0:
+            f_current = solver.step(steps_to_advance)
+            current_step = next_sample
+        else:
+            f_current = solver.f_values
+
+        ts_level = f_current[r_buble][10] if np.any(r_buble) else 1.0
+        stored_curves.append(f_current / ts_level)
+        stored_times.append(t_grid[current_step])
+
+    # Plot all stored curves together
+    fig, ax = plt.subplots(figsize=(10, 5))
+    colors = plt.cm.rainbow(np.linspace(0, 1, len(stored_curves)))
+    for idx, (tval, curve) in enumerate(zip(stored_times, stored_curves)):
+        label = f"t={tval:.3f} Myr" if idx in (0, len(stored_curves) - 1) else None
+        ax.semilogy(r, curve, color=colors[idx], linestyle="-")
+
+    # Add Giovanni theoretical profile (dimensionless f/f_TS)
+    f_gio_profile = get_theoretical_profile(
+        r, r_buble, r_ISM, v_w, D_values, R_TS, R_b, 0, 1.0
+    )
+    ax.semilogy(
+        r[r_buble | r_ISM],
+        f_gio_profile,
+        "k--",
+        linewidth=2,
+        label="Theoretical",
+    )
+
+    ax.set_xlabel("$r$ (pc)")
+    ax.set_ylabel("$f(t, r)$ / $f_{TS}$")
+    ax.set_title("Giovanni model test")
+    ax.set_xlim(0, r_end.value)
+    ax.set_ylim(1e-6, 1e1)
+    ax.grid(True)
+
+    # Vertical lines for boundaries
+    R_TS_pc = R_TS.to("pc").value
+    R_b_pc = R_b.to("pc").value
+    # ax.axvline(
+    #    0.99 * R_TS_pc, color="k", linestyle="--", linewidth=1, label="Injection zone"
+    # )
+    # ax.axvline(1.01 * R_TS_pc, color="k", linestyle="--", linewidth=1)
+    ax.axvline(
+        R_TS_pc, color="r", linestyle="--", linewidth=1.5, label="Termination shock"
+    )
+    ax.axvline(
+        R_b_pc, color="g", linestyle="--", linewidth=1.5, label="Bubble boundary"
+    )
+
+    # Colorbar for time
+    sm = mpl.cm.ScalarMappable(
+        cmap=plt.cm.rainbow,
+        norm=plt.Normalize(vmin=min(stored_times), vmax=max(stored_times)),
+    )
+    sm.set_array([])
+    cbar = fig.colorbar(sm, ax=ax, pad=0.02)
+    cbar.set_label("$t$ (Myr)")
+
+    ax.legend(loc="upper right")
+
+    plt.tight_layout()
+    plt.show()

@@ -5,6 +5,7 @@ from AdvectionSolver import AdvectionSolver
 from DiffusionSolver import DiffusionSolver
 from LossSolver import LossSolver
 from AdvectionFVSolverv2 import AdvectionFVSolver
+from DiffusionFVSolver import DiffusionFVSolver
 
 import logging
 
@@ -16,6 +17,7 @@ SUBSOLVER_MAP = {
     "diffusion": DiffusionSolver,
     "loss": LossSolver,
     "advectionFV": AdvectionFVSolver,
+    "diffusionFV": DiffusionFVSolver,
     "source": None,  # Placeholder for future SourceSolver
 }
 
