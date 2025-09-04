@@ -2,116 +2,192 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 import sys
+import math
+import astropy.units as u
+import astropy.constants as const
+import logging
+import matplotlib as mpl
+
+from Solver import Solver
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logging.getLogger("matplotlib").setLevel(logging.WARNING)
 
 # Ensure parent directory is in sys.path for imports
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "."))
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
-from Solver import Solver
+# Parameters from GiovanniTest.py
+r_0 = 0.0 * u.pc
+r_Inj = 1.0 * u.pc
+r_end = 500.0 * u.pc
+num_points = 2000
+eta_B = 0.1
+L_wind = 1e38 * u.erg / u.s
+M_dot = 1e-4 * const.M_sun / u.yr
+rho_0 = const.m_p / u.cm**3
+t_b = 1 * u.Myr
+eta_inj = 0.1
+v_w = np.sqrt(2 * L_wind / M_dot)
+t_end = 1 * u.Myr
+p_chosen = (1 * u.GeV / const.c).to("cm*g/s")
+v_p = (
+    p_chosen
+    * const.c**2
+    / np.sqrt((p_chosen * const.c) ** 2 + (const.m_p * const.c**2) ** 2)
+)
 
-# Parameters
-r_0 = 0.0
-r_end = 10.0  # parsec
-num_points = 4000
+R_b = (
+    (250 / (308 * math.pi)) ** (1 / 5)
+    * L_wind ** (1 / 5)
+    * rho_0 ** (-1 / 5)
+    * t_b ** (3 / 5)
+)
+
+R_TS = (
+    np.sqrt((3850 * math.pi) ** (2 / 5) / (28 * math.pi) * M_dot * v_w)
+    * L_wind ** (-1 / 5)
+    * rho_0 ** (-3 / 10)
+    * t_b ** (2 / 5)
+)
+rho_w = 3 * M_dot / (4 * math.pi * (R_TS**2) * v_w)
 
 # Spatial and temporal grids
-r = np.linspace(r_0, r_end, num_points)
-t_steps = 1500
-t_grid = np.linspace(0, 10, t_steps)  # yr total
+r = np.linspace(r_0.value, r_end.value, num_points)
+t_steps = 10000
+t_grid = np.linspace(0, t_end.value, t_steps)
 
-# Initial profile: zero everywhere
-f_values = np.zeros(num_points)
+# Regions
+r_wind = r < R_TS.to("pc").value
+r_buble = (r >= R_TS.to("pc").value) & (r <= R_b.to("pc").value)
+r_ISM = r > R_b.to("pc").value
 
-# Velocity profile: v(r) = 1 / r^2 if r>0.95pc, otherwise v(r)= 1/4 * 1/r^2
-v0 = 10  # pc/yr
-v_field = np.where(r < 0.95, 0.25 * v0 / 0.95**2, v0 / r**2)
+# Magnetic field
+delta_B = np.zeros_like(r) * u.G
+delta_B[r_wind] = (
+    1
+    / ((r[r_wind] * u.pc).to("cm").value)
+    * np.sqrt(0.5 * eta_B * M_dot.to("g/s").value * v_w.to("cm/s").value)
+) * u.G
+delta_B[0] = delta_B[1]
+delta_B[r_buble] = (
+    np.sqrt(11)
+    / R_TS.to("cm").value
+    * np.sqrt(0.5 * eta_B * M_dot.to("g/s").value * v_w.to("cm/s").value)
+) * u.G
 
-# Diffusion coefficient: constant
-D_values = np.ones_like(r) * 0.0001  # pc^2/yr
+# Larmor radius
+r_L = np.zeros_like(r) * u.cm
+non_zero_B = delta_B > 0 * u.G
+r_L[non_zero_B] = (
+    (const.c.cgs * p_chosen).to("erg").value
+    / (const.e.esu.value * delta_B[non_zero_B].to("G").value)
+) * u.cm
 
-# Source term: constant injection at r ~ 1 pc
+# Initial profile
+f_end_bc = 0.0001
+f_initial = np.zeros(num_points)
+f_initial += f_end_bc * np.exp(-((r - r_end.to("pc").value) ** 2) / 2)
+
+# Velocity profile
+v_field = np.zeros_like(r)
+v_field[r_wind] = v_w.to("pc/Myr").value
+v_field[r_buble] = v_w.to("pc/Myr").value / 4 * (R_TS.to("pc").value / r[r_buble]) ** 2
+
+# Diffusion coefficient
+D_values = 1 / 3 * v_p * np.sqrt(r_L * r_Inj)
+D_values[r_ISM] = 10e2 * 3e28 * u.cm**2 / u.s
+D_values_pc_Myr = D_values.to("pc**2/Myr").value
+
+# Source term
 Q = np.zeros_like(r)
-Q[(r >= 0.95) & (r <= 1.05)] = 100.0  # Myr^-1
+Q[(r >= 0.99 * R_TS.to("pc").value) & (r <= 1.01 * R_TS.to("pc").value)] = 100
 
-# Prepare solver parameters
-advection_params = {"v_field_n": v_field, "v_field_n1": v_field}
-diffusion_params = {"D_values": D_values}
+# --- Operator Parameters ---
+adv_params = {
+    "v_centers": v_field,
+    "order": 2,
+    "limiter": "minmod",
+    "cfl": 0.8,
+    "inflow_value_W": 0.0,
+}
 
-# Operator splitting: advection then diffusion
+dif_params_fv = {
+    "D_values": 10 * D_values_pc_Myr,
+    "Q_values": Q,
+    "f_end": f_end_bc,
+}
+
+operator_params = {
+    "advectionFV": adv_params,
+    "diffusionFV": dif_params_fv,
+}
+
+# --- Solver Initialization ---
 solver = Solver(
     x_grid=r,
     t_grid=t_grid,
-    f_values=f_values,
-    problem_type="advection-diffusion",
-    Q_values=Q,
-    advection_params=advection_params,
-    diffusion_params=diffusion_params,
-    substeps={"advection": 1, "diffusion": 1},
+    f_values=f_initial,
+    problem_type="advectionFV-diffusionFV",
+    operator_params=operator_params,
+    substeps={"advectionFV": 1, "diffusionFV": 1},
 )
 
-import matplotlib as mpl
-
+# --- Run Simulation ---
 num_timesteps = len(t_grid) - 1
-num_curves = 20
+f_evolution = [np.copy(f_initial)]
+
+for n in range(num_timesteps):
+    if n % 100 == 0:
+        logging.info(f"Step {n+1}/{num_timesteps}")
+    f_new = solver.step(1)
+    f_evolution.append(np.copy(f_new))
+
+# --- Plotting ---
+fig, ax = plt.subplots(figsize=(10, 6))
+
+num_curves = 15
 indices = np.linspace(0, num_timesteps, num_curves, dtype=int)
-indices = np.append(indices, num_timesteps)  # Ensure last step is included
+colors = plt.cm.viridis(np.linspace(0, 1, num_curves))
 
-f_curves = []
-current_step = 0
-for next_plot_step in indices:
-    steps_to_advance = next_plot_step - current_step
-    if steps_to_advance > 0:
-        f_current = solver.step(steps_to_advance)
-        current_step = next_plot_step
-    else:
-        f_current = solver.f_values  # Already at this step
-    f_curves.append(np.copy(f_current))
-
-# Plot all curves with rainbow colormap
-fig, ax = plt.subplots(figsize=(10, 5))
-colors = plt.cm.rainbow(np.linspace(0, 1, len(f_curves)))
-for i, (f_curve, idx) in enumerate(zip(f_curves, indices)):
-    label = None
-    if i == 0:
-        label = f"t={t_grid[indices[0]]:.2f} yr"
-    elif i == len(f_curves) - 1:
-        label = f"t={t_grid[indices[-1]]:.2f} yr"
-    ax.loglog(r, f_curve, color=colors[i], label=label)
+for idx, curve_idx in enumerate(indices):
+    ax.semilogy(
+        r,
+        f_evolution[curve_idx],
+        color=colors[idx],
+        linestyle="-",
+        label=f"t={t_grid[curve_idx]:.1f}" if idx in [0, num_curves - 1] else None,
+    )
 
 ax.set_xlabel("$r$ (pc)")
 ax.set_ylabel("$f(t, r)$")
-
-# Compose parameter info string
-diff_str = f"D = {D_values[0]:.2f} pc$^2$/yr"
-adv_str = r"$v(r) = \frac{10}{r^2}$ pc/yr for $r \geq 0.95$; $v(r) = \frac{10}{4 \times 0.95^2}$ for $r < 0.95$"
-inj_str = r"$Q=100$ for $0.95 \leq r \leq 1.05$ pc"
-
-ax.set_title(
-    "Advection-Diffusion with Constant Injection at $r=1$ pc\n"
-    f"{diff_str}, {adv_str}\n{inj_str}"
-)
-ax.set_xlim(0.1, r_end)
-ax.set_ylim(1e-3, 1e1)
+ax.set_title("Advection-Diffusion with Injection (FV Advection, FV Diffusion)")
+ax.set_xlim(0, r_end.value)
+ax.set_ylim(1e-6, 1e3)
 ax.grid(True)
-fig.tight_layout()
 
-# Draw dashed vertical lines for the injection zone
-ax.axvline(0.95, color="k", linestyle="--", linewidth=1, label="Injection zone")
-ax.axvline(1.05, color="k", linestyle="--", linewidth=1)
+# Draw physical boundaries
+R_TS_pc = R_TS.to("pc").value
+R_b_pc = R_b.to("pc").value
+ax.axvline(
+    0.99 * R_TS_pc, color="k", linestyle="--", linewidth=1, label="Injection zone"
+)
+ax.axvline(1.01 * R_TS_pc, color="k", linestyle="--", linewidth=1)
+ax.axvline(R_TS_pc, color="r", linestyle="--", linewidth=1.5, label="Termination shock")
+ax.axvline(R_b_pc, color="g", linestyle="--", linewidth=1.5, label="Bubble boundary")
+ax.legend(loc="upper right")
 
-# Colorbar for time
+# Colorbar
 sm = mpl.cm.ScalarMappable(
-    cmap=plt.cm.rainbow,
-    norm=plt.Normalize(vmin=t_grid[indices[0]], vmax=t_grid[indices[-1]]),
+    cmap=plt.cm.viridis, norm=plt.Normalize(vmin=t_grid[0], vmax=t_grid[-1])
 )
 sm.set_array([])
 cbar = fig.colorbar(sm, ax=ax, pad=0.02)
-cbar.set_label("$t$ (yr)")
+cbar.set_label("$t$ (Myr)")
 
-# Legend for first and last curve and injection zone
-handles, labels = ax.get_legend_handles_labels()
-ax.legend(handles, labels, loc="upper right")
-
-plt.savefig("advection_diffusion_evolution.png", dpi=300)
+plt.tight_layout()
 plt.show()
