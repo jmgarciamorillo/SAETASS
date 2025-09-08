@@ -25,15 +25,19 @@ from Solver import Solver
 
 
 ########################
-def get_theoretical_profile(r, r_buble, r_ISM, v_w, D_values, R_TS, R_b, f_gal, f_TS):
+def get_theoretical_profile(r, r_bubble, r_ISM, v_w, D_values, R_TS, R_b, f_gal, f_TS):
+
+    # masks
+    r_bubble_teo = r <= R_b.to("pc").value
+    r_ISM_teo = r > R_b.to("pc").value
 
     # Ensure correct units for calculations
     v_b = v_w.to("pc/Myr") / 4
-    D_b = D_values[r_buble][int(sum(r_buble) // 2)].to("pc**2/Myr")
+    D_b = D_values[r_bubble][int(sum(r_bubble) // 2)].to("pc**2/Myr")
     D_out = D_values[r_ISM][0].to("pc**2/Myr")
 
     # α(r,p)
-    alpha = (v_b * R_TS / D_b) * (1.0 - R_TS / (r[r_buble] * u.pc))
+    alpha = (v_b * R_TS / D_b) * (1.0 - R_TS / (r[r_bubble_teo] * u.pc))
 
     # α_b = α(r=R_b,p)
     alpha_b = (v_b * R_TS / D_b) * (1.0 - R_TS / R_b)
@@ -48,9 +52,13 @@ def get_theoretical_profile(r, r_buble, r_ISM, v_w, D_values, R_TS, R_b, f_gal, 
     denominator = 1.0 + beta * (np.exp(alpha_b) - 1.0)
     f_b_over_ts = numerator / denominator
 
+    f_b_over_ts_RB = (
+        (np.exp(alpha_b)) + f_gal / f_TS * beta * (np.exp(alpha_b) - 1.0)
+    ) / denominator
+
     # f_out(r,p) / f_TS
-    f_out_over_ts = f_b_over_ts[-1] * (R_b / (r[r_ISM] * u.pc)) + f_gal / f_TS * (
-        1.0 - R_TS / (r[r_ISM] * u.pc)
+    f_out_over_ts = f_b_over_ts_RB * (R_b / (r[r_ISM_teo] * u.pc)) + f_gal / f_TS * (
+        1.0 - R_TS / (r[r_ISM_teo] * u.pc)
     )
 
     # Concatenate the profiles
@@ -104,7 +112,7 @@ f_end = 0
 r_0 = 0.0 * u.pc
 r_Inj = 1.0 * u.pc  # parsec
 r_end = 500.0 * u.pc  # parsec
-num_points = 6000
+num_points = 4000
 eta_B = 0.1  # Magnetic field efficiency
 L_wind = 1e38 * u.erg / u.s  # erg/s
 M_dot = 1e-4 * const.M_sun / u.yr
@@ -140,6 +148,7 @@ rho_w = 3 * M_dot / (4 * math.pi * (R_TS**2) * v_w)
 
 # Spatial and temporal grids
 r = np.linspace(r_0.value, r_end.value, num_points)
+
 r_wind = r < R_TS.to("pc").value
 r_buble = (r >= R_TS.to("pc").value) & (r <= R_b.to("pc").value)
 r_ISM = r > R_b.to("pc").value
@@ -173,7 +182,7 @@ r_L[r_buble] = (
 r_L[r_ISM] = 0 * u.cm
 
 
-t_steps = 6000
+t_steps = 10000
 t_grid = np.linspace(0, t_end.value, t_steps)
 
 # Initial profile: zero everywhere, but the end, where small gausssian until f_end
@@ -254,6 +263,7 @@ plot_in_runtime = False
 
 num_timesteps = len(t_grid) - 1
 
+r_gio = np.linspace(R_TS.to("pc").value, r_end.value, 50000)
 if plot_in_runtime:
     # Dense live plotting (as before)
     num_curves = min(4000, max(2, num_timesteps))
@@ -319,7 +329,7 @@ if plot_in_runtime:
         # Theoretical profile (scaled by instantaneous TS level)
         ts_level = f_current[r_buble][10] if np.any(r_buble) else 1.0
         f_gio_current = get_theoretical_profile(
-            r, r_buble, r_ISM, v_w, D_values, R_TS, R_b, 0, ts_level
+            r_gio, v_w, D_values, R_TS, R_b, 0, ts_level
         )
         line.set_ydata(f_current / ts_level)
         lineGio.set_ydata(f_gio_current)
@@ -366,10 +376,10 @@ else:
 
     # Add Giovanni theoretical profile (dimensionless f/f_TS)
     f_gio_profile = get_theoretical_profile(
-        r, r_buble, r_ISM, v_w, D_values, R_TS, R_b, 0, 1.0
+        r_gio, r_buble, r_ISM, v_w, D_values, R_TS, R_b, 0, 1.0
     )
     ax.semilogy(
-        r[r_buble | r_ISM],
+        r_gio,
         f_gio_profile,
         "k--",
         linewidth=2,
