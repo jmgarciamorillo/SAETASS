@@ -1,0 +1,4 @@
+*.png
+GiovanniConv/
+__pycache__/
+.vscode/ 
