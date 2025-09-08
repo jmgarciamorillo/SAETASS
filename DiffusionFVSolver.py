@@ -30,6 +30,7 @@ class DiffusionFVSolver:
     ) -> None:
         """
         Initializes the solver with grid, initial conditions, and physical parameters.
+        Now supports non-uniform grids with proper finite volume formulation.
         """
         self.t_grid = np.asarray(t_grid, dtype=float)
         self.f_values = np.asarray(f_values, dtype=float)
@@ -41,13 +42,24 @@ class DiffusionFVSolver:
             raise ValueError("The first point in r_centers must be 0.")
 
         self.N = self.r_centers.size
+
+        # Construct face positions for non-uniform grid
         self.r_faces = np.empty(self.N + 1, dtype=float)
         self.r_faces[1:-1] = 0.5 * (self.r_centers[1:] + self.r_centers[:-1])
         self.r_faces[0] = 0.0
         self.r_faces[-1] = self.r_centers[-1] + 0.5 * (
             self.r_centers[-1] - self.r_centers[-2]
         )
-        self.dr = self.r_faces[1:] - self.r_faces[:-1]
+
+        # Cell widths and volumes
+        self.h = self.r_faces[1:] - self.r_faces[:-1]  # cell radial widths
+        self.V = (
+            self.r_faces[1:] ** 3 - self.r_faces[:-1] ** 3
+        ) / 3.0  # spherical volumes
+
+        # Distances between cell centers (for gradient computation)
+        self.d_centers = np.empty(self.N - 1)
+        self.d_centers[:] = self.r_centers[1:] - self.r_centers[:-1]
 
         self.params = params or {}
         self._unpack_params()
@@ -74,71 +86,92 @@ class DiffusionFVSolver:
     def advance(self, n_steps: int) -> np.ndarray:
         """
         Advances the solution by n_steps, using the time step from t_grid.
+        Updated for non-uniform grid with proper finite volume formulation.
         """
         dt = np.diff(self.t_grid)[0] * n_steps
         f_current = self.f_values.copy()
 
-        # Harmonic mean for diffusion coefficient at cell faces
-        D_faces = np.zeros(self.N)
-        # For internal faces i=1 to N-1 (D_half in untitled.py)
-        D_plus_1 = self.D_values[1:]
-        D_current = self.D_values[:-1]
-        denominator = D_plus_1 + D_current
-        # Avoid division by zero
-        mask = denominator > 0
-        D_faces[1:] = np.where(mask, 2 * D_plus_1 * D_current / denominator, 0)
+        # Compute D on faces using non-uniform harmonic average
+        D_face = np.zeros(self.N + 1)
 
-        # Face at r=0 has D_half[0] = 0
-        D_faces[0] = 0
+        # Interior faces (between cells i-1 and i)
+        for j in range(1, self.N):
+            i_left = j - 1
+            i_right = j
+            num = self.h[i_left] + self.h[i_right]
+            den = (
+                self.h[i_left] / self.D_values[i_left]
+                + self.h[i_right] / self.D_values[i_right]
+            )
+            D_face[j] = num / den
+
+        # Boundary faces
+        D_face[0] = self.D_values[0]  # r=0 face
+        D_face[self.N] = self.D_values[-1]  # r=r_end face
+
+        # Compute conductances G on faces
+        G = np.zeros(self.N + 1)
+
+        # Interior faces
+        for j in range(1, self.N):
+            i_left = j - 1
+            denom = (
+                self.r_centers[i_left + 1] - self.r_centers[i_left]
+            )  # distance between centers
+            G[j] = self.r_faces[j] ** 2 * D_face[j] / denom
+
+        # Boundary conductances
+        G[0] = 0.0  # symmetry at r=0 -> zero flux
+        if self.N >= 2:
+            denom = self.r_centers[-1] - self.r_centers[-2]
+            G[self.N] = self.r_faces[self.N] ** 2 * D_face[self.N] / denom
+        else:
+            G[self.N] = self.r_faces[self.N] ** 2 * D_face[self.N] / (self.h[0] / 2.0)
 
         # Setup Crank-Nicolson matrices A and B
-        # A * f_new = B * f_old
-        alpha = dt / (2 * self.dr**2)
-
-        A_diag = np.ones(self.N)
+        # A * f_new = B * f_old + RHS
+        A_diag = np.zeros(self.N)
         A_lower = np.zeros(self.N - 1)
         A_upper = np.zeros(self.N - 1)
-        B_diag = np.ones(self.N)
+        B_diag = np.zeros(self.N)
         B_lower = np.zeros(self.N - 1)
         B_upper = np.zeros(self.N - 1)
 
-        for i in range(1, self.N - 1):
-            ri = self.r_centers[i]
-            if ri == 0:
-                continue
+        # Assemble interior rows
+        for i in range(self.N):
+            a_left = G[i]  # conductance on left face of cell i
+            a_right = G[i + 1]  # conductance on right face of cell i
 
-            # Coefficients based on flux form
-            c_imh = (self.r_faces[i] ** 2) * D_faces[i] / (ri**2)
-            c_iph = (self.r_faces[i + 1] ** 2) * D_faces[i + 1] / (ri**2)
+            A_diag[i] = 2.0 * self.V[i] / dt + a_left + a_right
+            B_diag[i] = 2.0 * self.V[i] / dt - (a_left + a_right)
 
-            A_lower[i - 1] = -alpha[i] * c_imh
-            A_diag[i] = 1 + alpha[i] * (c_imh + c_iph)
-            A_upper[i] = -alpha[i] * c_iph
-
-            B_lower[i - 1] = alpha[i] * c_imh
-            B_diag[i] = 1 - alpha[i] * (c_imh + c_iph)
-            B_upper[i] = alpha[i] * c_iph
+            if i > 0:
+                A_lower[i - 1] = -a_left
+                B_lower[i - 1] = a_left
+            if i < self.N - 1:
+                A_upper[i] = -a_right
+                B_upper[i] = a_right
 
         # Boundary Conditions
-        # r=0: Neumann (df/dr = 0) -> Symmetry f_0 = f_1
-        A_diag[0] = 1.0
-        A_upper[0] = -1.0
-        B_diag[0] = 0.0  # Does not depend on previous values
-        B_upper[0] = 0.0
-
-        # r=r_end: Dirichlet (f = f_end)
+        # r=0: symmetry already enforced because G[0]=0
+        # r=r_end: Dirichlet BC - replace last row
         A_diag[-1] = 1.0
-        B_diag[-1] = 0.0  # Does not depend on previous values
+        if self.N > 1:
+            A_lower[-1] = 0.0
+        B_diag[-1] = 0.0
 
         A = diags([A_lower, A_diag, A_upper], offsets=[-1, 0, 1], format="csr")
         B = diags([B_lower, B_diag, B_upper], offsets=[-1, 0, 1], format="csr")
 
         # Calculate RHS and solve
-        rhs = B @ f_current + dt * self.Q_values
-        rhs[0] = 0  # Neumann BC
+        rhs = B @ f_current + 2.0 * self.V * self.Q_values * dt
         rhs[-1] = self.f_end  # Dirichlet BC
 
         f_new = spsolve(A, rhs)
+
+        # Enforce boundary conditions explicitly for numerical safety
+        # f_new[-1] = self.f_end
+        # f_new[0] = f_new[1]  # symmetry at r=0
 
         self.f_values = f_new
         return f_new
@@ -156,8 +189,34 @@ if __name__ == "__main__":
     num_points = 200
     f_end_bc = 0.0
 
+    # Non-uniform grid test option
+    is_nonuniform_test = True
+
     # Spatial and temporal grids
-    r = np.linspace(r_0, r_end, num_points)
+    if is_nonuniform_test:
+        # Create refined grid around the diffusion coefficient jump at r=0.5
+        r_jump = 0.5
+        refinement_width = 0.1  # Width of refinement region around jump
+        refinement_factor = 4  # How much finer the grid should be in this region
+
+        # Base grid points
+        base_points = num_points // 2
+
+        # Create three regions: before jump, around jump, after jump
+        r_before = np.linspace(r_0, r_jump - refinement_width / 2, base_points // 3)
+        r_refined = np.linspace(
+            r_jump - refinement_width / 2,
+            r_jump + refinement_width / 2,
+            base_points * refinement_factor // 3,
+        )
+        r_after = np.linspace(r_jump + refinement_width / 2, r_end, base_points // 3)
+
+        # Combine all regions, removing duplicate points at boundaries
+        r = np.concatenate([r_before[:-1], r_refined[:-1], r_after])
+        num_points = len(r)
+    else:
+        r = np.linspace(r_0, r_end, num_points)
+
     t_steps = 50
     t_grid = np.linspace(0, 0.1, t_steps)
 
@@ -234,5 +293,29 @@ if __name__ == "__main__":
     plt.xlim(r_0, r_end)
     plt.ylim(0, 1.1)
     plt.grid(False)
-    plt.title("Diffusion with Discontinuous Coefficient (Finite Volume Solver)")
+
+    # Update title based on grid type
+    if is_nonuniform_test:
+        plt.title(
+            "Diffusion with Discontinuous Coefficient (Non-uniform Grid FV Solver)"
+        )
+    else:
+        plt.title("Diffusion with Discontinuous Coefficient (Uniform Grid FV Solver)")
+
     plt.show()
+
+    # Print grid information
+    print(f"\nGrid Information:")
+    print(f"Total grid points: {num_points}")
+    if is_nonuniform_test:
+        print(f"Grid type: Non-uniform (refined around r={r_jump})")
+        print(f"Refinement width: {refinement_width}")
+        print(f"Refinement factor: {refinement_factor}")
+        # Calculate grid spacing statistics
+        dr = np.diff(r)
+        print(f"Min grid spacing: {dr.min():.6f}")
+        print(f"Max grid spacing: {dr.max():.6f}")
+        print(f"Mean grid spacing: {dr.mean():.6f}")
+    else:
+        print(f"Grid type: Uniform")
+        print(f"Grid spacing: {(r_end - r_0)/(num_points-1):.6f}")
