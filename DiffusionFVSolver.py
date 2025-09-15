@@ -186,7 +186,7 @@ if __name__ == "__main__":
     # Parameters matching DiffValidation5.py and untitled.py
     r_0 = 0.0
     r_end = 1.0
-    num_points = 10000
+    num_points = 1000
     f_end_bc = 0.2
 
     # Non-uniform grid test option
@@ -217,7 +217,7 @@ if __name__ == "__main__":
     else:
         r = np.linspace(r_0, r_end, num_points)
 
-    t_steps = 5000
+    t_steps = 2000
     t_grid = np.linspace(0, 0.1, t_steps)
 
     # Initial profile (Gaussian-like)
