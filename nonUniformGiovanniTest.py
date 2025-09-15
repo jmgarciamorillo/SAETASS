@@ -112,7 +112,7 @@ f_end = 0
 r_0 = 0.0 * u.pc
 r_Inj = 1.0 * u.pc  # parsec
 r_end = 500.0 * u.pc  # parsec
-num_points = 4000
+num_points = 1000
 eta_B = 0.1  # Magnetic field efficiency
 L_wind = 1e38 * u.erg / u.s  # erg/s
 M_dot = 1e-4 * const.M_sun / u.yr
@@ -153,12 +153,13 @@ r0_pc = r_0.to("pc").value
 r_end_pc = r_end.to("pc").value
 
 # Choose a middle-region width around R_b (clipped to reasonable bounds)
-mid_width = min(max(0.02 * r_end_pc, 0.1 * R_b_pc), 0.2 * r_end_pc)
+# mid_width = min(max(0.02 * r_end_pc, 0.1 * R_b_pc), 0.2 * r_end_pc)
+mid_width = 1  # pc
 mid_start = max(r0_pc, R_b_pc - mid_width / 2.0)
 mid_end = min(r_end_pc, R_b_pc + mid_width / 2.0)
 
 # Allocate points among the three segments (ensure at least 2 points per side, >=3 for middle)
-n_mid = max(3, int(num_points * 0.4))
+n_mid = max(3, int(num_points * 0.3))
 n_side = max(2, (num_points - n_mid) // 2)
 n1 = n_side
 n3 = num_points - n_mid - n1
@@ -208,7 +209,7 @@ r_L[r_buble] = (
 r_L[r_ISM] = 0 * u.cm
 
 
-t_steps = 4000
+t_steps = 9000
 t_grid = np.linspace(0, t_end.value, t_steps)
 
 # Initial profile: zero everywhere, but the end, where small gausssian until f_end
@@ -285,13 +286,13 @@ solver = Solver(
 import matplotlib as mpl
 
 # Toggle: True -> live plotting each step; False -> store 20 curves and plot once at end
-plot_in_runtime = False
+plot_in_runtime = True
 
 num_timesteps = len(t_grid) - 1
 
 r_gio = np.linspace(R_TS.to("pc").value, r_end.value, 50000)
 if plot_in_runtime:
-    # Dense live plotting (as before)
+    # Dense live plotting (runtime)
     num_curves = min(4000, max(2, num_timesteps))
     indices = np.linspace(0, num_timesteps, num_curves, dtype=int)
     indices = np.unique(
@@ -301,13 +302,6 @@ if plot_in_runtime:
     plt.ion()
     fig, ax = plt.subplots(figsize=(10, 5))
     (line,) = ax.semilogy(r, f_values, color="b")
-    (lineGio,) = ax.semilogy(
-        r[r_buble | r_ISM],
-        np.zeros_like(r[r_buble | r_ISM]),
-        "k",
-        label="Theoretical",
-        linewidth=2,
-    )
     ax.set_xlabel("$r$ (pc)")
     ax.set_ylabel("$f(t, r)$")
 
@@ -352,19 +346,14 @@ if plot_in_runtime:
         else:
             f_current = solver.f_values  # Already at this step
 
-        # Theoretical profile (scaled by instantaneous TS level)
+        # Normalize by instantaneous TS level (no theoretical curve)
         ts_level = f_current[r_buble][10] if np.any(r_buble) else 1.0
-        f_gio_current = get_theoretical_profile(
-            r_gio, v_w, D_values, R_TS, R_b, 0, ts_level
-        )
         line.set_ydata(f_current / ts_level)
-        lineGio.set_ydata(f_gio_current)
         ax.set_title(f"Giovanni model test ($t$={t_grid[int(current_step)]:.4f} Myr)")
         plt.pause(0.05)
 
     plt.ioff()
     plt.show()
-
 else:
     # Batch mode: store 20 curves (including first and last) and plot once at the end
     sample_count = 20
