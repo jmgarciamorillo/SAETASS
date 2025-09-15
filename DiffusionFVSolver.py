@@ -186,8 +186,8 @@ if __name__ == "__main__":
     # Parameters matching DiffValidation5.py and untitled.py
     r_0 = 0.0
     r_end = 1.0
-    num_points = 200
-    f_end_bc = 0.0
+    num_points = 10000
+    f_end_bc = 0.2
 
     # Non-uniform grid test option
     is_nonuniform_test = True
@@ -197,7 +197,7 @@ if __name__ == "__main__":
         # Create refined grid around the diffusion coefficient jump at r=0.5
         r_jump = 0.5
         refinement_width = 0.1  # Width of refinement region around jump
-        refinement_factor = 4  # How much finer the grid should be in this region
+        refinement_factor = 10  # How much finer the grid should be in this region
 
         # Base grid points
         base_points = num_points // 2
@@ -217,14 +217,14 @@ if __name__ == "__main__":
     else:
         r = np.linspace(r_0, r_end, num_points)
 
-    t_steps = 50
+    t_steps = 5000
     t_grid = np.linspace(0, 0.1, t_steps)
 
     # Initial profile (Gaussian-like)
     f_initial = np.exp(-((r - 0.3) ** 2) / (2 * 0.05**2))
 
     # Discontinuous diffusion coefficient
-    D_values = np.ones(num_points)
+    D_values = 10000 * np.ones(num_points)
     D_values[r >= 0.5] = 0.1
 
     # Source term (Q)
