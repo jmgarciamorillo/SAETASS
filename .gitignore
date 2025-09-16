@@ -1,4 +1,4 @@
 *.png
 GiovanniConv/
-__pycache__/
-.vscode/ 
+__pycache__/*
+.vscode/*
