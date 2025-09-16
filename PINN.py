@@ -137,7 +137,7 @@ def train(model, epochs=40000, n_collocation=200, n_boundary=500, n_initial=500,
 # ---- Run ----
 if __name__ == "__main__":
     train_flag = True  # Set True to train the model
-    layers = [2, 50, 50, 50, 1]  # Input: (x, t), Output: u(x, t)
+    layers = [2, 200, 200, 200, 1]  # Input: (x, t), Output: u(x, t)
 
     if train_flag:
         print("Training PINN for Diffusion Equation...")
