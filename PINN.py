@@ -83,8 +83,7 @@ def physics_residual(model, x, t):
     return r
 
 def boundary_condition_origin(model,x, t):
-    inp = torch.cat([x, t], dim=1)   # input (r,t)
-    u = model(inp)
+    u = model(x,t)
 
     # compute du/dr at r=0
     u_r = torch.autograd.grad(
