@@ -1,6 +1,5 @@
 {
     "python-envs.defaultEnvManager": "ms-python.python:conda",
     "python-envs.defaultPackageManager": "ms-python.python:conda",
-    "python-envs.pythonProjects": [],
-    //"python.analysis.typeCheckingMode": "strict",
+    "python-envs.pythonProjects": []
 }
