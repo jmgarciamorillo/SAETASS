@@ -103,7 +103,7 @@ f_sea_Mix = f_sea * (1 * u.GeV > 90 * u.GeV) + fsea_Voy * (1 * u.GeV < 90 * u.Ge
 
 f_end = f_sea_Mix.value
 
-f_end = 0
+f_end = 3.8682e-7
 
 
 ########################
@@ -112,7 +112,7 @@ f_end = 0
 r_0 = 0.0 * u.pc
 r_Inj = 1.0 * u.pc  # parsec
 r_end = 500.0 * u.pc  # parsec
-num_points = 1000
+num_points = 3000
 eta_B = 0.1  # Magnetic field efficiency
 L_wind = 1e38 * u.erg / u.s  # erg/s
 M_dot = 1e-4 * const.M_sun / u.yr
@@ -147,6 +147,16 @@ rho_w = 3 * M_dot / (4 * math.pi * (R_TS**2) * v_w)
 # print(f"R_TS: {R_TS.to('pc')}, R_b: {R_b.to('pc')}")
 
 # Spatial and temporal grids
+r = np.linspace(r_0.value, r_end.value, num_points)
+# include exact R_TS and R_b if possible
+if R_TS.to("pc").value > r_0.value and R_TS.to("pc").value < r_end.value:
+    r = np.append(r, R_TS.to("pc").value)
+if R_b.to("pc").value > r_0.value and R_b.to("pc").value < r_end.value:
+    r = np.append(r, R_b.to("pc").value)
+r = np.unique(np.sort(r))
+num_points = len(r)
+
+"""
 # Spatial grid: three concatenated linspaces with a dense middle around R_b
 R_b_pc = R_b.to("pc").value
 r0_pc = r_0.to("pc").value
@@ -173,7 +183,7 @@ r1 = np.linspace(r0_pc, mid_start, n1, endpoint=False)
 r2 = np.linspace(mid_start, mid_end, n_mid, endpoint=False)
 r3 = np.linspace(mid_end, r_end_pc, n3)
 
-r = np.concatenate([r1, r2, r3])
+r = np.concatenate([r1, r2, r3])"""
 
 
 r_wind = r < R_TS.to("pc").value
@@ -209,7 +219,7 @@ r_L[r_buble] = (
 r_L[r_ISM] = 0 * u.cm
 
 
-t_steps = 9000
+t_steps = 8000
 t_grid = np.linspace(0, t_end.value, t_steps)
 
 # Initial profile: zero everywhere, but the end, where small gausssian until f_end
@@ -286,7 +296,7 @@ solver = Solver(
 import matplotlib as mpl
 
 # Toggle: True -> live plotting each step; False -> store 20 curves and plot once at end
-plot_in_runtime = True
+plot_in_runtime = False
 
 num_timesteps = len(t_grid) - 1
 
