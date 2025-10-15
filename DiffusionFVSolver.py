@@ -4,6 +4,7 @@ from scipy.sparse import diags
 from scipy.sparse.linalg import spsolve
 from State import State
 import logging
+from Grid import Grid
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ class DiffusionFVSolver:
 
     def __init__(
         self,
-        r_centers: np.ndarray,
+        grid: Grid,
         t_grid: np.ndarray,
         params: dict,
         **kwargs,
@@ -33,7 +34,7 @@ class DiffusionFVSolver:
         Now supports non-uniform grids with proper finite volume formulation.
         """
         self.t_grid = np.asarray(t_grid, dtype=float)
-        self.r_centers = np.asarray(r_centers, dtype=float)
+        self.r_centers = grid.r_centers
 
         if self.r_centers.ndim != 1 or self.r_centers.size < 2:
             raise ValueError("r_centers must be a 1D array with at least 2 points.")

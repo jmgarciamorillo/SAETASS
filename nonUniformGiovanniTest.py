@@ -7,6 +7,7 @@ import astropy.units as u
 import astropy.constants as const
 import logging
 from State import State
+from Grid import Grid
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -286,9 +287,10 @@ op_params = {
 # Operator splitting: advectionFV then diffusion
 # Important: pass f_values as centers for advectionFV (length M-1)
 
+grid = Grid(r_centers=r, t_grid=t_grid, p_centers=None)
+
 solver = Solver(
-    x_grid=r,
-    t_grid=t_grid,
+    grid=grid,
     state=State(f_values),
     problem_type="advectionFV-diffusionFV",
     operator_params=op_params,

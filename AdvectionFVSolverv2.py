@@ -1,6 +1,7 @@
 import numpy as np
 from typing import Literal
-from State import State
+from State import State, SliceState
+from Grid import Grid
 
 import logging
 
@@ -23,6 +24,9 @@ class AdvectionFVSolver:
     """
     FV solver for spherical advection using W = r^2 u (reduced variable).
 
+    Supports both 1D (spatial-only) and 2D (spatial × momentum) grids.
+    When p_centers is present, processes each momentum slice independently.
+
     Key fixes vs earlier attempts:
       - v evaluated at faces by linear interpolation (weights by distances).
       - slope limiter (minmod) written for non-uniform grid; optional vanLeer kept.
@@ -32,32 +36,17 @@ class AdvectionFVSolver:
 
     def __init__(
         self,
-        r_centers: np.ndarray,
+        grid: Grid,
         t_grid: np.ndarray,
         params: dict,
         **kwargs,
     ) -> None:
 
+        self._unpack_grid(grid)
         self.t_grid = np.asarray(t_grid, dtype=float)
 
-        self.r_centers = np.asarray(r_centers, dtype=float)
-        if self.r_centers.ndim != 1 or self.r_centers.size < 2:
-            raise ValueError("r_centers must be 1-D array length >= 2")
-        if abs(self.r_centers[0]) > 1e-14:
-            raise ValueError("r_centers[0] must be 0.0")
-        if np.any(np.diff(self.r_centers) <= 0.0):
-            raise ValueError("r_centers must be strictly increasing")
-
-        self.N = self.r_centers.size
-        self.r_faces = np.empty(self.N + 1, dtype=float)
-        self.r_faces[1:-1] = 0.5 * (self.r_centers[1:] + self.r_centers[:-1])
-        self.r_faces[0] = self.r_centers[0] - 0.5 * (
-            self.r_centers[1] - self.r_centers[0]
-        )
-        self.r_faces[-1] = self.r_centers[-1] + 0.5 * (
-            self.r_centers[-1] - self.r_centers[-2]
-        )
-        self.dr = self.r_faces[1:] - self.r_faces[:-1]  # Δr_i
+        self.N = len(self.r_centers)
+        self.dr = self.grid.dr  # cell widths
         self.dx_c = self.r_centers[1:] - self.r_centers[:-1]  # center-to-center (N-1)
         # distances center->face for non-uniform reconstruction
         self.dx_L = self.r_faces[1:-1] - self.r_centers[:-1]  # for WR (from left cell)
@@ -111,13 +100,45 @@ class AdvectionFVSolver:
             return np.inf
         return float(self.cfl * np.min(self.dr) / vmax)
 
-    def advance(self, n_steps: int, state: State) -> np.ndarray:
+    def advance(self, n_steps: int, state: State) -> None:
         """
-        Advance U by n_steps * dt. Works on W = r^2 * U internally.
+        Advance state by n_steps * dt.
+
+        If state.f is 1D, processes it directly.
+        If state.f is 2D, processes each momentum slice independently.
+        """
+        # Check if we're dealing with 1D or 2D case based on momentum grid and state shape
+        if self.p_centers is None or state.f.ndim == 1:
+            # 1D case (spatial only) or a single momentum slice
+            self._advance_slice(n_steps, state)
+        else:
+            # 2D case (spatial × momentum)
+            # Process each momentum slice independently
+            num_p = len(self.p_centers)
+
+            if state.f.shape[0] != num_p:
+                raise ValueError(
+                    f"State shape mismatch: expected first dimension size {num_p}, got {state.f.shape[0]}"
+                )
+
+            # Process each momentum slice
+            for i in range(num_p):
+                # Create a view into this momentum slice
+                slice_state = SliceState(state, i)
+                # Advance this slice
+                self._advance_slice(n_steps, slice_state)
+
+        return
+
+    def _advance_slice(self, n_steps: int, state: State) -> None:
+        """
+        Advance a single slice (either the whole 1D state or a momentum slice of 2D state).
+        Works on W = r^2 * U internally.
         """
         U = np.asarray(state.f.copy(), dtype=float)
         if U.shape != (self.N,):
-            raise ValueError("U shape mismatch")
+            raise ValueError(f"U shape mismatch: expected ({self.N},), got {U.shape}")
+
         W = (self.r_centers**2) * U  # conservative variable
 
         dt = float(n_steps) * np.diff(self.t_grid)[0]
@@ -138,7 +159,10 @@ class AdvectionFVSolver:
                 W_left_outer = W[-1]
                 F[-1] = v_out * (W_left_outer if v_out >= 0.0 else self.inflow_value_W)
                 W_new = W - (dt_step / self.dr) * (F[1:] - F[:-1])
+                W = W_new
                 total_time = total_time - dt_step
+
+            # Final step with remaining time
             # internal fluxes length N-1: if v_face>=0 use left cell W[i-1], else right cell W[i]
             flux_int = np.where(v_faces >= 0.0, v_faces * W[:-1], v_faces * W[1:])
             F = np.empty(self.N + 1)
@@ -257,6 +281,28 @@ class AdvectionFVSolver:
             raise ValueError("order must be 1 or 2")
         self.order: Literal[1, 2] = order
 
+    def _unpack_grid(self, grid: Grid):
+        """Unpack and validate grid object."""
+        # Store reference to the grid
+        self.grid = grid
+
+        # Grid must include spatial grid
+        if grid.r_centers is None:
+            raise ValueError("Grid must include r_centers for AdvectionFVSolver")
+        else:
+            self.r_centers = np.asarray(grid.r_centers, dtype=float)
+            self.r_faces = np.asarray(grid.r_faces, dtype=float)
+
+        # Check for momentum grid (optional)
+        if grid.p_centers is not None:
+            self.p_centers = np.asarray(grid.p_centers, dtype=float)
+            self.p_faces = np.asarray(grid.p_faces, dtype=float)
+            logger.info(f"Found momentum grid with {len(self.p_centers)} points")
+        else:
+            self.p_centers = None
+            self.p_faces = None
+            logger.info("No momentum grid found, operating in 1D mode")
+
     def _compute_slopes(self, Q: np.ndarray) -> np.ndarray:
         """
         Compute limited slopes on non-uniform grid.
@@ -289,7 +335,7 @@ class AdvectionFVSolver:
             slopes_interior = minmod_multi(
                 2.0 * dL, 2.0 * dR, 0.5 * dC
             )  # TODO: check factor 0.5
-        else:  # should not happen due to earlier check, but just in case satate it is not implemented
+        else:  # should not happen due to earlier check, but just in case
             raise NotImplementedError("limiter must be 'minmod', 'vanleer' or 'mc'")
 
         slopes[1:-1] = slopes_interior

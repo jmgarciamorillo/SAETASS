@@ -7,6 +7,7 @@ from LossSolver import LossSolver
 from AdvectionFVSolverv2 import AdvectionFVSolver
 from DiffusionFVSolver import DiffusionFVSolver
 from State import State
+from Grid import Grid
 import logging
 
 logger = logging.getLogger(__name__)
@@ -25,8 +26,7 @@ SUBSOLVER_MAP = {
 class Solver:
     def __init__(
         self,
-        x_grid: np.ndarray,
-        t_grid: np.ndarray,
+        grid: Grid,
         state: State,
         problem_type: str,
         operator_params: dict = None,
@@ -41,8 +41,7 @@ class Solver:
             'advection': {...}, 'diffusion': {...}, 'loss': {...}, 'advectionFV': {...}
         }
         """
-        self.x_grid = x_grid
-        self.t_grid = t_grid
+        self.grid = grid
         self.state = state
         self.problem_type = problem_type.lower()
 
@@ -76,11 +75,12 @@ class Solver:
         self._initialize_subsolvers(**kwargs)
 
         self.global_step = 0
-        self.total_steps = len(self.t_grid) - 1
+        self.total_steps = self.grid.num_timesteps
 
-    def _refined_t_grid(self, t_grid, n_sub):
+    def _refined_t_grid(self, n_sub):
         """Return a refined t_grid for n_sub substeps per global step."""
-        num_timesteps = len(t_grid) - 1
+        t_grid = self.grid.t_grid
+        num_timesteps = self.total_steps
         t_grid_refined = []
         for i in range(num_timesteps):
             t_start = t_grid[i]
@@ -97,15 +97,15 @@ class Solver:
             # Refine t_grid according to substeps
             n_sub = self.substeps_per_op[op]
             if n_sub > 1:
-                t_grid_refined = self._refined_t_grid(self.t_grid, n_sub)
+                t_grid_refined = self._refined_t_grid(n_sub)
             else:
-                t_grid_refined = self.t_grid
+                t_grid_refined = self.grid.t_grid
 
             op_params = self.operator_params.get(op, {})
 
             self.operator_subsolvers.append(
                 solver_class(
-                    self.x_grid,
+                    self.grid,
                     t_grid_refined,
                     op_params,
                     **kwargs,
