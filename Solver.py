@@ -6,7 +6,7 @@ from DiffusionSolver import DiffusionSolver
 from LossSolver import LossSolver
 from AdvectionFVSolverv2 import AdvectionFVSolver
 from DiffusionFVSolver import DiffusionFVSolver
-
+from State import State
 import logging
 
 logger = logging.getLogger(__name__)
@@ -27,7 +27,7 @@ class Solver:
         self,
         x_grid: np.ndarray,
         t_grid: np.ndarray,
-        f_values: np.ndarray,
+        state: State,
         problem_type: str,
         operator_params: dict = None,
         substeps: dict = None,
@@ -43,7 +43,7 @@ class Solver:
         """
         self.x_grid = x_grid
         self.t_grid = t_grid
-        self.f_values = np.copy(f_values)
+        self.state = state
         self.problem_type = problem_type.lower()
 
         # Store operator parameters (nested dict)
@@ -107,7 +107,6 @@ class Solver:
                 solver_class(
                     self.x_grid,
                     t_grid_refined,
-                    self.f_values,
                     op_params,
                     **kwargs,
                 )
@@ -115,33 +114,28 @@ class Solver:
 
             logger.debug(f"Initialized '{op}' solver with params: {op_params}")
 
-    def _advance(self, f_start, n_steps):
+    def _advance(self, n_steps):
         """Advance the solution by n_steps using operator splitting."""
-
-        f_current = np.copy(f_start)
 
         for step_idx in range(n_steps):
             self.global_step += 1
             logger.debug(
-                f"Global step {self.global_step}/{self.total_steps} | max(f)={np.max(f_current):.4g} min(f)={np.min(f_current):.4g}"
+                f"Global step {self.global_step}/{self.total_steps} | max(f)={np.max(self.state.f):.4g} min(f)={np.min(self.state.f):.4g}"
             )
             for i, op in enumerate(self.operator_list):
                 subsolver = self.operator_subsolvers[i]
                 n_sub = self.substeps_per_op[op]
                 logger.debug(f"Operation '{op}' with {n_sub} substeps")
-                subsolver.f_values = np.copy(f_current)
-                f_current = subsolver.advance(n_sub)
+                subsolver.advance(n_sub, self.state)
         logger.debug(
-            f"Advance finished | max(f)={np.max(f_current):.4g} min(f)={np.min(f_current):.4g}"
+            f"Advance finished | max(f)={np.max(self.state.f):.4g} min(f)={np.min(self.state.f):.4g}"
         )
-        return f_current
 
     def run(self):
         num_timesteps = len(self.t_grid) - 1
-        f_current = self._advance(self.f_values, num_timesteps)
-        return f_current
+        self._advance(num_timesteps)
+        return self.state
 
     def step(self, n_steps=1):
-        f_current = self._advance(self.f_values, n_steps)
-        self.f_values = np.copy(f_current)
-        return f_current
+        self._advance(n_steps)
+        return self.state

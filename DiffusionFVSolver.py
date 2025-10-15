@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.sparse import diags
 from scipy.sparse.linalg import spsolve
+from State import State
 import logging
 
 logger = logging.getLogger(__name__)
@@ -24,7 +25,6 @@ class DiffusionFVSolver:
         self,
         r_centers: np.ndarray,
         t_grid: np.ndarray,
-        f_values: np.ndarray,
         params: dict,
         **kwargs,
     ) -> None:
@@ -33,7 +33,6 @@ class DiffusionFVSolver:
         Now supports non-uniform grids with proper finite volume formulation.
         """
         self.t_grid = np.asarray(t_grid, dtype=float)
-        self.f_values = np.asarray(f_values, dtype=float)
         self.r_centers = np.asarray(r_centers, dtype=float)
 
         if self.r_centers.ndim != 1 or self.r_centers.size < 2:
@@ -83,13 +82,13 @@ class DiffusionFVSolver:
 
         self.f_end = float(self.params["f_end"])
 
-    def advance(self, n_steps: int) -> np.ndarray:
+    def advance(self, n_steps: int, state: State) -> np.ndarray:
         """
         Advances the solution by n_steps, using the time step from t_grid.
         Updated for non-uniform grid with proper finite volume formulation.
         """
         dt = np.diff(self.t_grid)[0] * n_steps
-        f_current = self.f_values.copy()
+        f_current = state.f.copy()
 
         # Compute D on faces using non-uniform harmonic average
         D_face = np.zeros(self.N + 1)
@@ -173,8 +172,7 @@ class DiffusionFVSolver:
         # f_new[-1] = self.f_end
         # f_new[0] = f_new[1]  # symmetry at r=0
 
-        self.f_values = f_new
-        return f_new
+        state.update_f(f_new)
 
 
 # =============================================================================

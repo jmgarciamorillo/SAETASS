@@ -6,6 +6,7 @@ import math
 import astropy.units as u
 import astropy.constants as const
 import logging
+from State import State
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -288,7 +289,7 @@ op_params = {
 solver = Solver(
     x_grid=r,
     t_grid=t_grid,
-    f_values=f_values,
+    state=State(f_values),
     problem_type="advectionFV-diffusionFV",
     operator_params=op_params,
     substeps={"advectionFV": 1, "diffusionFV": 1},
@@ -351,11 +352,10 @@ if plot_in_runtime:
     for next_plot_step in indices:
         steps_to_advance = int(next_plot_step - current_step)
         if steps_to_advance > 0:
-            f_current = solver.step(steps_to_advance)
+            solver.step(steps_to_advance)
             current_step = next_plot_step
-        else:
-            f_current = solver.f_values  # Already at this step
 
+        f_current = solver.state.f.copy()
         # Normalize by instantaneous TS level (no theoretical curve)
         ts_level = f_current[r_buble][10] if np.any(r_buble) else 1.0
         line.set_ydata(f_current / ts_level)
@@ -374,7 +374,7 @@ else:
     stored_times = []
 
     current_step = 0
-    f_current = solver.f_values
+    f_current = solver.state.f.copy()
     # Save initial curve
     ts_level = f_current[r_buble][10] if np.any(r_buble) else 1.0
     stored_curves.append(f_current / ts_level)
@@ -383,11 +383,10 @@ else:
     for next_sample in sample_indices[1:]:
         steps_to_advance = int(next_sample - current_step)
         if steps_to_advance > 0:
-            f_current = solver.step(steps_to_advance)
+            solver.step(steps_to_advance)
             current_step = next_sample
-        else:
-            f_current = solver.f_values
 
+        f_current = solver.state.f.copy()
         ts_level = f_current[r_buble][10] if np.any(r_buble) else 1.0
         stored_curves.append(f_current / ts_level)
         stored_times.append(t_grid[current_step])

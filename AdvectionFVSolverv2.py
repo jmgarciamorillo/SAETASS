@@ -1,5 +1,6 @@
 import numpy as np
 from typing import Literal
+from State import State
 
 import logging
 
@@ -33,13 +34,11 @@ class AdvectionFVSolver:
         self,
         r_centers: np.ndarray,
         t_grid: np.ndarray,
-        f_values: np.ndarray,
         params: dict,
         **kwargs,
     ) -> None:
 
         self.t_grid = np.asarray(t_grid, dtype=float)
-        self.f_values = np.asarray(f_values, dtype=float)
 
         self.r_centers = np.asarray(r_centers, dtype=float)
         if self.r_centers.ndim != 1 or self.r_centers.size < 2:
@@ -112,11 +111,11 @@ class AdvectionFVSolver:
             return np.inf
         return float(self.cfl * np.min(self.dr) / vmax)
 
-    def advance(self, n_steps: int) -> np.ndarray:
+    def advance(self, n_steps: int, state: State) -> np.ndarray:
         """
         Advance U by n_steps * dt. Works on W = r^2 * U internally.
         """
-        U = np.asarray(self.f_values, dtype=float)
+        U = np.asarray(state.f.copy(), dtype=float)
         if U.shape != (self.N,):
             raise ValueError("U shape mismatch")
         W = (self.r_centers**2) * U  # conservative variable
@@ -152,7 +151,9 @@ class AdvectionFVSolver:
             W_new = W - (total_time / self.dr) * (F[1:] - F[:-1])
             U_new = W_new / (self.r_centers**2)
             U_new[0] = U_new[1]  # avoid issues at r=0
-            return U_new
+
+            state.update_f(U_new)
+            return
 
         # ---------------- second order MUSCL-Hancock ----------------
 
@@ -208,7 +209,8 @@ class AdvectionFVSolver:
 
         logger.debug(f"max |U| after step: {np.max(np.abs(U_new)):.4g}")
 
-        return U_new
+        state.update_f(U_new)
+        return
 
     # ---------------- internal helpers ----------------
     def _unpack_params(self):

@@ -14,6 +14,7 @@ Contents
 from __future__ import annotations
 from typing import Protocol, runtime_checkable
 import numpy as np
+from State import State
 
 
 @runtime_checkable
@@ -31,7 +32,7 @@ class Operator(Protocol):
 
     x_grid: np.ndarray
     t_grid: np.ndarray
-    f_values: np.ndarray
+    state: State
     operator_params: dict
 
     def advance(self, n_steps: int) -> np.ndarray: ...
