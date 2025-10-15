@@ -184,3 +184,22 @@ class State:
             f"State(nvars={self.nvars}, ncells={self.ncells}, t={self.t:.6g}, "
             f"dt={self.dt:.6g}, stage={self.stage}, snapshots={len(self.history)})"
         )
+
+
+class SliceState:
+    """TEMPORARY SOLUTION: Helper class to represent a single slice of a 2D State."""
+
+    def __init__(self, full_state: State, p_idx: int):
+        self.full_state = full_state
+        self.p_idx = p_idx
+        self.f = (
+            full_state.f[p_idx].copy() if full_state.f.ndim > 1 else full_state.f.copy()
+        )
+
+    def update_f(self, new_f):
+        """Update only the slice of the full state."""
+        if self.full_state.f.ndim > 1:
+            self.full_state.f[self.p_idx] = new_f
+        else:
+            self.full_state.f = new_f
+        self.f = new_f
