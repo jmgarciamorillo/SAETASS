@@ -1,6 +1,9 @@
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Union
 import numpy as np
+import logging
+
+logger = logging.getLogger(__name__)
 
 """
 /Users/jmorillo/SolverAlpha/SolverAlpha/State.py
@@ -9,7 +12,7 @@ A lightweight State class to track solution and substep history for
 a finite-volume method (FVM) with operator splitting.
 
 Design goals:
-- Hold conserved variables U as a numpy array (shape: (nvars, ncells))
+- Hold conserved variables U as a numpy array (shape: (n_p, n_r))
 - Track time, current timestep, and stage index/name
 - Record and restore substep snapshots (history) for operator-split stages
 - Small, well-documented API for typical FVM routines
@@ -22,7 +25,7 @@ class State:
     Container for the solution state used in FVM operator splitting.
 
     Attributes:
-        U (np.ndarray): Conserved variables array, shape (nvars, ncells).
+        U (np.ndarray): Conserved variables array, shape (n_p, n_r).
         t (float): Current physical time.
         dt (float): Current timestep size (most recent).
         stage (int): Current operator-splitting stage index.
@@ -38,18 +41,32 @@ class State:
     history: List[Dict[str, Any]] = field(default_factory=list)
 
     def __post_init__(self):
-        # Ensure f is a writable float64 numpy array with shape (nvars, ncells)
+        # Ensure f is a writable float64 numpy array with shape (n_p, n_r)
         self.f = np.array(self.f, dtype=float, copy=True)
-        # if self.f.ndim != 2:
-        #    raise ValueError("f must be a 2D array with shape (nvars, ncells)")
+        if self.f.ndim == 1:
+            self.ndim = 1
+            self.f = self.f.reshape((1, self.f.size))  # make it 2D with n_p=1
+            logger.debug("Reshaped f to 2D array with n_p=1")
+        elif self.f.ndim != 2:
+            raise NotImplementedError(
+                "f must be a 1D or 2D array at this version of the code"
+            )
+        else:
+            self.ndim = 2
+            logger.debug(f"Initialized State with f shape: {self.f.shape}")
+            logger.debug(f"This is a multi-species problem with n_p={self.f.shape[0]}")
 
     @property
-    def nvars(self) -> int:
+    def n_p(self) -> int:
         return self.f.shape[0]
 
     @property
-    def ncells(self) -> int:
+    def n_r(self) -> int:
         return self.f.shape[1]
+
+    @property
+    def grid_shape(self) -> tuple:
+        return self.f.shape
 
     def clone(self, copy_history: bool = False) -> "State":
         """Return a deep copy of this State. By default history is not copied."""
@@ -74,44 +91,34 @@ class State:
             ]
         return new_state
 
-    def to_vector(self, order: str = "C") -> np.ndarray:
-        """Flatten f to a 1D vector (useful for linear algebra ops)."""
-        return self.f.ravel(order=order)
+    def get_f(self) -> np.ndarray:
+        """Return a proper np.array for computation."""
+        if self.ndim == 1:
+            return self.f[0]  # return 1D array
+        return self.f
 
-    def from_vector(self, vec: Sequence[float], order: str = "C"):
-        """Load flattened data into f (must match size)."""
-        arr = np.asarray(vec, dtype=float)
-        if arr.size != self.f.size:
-            raise ValueError("Vector size does not match f.size")
-        self.f = arr.reshape(self.f.shape, order=order)
+    # def to_vector(self, order: str = "C") -> np.ndarray:
+    #     """Flatten f to a 1D vector (useful for linear algebra ops)."""
+    #     return self.f.ravel(order=order)
 
-    # def apply_update(
-    #     self, df: Union[np.ndarray, Sequence[float]], inplace: bool = True
-    # ) -> "State":
-    #     """
-    #     Apply an update to f. df must have same shape as f (or be a flattened sequence).
-    #     If inplace is False, returns a new State with updated f.
-    #     """
-    #     df_arr = np.asarray(df, dtype=float)
-    #     if df_arr.shape != self.f.shape:
-    #         # try flattened
-    #         if df_arr.size == self.f.size:
-    #             df_arr = df_arr.reshape(self.f.shape)
-    #         else:
-    #             raise ValueError("df must have the same shape as f")
-    #     if inplace:
-    #         self.f += df_arr
-    #         return self
-    #     else:
-    #         new = self.clone(copy_history=False)
-    #         new.f = new.f + df_arr
-    #         return new
+    # def from_vector(self, vec: Sequence[float], order: str = "C"):
+    #     """Load flattened data into f (must match size)."""
+    #     arr = np.asarray(vec, dtype=float)
+    #     if arr.size != self.f.size:
+    #         raise ValueError("Vector size does not match f.size")
+    #     self.f = arr.reshape(self.f.shape, order=order)
 
     def update_f(self, new_f: np.ndarray):
         """Replace f with new_f (must have same shape)."""
         new_f_arr = np.asarray(new_f, dtype=float)
         if new_f_arr.shape != self.f.shape:
-            raise ValueError("new_f must have the same shape as f")
+            # Handle the case of reshaping 1D to 2D if needed
+            if self.ndim == 1 and new_f_arr.ndim == 1 and new_f_arr.size == self.f.size:
+                new_f_arr = new_f_arr.reshape((1, new_f_arr.size))
+            else:
+                raise ValueError(
+                    f"new_f must have shape {self.f.shape}, got {new_f_arr.shape}"
+                )
         self.f = new_f_arr
 
     def advance_time(self, dt: float):
@@ -181,7 +188,7 @@ class State:
 
     def __repr__(self) -> str:
         return (
-            f"State(nvars={self.nvars}, ncells={self.ncells}, t={self.t:.6g}, "
+            f"State(n_r={self.n_r}, n_p={self.n_p}, t={self.t:.6g}, "
             f"dt={self.dt:.6g}, stage={self.stage}, snapshots={len(self.history)})"
         )
 
@@ -196,10 +203,19 @@ class SliceState:
             full_state.f[p_idx].copy() if full_state.f.ndim > 1 else full_state.f.copy()
         )
 
+    def get_f(self) -> np.ndarray:
+        """Return a proper np.array for computation."""
+        return self.f[0]  # return 1D array
+
     def update_f(self, new_f):
         """Update only the slice of the full state."""
-        if self.full_state.f.ndim > 1:
-            self.full_state.f[self.p_idx] = new_f
+        new_f_arr = np.asarray(new_f, dtype=float)
+        if new_f_arr.shape != (self.full_state.n_r,):
+            raise ValueError(
+                f"new_f must have shape ({self.full_state.n_r},), got {new_f_arr.shape}"
+            )
+        if self.full_state.ndim > 1:
+            self.full_state.f[self.p_idx] = new_f_arr
         else:
-            self.full_state.f = new_f
-        self.f = new_f
+            self.full_state.f[0] = new_f_arr
+        self.f = new_f_arr

@@ -108,21 +108,22 @@ class AdvectionFVSolver:
         If state.f is 2D, processes each momentum slice independently.
         """
         # Check if we're dealing with 1D or 2D case based on momentum grid and state shape
-        if self.p_centers is None or state.f.ndim == 1:
+        if self.p_centers is None or state.ndim == 1:
             # 1D case (spatial only) or a single momentum slice
+            logger.info("Advancing 1D state")
             self._advance_slice(n_steps, state)
         else:
             # 2D case (spatial × momentum)
             # Process each momentum slice independently
-            num_p = len(self.p_centers)
+            n_p = len(self.p_centers)
 
-            if state.f.shape[0] != num_p:
+            if state.n_p != n_p:
                 raise ValueError(
-                    f"State shape mismatch: expected first dimension size {num_p}, got {state.f.shape[0]}"
+                    f"State shape mismatch: expected first dimension size {n_p}, got {state.n_p}"
                 )
 
             # Process each momentum slice
-            for i in range(num_p):
+            for i in range(n_p):
                 # Create a view into this momentum slice
                 slice_state = SliceState(state, i)
                 # Advance this slice
@@ -135,7 +136,9 @@ class AdvectionFVSolver:
         Advance a single slice (either the whole 1D state or a momentum slice of 2D state).
         Works on W = r^2 * U internally.
         """
-        U = np.asarray(state.f.copy(), dtype=float)
+        # Get f data from state and ensure it's 1D
+        U = np.asarray(state.get_f().copy(), dtype=float)
+
         if U.shape != (self.N,):
             raise ValueError(f"U shape mismatch: expected ({self.N},), got {U.shape}")
 

@@ -227,7 +227,6 @@ t_grid = np.linspace(0, t_end.value, t_steps)
 # Initial profile: zero everywhere, but the end, where small gausssian until f_end
 f_values = np.zeros(num_points)
 
-
 # Velocity profile: inside TS, v(r) = v_w, in bubble, v(r) = v_w/4*(R_TS/r)**2, outside bubble, v(r) = 0
 v_field = np.zeros_like(r)
 v_field[r_wind] = v_w.to("pc/Myr").value
@@ -291,7 +290,7 @@ grid = Grid(r_centers=r, t_grid=t_grid, p_centers=None)
 
 solver = Solver(
     grid=grid,
-    state=State(f_values),
+    state=State(f_values),  # State will reshape this to (1, num_points) internally
     problem_type="advectionFV-diffusionFV",
     operator_params=op_params,
     substeps={"advectionFV": 1, "diffusionFV": 1},
@@ -314,7 +313,7 @@ if plot_in_runtime:
 
     plt.ion()
     fig, ax = plt.subplots(figsize=(10, 5))
-    (line,) = ax.semilogy(r, f_values, color="b")
+    (line,) = ax.semilogy(r, f_values, color="b")  # Initial plot
     ax.set_xlabel("$r$ (pc)")
     ax.set_ylabel("$f(t, r)$")
 
@@ -357,10 +356,15 @@ if plot_in_runtime:
             solver.step(steps_to_advance)
             current_step = next_plot_step
 
+        # Extract state - now f is 2D with shape (1, num_points)
         f_current = solver.state.f.copy()
+        
+        # Access the first (and only) slice of the 2D array
+        f_slice = f_current[0]
+        
         # Normalize by instantaneous TS level (no theoretical curve)
-        ts_level = f_current[r_buble][10] if np.any(r_buble) else 1.0
-        line.set_ydata(f_current / ts_level)
+        ts_level = f_slice[r_buble][10] if np.any(r_buble) else 1.0
+        line.set_ydata(f_slice / ts_level)
         ax.set_title(f"Giovanni model test ($t$={t_grid[int(current_step)]:.4f} Myr)")
         plt.pause(0.05)
 
@@ -377,9 +381,11 @@ else:
 
     current_step = 0
     f_current = solver.state.f.copy()
-    # Save initial curve
-    ts_level = f_current[r_buble][10] if np.any(r_buble) else 1.0
-    stored_curves.append(f_current / ts_level)
+    
+    # Save initial curve - extract first slice since f is 2D (1, num_points)
+    f_slice = f_current[0]
+    ts_level = f_slice[r_buble][10] if np.any(r_buble) else 1.0
+    stored_curves.append(f_slice / ts_level)
     stored_times.append(t_grid[0])
 
     for next_sample in sample_indices[1:]:
@@ -389,8 +395,10 @@ else:
             current_step = next_sample
 
         f_current = solver.state.f.copy()
-        ts_level = f_current[r_buble][10] if np.any(r_buble) else 1.0
-        stored_curves.append(f_current / ts_level)
+        # Extract first slice from 2D array
+        f_slice = f_current[0]
+        ts_level = f_slice[r_buble][10] if np.any(r_buble) else 1.0
+        stored_curves.append(f_slice / ts_level)
         stored_times.append(t_grid[current_step])
 
     # Plot all stored curves together

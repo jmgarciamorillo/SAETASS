@@ -2,9 +2,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.sparse import diags
 from scipy.sparse.linalg import spsolve
-from State import State
-import logging
+from State import State, SliceState
 from Grid import Grid
+import logging
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,8 @@ class DiffusionFVSolver:
     can be discontinuous, and its value at cell faces is handled using a harmonic mean
     to ensure flux conservation.
 
-    The implementation follows a similar structure to AdvectionFVSolverv2.py.
+    Supports both 1D (spatial-only) and 2D (spatial × momentum) grids.
+    When p_centers is present, processes each momentum slice independently.
     """
 
     def __init__(
@@ -33,36 +34,49 @@ class DiffusionFVSolver:
         Initializes the solver with grid, initial conditions, and physical parameters.
         Now supports non-uniform grids with proper finite volume formulation.
         """
+        self._unpack_grid(grid)
         self.t_grid = np.asarray(t_grid, dtype=float)
-        self.r_centers = grid.r_centers
 
         if self.r_centers.ndim != 1 or self.r_centers.size < 2:
             raise ValueError("r_centers must be a 1D array with at least 2 points.")
         if abs(self.r_centers[0]) > 1e-14:
             raise ValueError("The first point in r_centers must be 0.")
 
-        self.N = self.r_centers.size
-
-        # Construct face positions for non-uniform grid
-        self.r_faces = np.empty(self.N + 1, dtype=float)
-        self.r_faces[1:-1] = 0.5 * (self.r_centers[1:] + self.r_centers[:-1])
-        self.r_faces[0] = 0.0
-        self.r_faces[-1] = self.r_centers[-1] + 0.5 * (
-            self.r_centers[-1] - self.r_centers[-2]
-        )
+        self.N = len(self.r_centers)
 
         # Cell widths and volumes
-        self.h = self.r_faces[1:] - self.r_faces[:-1]  # cell radial widths
+        self.h = self.grid.dr  # cell radial widths
         self.V = (
             self.r_faces[1:] ** 3 - self.r_faces[:-1] ** 3
         ) / 3.0  # spherical volumes
 
         # Distances between cell centers (for gradient computation)
-        self.d_centers = np.empty(self.N - 1)
-        self.d_centers[:] = self.r_centers[1:] - self.r_centers[:-1]
+        self.d_centers = self.r_centers[1:] - self.r_centers[:-1]
 
         self.params = params or {}
         self._unpack_params()
+
+    def _unpack_grid(self, grid: Grid):
+        """Unpack and validate grid object."""
+        # Store reference to the grid
+        self.grid = grid
+
+        # Grid must include spatial grid
+        if grid.r_centers is None:
+            raise ValueError("Grid must include r_centers for DiffusionFVSolver")
+        else:
+            self.r_centers = np.asarray(grid.r_centers, dtype=float)
+            self.r_faces = np.asarray(grid.r_faces, dtype=float)
+
+        # Check for momentum grid (optional)
+        if grid.p_centers is not None:
+            self.p_centers = np.asarray(grid.p_centers, dtype=float)
+            self.p_faces = np.asarray(grid.p_faces, dtype=float)
+            logger.info(f"Found momentum grid with {len(self.p_centers)} points")
+        else:
+            self.p_centers = None
+            self.p_faces = None
+            logger.info("No momentum grid found, operating in 1D mode")
 
     def _unpack_params(self):
         """Validates and unpacks parameters from the params dictionary."""
@@ -83,13 +97,48 @@ class DiffusionFVSolver:
 
         self.f_end = float(self.params["f_end"])
 
-    def advance(self, n_steps: int, state: State) -> np.ndarray:
+    def advance(self, n_steps: int, state: State) -> None:
         """
         Advances the solution by n_steps, using the time step from t_grid.
-        Updated for non-uniform grid with proper finite volume formulation.
+
+        If state.f is 1D, processes it directly.
+        If state.f is 2D, processes each momentum slice independently.
+        """
+        # Check if we're dealing with 1D or 2D case based on momentum grid and state shape
+        if self.p_centers is None or state.f.ndim == 1:
+            # 1D case (spatial only) or a single momentum slice
+            self._advance_slice(n_steps, state)
+        else:
+            # 2D case (spatial × momentum)
+            # Process each momentum slice independently
+            n_p = len(self.p_centers)
+
+            if state.n_p != n_p:
+                raise ValueError(
+                    f"State shape mismatch: expected first dimension size {n_p}, got {state.n_p}"
+                )
+
+            # Process each momentum slice
+            for i in range(n_p):
+                # Create a view into this momentum slice
+                slice_state = SliceState(state, i)
+                # Advance this slice
+                self._advance_slice(n_steps, slice_state)
+
+        return
+
+    def _advance_slice(self, n_steps: int, state: State) -> None:
+        """
+        Advances a single slice (either the whole 1D state or a momentum slice of 2D state).
+        Uses Crank-Nicolson method for time integration.
         """
         dt = np.diff(self.t_grid)[0] * n_steps
-        f_current = state.f.copy()
+        f_current = np.asarray(state.get_f().copy(), dtype=float)
+
+        if f_current.shape != (self.N,):
+            raise ValueError(
+                f"f_current shape mismatch: expected ({self.N},), got {f_current.shape}"
+            )
 
         # Compute D on faces using non-uniform harmonic average
         D_face = np.zeros(self.N + 1)
@@ -115,9 +164,7 @@ class DiffusionFVSolver:
         # Interior faces
         for j in range(1, self.N):
             i_left = j - 1
-            denom = (
-                self.r_centers[i_left + 1] - self.r_centers[i_left]
-            )  # distance between centers
+            denom = self.d_centers[i_left]  # distance between centers
             G[j] = self.r_faces[j] ** 2 * D_face[j] / denom
 
         # Boundary conductances
@@ -185,45 +232,49 @@ if __name__ == "__main__":
     # Parameters matching DiffValidation5.py and untitled.py
     r_0 = 0.0
     r_end = 1.0
-    num_points = 10000
-    f_end_bc = 0.2
+    num_points = 200
+    f_end_bc = 0.0
 
     # Non-uniform grid test option
     is_nonuniform_test = True
 
-    # Spatial and temporal grids
+    # Create grid
     if is_nonuniform_test:
         # Create refined grid around the diffusion coefficient jump at r=0.5
-        r_jump = 0.5
-        refinement_width = 0.1  # Width of refinement region around jump
-        refinement_factor = 10  # How much finer the grid should be in this region
-
-        # Base grid points
-        base_points = num_points // 2
-
-        # Create three regions: before jump, around jump, after jump
-        r_before = np.linspace(r_0, r_jump - refinement_width / 2, base_points // 3)
-        r_refined = np.linspace(
-            r_jump - refinement_width / 2,
-            r_jump + refinement_width / 2,
-            base_points * refinement_factor // 3,
+        grid = Grid.create(
+            space_grid_type="clustered",
+            r_min=r_0,
+            r_max=r_end,
+            num_r_cells=num_points - 1,
+            r_cluster_center=0.5,
+            r_cluster_width=0.1,
+            r_cluster_strength=0.9,
+            t_min=0.0,
+            t_max=0.1,
+            num_timesteps=50,
         )
-        r_after = np.linspace(r_jump + refinement_width / 2, r_end, base_points // 3)
-
-        # Combine all regions, removing duplicate points at boundaries
-        r = np.concatenate([r_before[:-1], r_refined[:-1], r_after])
-        num_points = len(r)
     else:
-        r = np.linspace(r_0, r_end, num_points)
+        grid = Grid.uniform(
+            r_min=r_0,
+            r_max=r_end,
+            num_r_cells=num_points - 1,
+            t_min=0.0,
+            t_max=0.1,
+            num_timesteps=50,
+        )
 
-    t_steps = 5000
-    t_grid = np.linspace(0, 0.1, t_steps)
+    # Get grid data
+    r = grid.r_centers
+    t_grid = grid.t_grid
 
     # Initial profile (Gaussian-like)
     f_initial = np.exp(-((r - 0.3) ** 2) / (2 * 0.05**2))
 
+    # Create state
+    state = State(f=f_initial)
+
     # Discontinuous diffusion coefficient
-    D_values = 10000 * np.ones(num_points)
+    D_values = np.ones(num_points)
     D_values[r >= 0.5] = 0.1
 
     # Source term (Q)
@@ -236,17 +287,15 @@ if __name__ == "__main__":
     }
 
     # Prepare solver
-    solver = DiffusionFVSolver(
-        r_centers=r, t_grid=t_grid, f_values=f_initial, params=dif_param
-    )
+    solver = DiffusionFVSolver(grid=grid, t_grid=t_grid, params=dif_param)
 
     # Run simulation
     num_timesteps = len(t_grid) - 1
-    f_evolution = [np.copy(f_initial)]
+    f_evolution = [state.f.copy()]
 
     for n in range(1, num_timesteps + 1):
-        solver.f_values = solver.advance(1)
-        f_evolution.append(np.copy(solver.f_values))
+        solver.advance(1, state)
+        f_evolution.append(state.f.copy())
 
     # Plotting
     fig, ax = plt.subplots(figsize=(10, 4.5))
@@ -258,7 +307,11 @@ if __name__ == "__main__":
     for idx, curve_idx in enumerate(indices):
         ax.plot(
             r,
-            f_evolution[curve_idx],
+            (
+                f_evolution[curve_idx][0]
+                if f_evolution[curve_idx].ndim > 1
+                else f_evolution[curve_idx]
+            ),
             color=colors[idx],
             linestyle="-",
             label=f"t={t_grid[curve_idx]:.2f}" if idx in [0, num_curves - 1] else None,
@@ -305,11 +358,9 @@ if __name__ == "__main__":
 
     # Print grid information
     print(f"\nGrid Information:")
-    print(f"Total grid points: {num_points}")
+    print(f"Total grid points: {len(r)}")
     if is_nonuniform_test:
-        print(f"Grid type: Non-uniform (refined around r={r_jump})")
-        print(f"Refinement width: {refinement_width}")
-        print(f"Refinement factor: {refinement_factor}")
+        print(f"Grid type: Non-uniform (clustered around r=0.5)")
         # Calculate grid spacing statistics
         dr = np.diff(r)
         print(f"Min grid spacing: {dr.min():.6f}")
@@ -317,4 +368,4 @@ if __name__ == "__main__":
         print(f"Mean grid spacing: {dr.mean():.6f}")
     else:
         print(f"Grid type: Uniform")
-        print(f"Grid spacing: {(r_end - r_0)/(num_points-1):.6f}")
+        print(f"Grid spacing: {(r_end - r_0)/(len(r)-1):.6f}")
