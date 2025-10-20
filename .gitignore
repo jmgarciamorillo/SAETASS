@@ -3,3 +3,4 @@ GiovanniConv/
 __pycache__/
 .vscode/
 *.pyc
+*.npz
