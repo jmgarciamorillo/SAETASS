@@ -447,6 +447,7 @@ def create_giovanni_setup(
     eta_inj=0.1,
     E_k=1 * u.GeV,
     diffusion_model="kolmogorov",
+    include_shocks=False,
 ):
     """
     Create a complete Giovanni model setup with all profiles.
@@ -484,6 +485,8 @@ def create_giovanni_setup(
 
     # Spatial grid
     r = np.linspace(r_0.value, r_end.value, num_points)
+    if include_shocks:
+        r = np.linspace(r_0.value, r_end.value, num_points - 2)
 
     # Calculate basic parameters
     params = calculate_giovanni_parameters(L_wind, M_dot, rho_0, t_b)
@@ -491,6 +494,10 @@ def create_giovanni_setup(
     R_b = params["R_b"]
     v_w = params["v_w"]
     rho_w = params["rho_w"]
+
+    if include_shocks:
+        # Include shock positions in grid
+        r = np.sort(np.concatenate(([R_TS.to("pc").value, R_b.to("pc").value], r)))
 
     # Region masks
     r_wind = r < R_TS.to("pc").value
