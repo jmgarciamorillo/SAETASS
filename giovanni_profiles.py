@@ -2,6 +2,7 @@ import numpy as np
 import astropy.units as u
 import astropy.constants as const
 import math
+from scipy.integrate import cumulative_trapezoid as cumtrapz
 
 
 def get_theoretical_profile(r, masks, v_w, D_values, R_TS, R_b, f_gal, f_TS):
@@ -103,8 +104,20 @@ def get_theoretical_profile(r, masks, v_w, D_values, R_TS, R_b, f_gal, f_TS):
     f_b = f_b_over_ts
     f_out = f_out_over_ts
 
-    # TEMPORARY FIX
-    f_w = np.zeros(masks["r_wind"].sum())
+    # Compute f_w(r,p) inside wind zone
+    f_w = np.zeros_like(r[masks["r_wind"]])
+
+    r_wind = r[masks["r_wind"]] * u.pc
+    D_w = D_values[masks["r_wind"]].to("pc**2/Myr")
+
+    if len(r_wind) > 1:
+        integrand = (v_w.to("pc/Myr") / D_w.to("pc**2/Myr")).value
+        print(f"Debug: integrand inside wind zone (first 5): {integrand[:5]}")
+        I_r = cumtrapz(integrand, r_wind.value, initial=0.0)
+        I_r = I_r[-1] - I_r  # flip limits
+        f_w = f_TS * np.exp(-I_r)
+    else:
+        f_w = np.array([f_TS])
 
     return np.concatenate([f_w, f_b, f_out])
 
