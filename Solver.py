@@ -4,7 +4,7 @@ import inspect
 from AdvectionSolver import AdvectionSolver
 from DiffusionSolver import DiffusionSolver
 from LossSolver import LossSolver
-from AdvectionFVSolverv2 import AdvectionFVSolver
+from AdvectionFVSolver import AdvectionFVSolver
 from DiffusionFVSolver import DiffusionFVSolver
 from State import State
 from Grid import Grid

@@ -9,8 +9,8 @@ parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
-# Use the Finite Volume advection solver (v2)
-from AdvectionFVSolverv2 import AdvectionFVSolver
+# Use the Finite Volume advection solver
+from AdvectionFVSolver import AdvectionFVSolver
 
 # Parameters
 r_0 = 0.0
