@@ -158,34 +158,34 @@ if R_b.to("pc").value > r_0.value and R_b.to("pc").value < r_end.value:
 r = np.unique(np.sort(r))
 num_points = len(r)
 
-"""
-# Spatial grid: three concatenated linspaces with a dense middle around R_b
-R_b_pc = R_b.to("pc").value
-r0_pc = r_0.to("pc").value
-r_end_pc = r_end.to("pc").value
 
-# Choose a middle-region width around R_b (clipped to reasonable bounds)
-# mid_width = min(max(0.02 * r_end_pc, 0.1 * R_b_pc), 0.2 * r_end_pc)
-mid_width = 1  # pc
-mid_start = max(r0_pc, R_b_pc - mid_width / 2.0)
-mid_end = min(r_end_pc, R_b_pc + mid_width / 2.0)
+# # Spatial grid: three concatenated linspaces with a dense middle around R_b
+# R_b_pc = R_b.to("pc").value
+# r0_pc = r_0.to("pc").value
+# r_end_pc = r_end.to("pc").value
 
-# Allocate points among the three segments (ensure at least 2 points per side, >=3 for middle)
-n_mid = max(3, int(num_points * 0.3))
-n_side = max(2, (num_points - n_mid) // 2)
-n1 = n_side
-n3 = num_points - n_mid - n1
-if n3 < 2:
-    # Fix rounding edge cases
-    n3 = 2
-    n1 = num_points - n_mid - n3
+# # Choose a middle-region width around R_b (clipped to reasonable bounds)
+# # mid_width = min(max(0.02 * r_end_pc, 0.1 * R_b_pc), 0.2 * r_end_pc)
+# mid_width = 1  # pc
+# mid_start = max(r0_pc, R_b_pc - mid_width / 2.0)
+# mid_end = min(r_end_pc, R_b_pc + mid_width / 2.0)
 
-# Build the three segments, avoid duplicating segment boundaries
-r1 = np.linspace(r0_pc, mid_start, n1, endpoint=False)
-r2 = np.linspace(mid_start, mid_end, n_mid, endpoint=False)
-r3 = np.linspace(mid_end, r_end_pc, n3)
+# # Allocate points among the three segments (ensure at least 2 points per side, >=3 for middle)
+# n_mid = max(3, int(num_points * 0.3))
+# n_side = max(2, (num_points - n_mid) // 2)
+# n1 = n_side
+# n3 = num_points - n_mid - n1
+# if n3 < 2:
+#     # Fix rounding edge cases
+#     n3 = 2
+#     n1 = num_points - n_mid - n3
 
-r = np.concatenate([r1, r2, r3])"""
+# # Build the three segments, avoid duplicating segment boundaries
+# r1 = np.linspace(r0_pc, mid_start, n1, endpoint=False)
+# r2 = np.linspace(mid_start, mid_end, n_mid, endpoint=False)
+# r3 = np.linspace(mid_end, r_end_pc, n3)
+
+# r = np.concatenate([r1, r2, r3])
 
 
 r_wind = r < R_TS.to("pc").value
@@ -358,10 +358,10 @@ if plot_in_runtime:
 
         # Extract state - now f is 2D with shape (1, num_points)
         f_current = solver.state.f.copy()
-        
+
         # Access the first (and only) slice of the 2D array
         f_slice = f_current[0]
-        
+
         # Normalize by instantaneous TS level (no theoretical curve)
         ts_level = f_slice[r_buble][10] if np.any(r_buble) else 1.0
         line.set_ydata(f_slice / ts_level)
@@ -381,7 +381,7 @@ else:
 
     current_step = 0
     f_current = solver.state.f.copy()
-    
+
     # Save initial curve - extract first slice since f is 2D (1, num_points)
     f_slice = f_current[0]
     ts_level = f_slice[r_buble][10] if np.any(r_buble) else 1.0

@@ -4,7 +4,7 @@ import astropy.constants as const
 import math
 
 
-def get_theoretical_profile(r, r_bubble, r_ISM, v_w, D_values, R_TS, R_b, f_gal, f_TS):
+def get_theoretical_profile(r, masks, v_w, D_values, R_TS, R_b, f_gal, f_TS):
     """
     Calculate the theoretical Giovanni profile for cosmic rays.
 
@@ -35,47 +35,81 @@ def get_theoretical_profile(r, r_bubble, r_ISM, v_w, D_values, R_TS, R_b, f_gal,
         Theoretical profile
     """
     # masks
-    r_bubble_teo = r <= R_b.to("pc").value
-    r_ISM_teo = r > R_b.to("pc").value
+    r_bubble = masks["r_bubble"]
+    r_ISM = masks["r_ISM"]
 
     # Ensure correct units for calculations
     v_b = v_w.to("pc/Myr") / 4
-    D_b = D_values[r_bubble][int(sum(r_bubble) // 2)].to("pc**2/Myr")
+    # D inside bubble at mid-point
+    D_b = D_values[r_bubble][5].to("pc**2/Myr")
     D_out = D_values[r_ISM][0].to("pc**2/Myr")
 
     # α(r,p)
-    alpha = (v_b * R_TS / D_b) * (1.0 - R_TS / (r[r_bubble_teo] * u.pc))
+    alpha_pre = v_b * R_TS / D_b
+    alpha = (v_b * R_TS / D_b) * (1.0 - R_TS / (r[r_bubble] * u.pc))
+
+    print(
+        f"Debug: v_b={v_b.decompose().value:.3e}, D_b={D_b.to('pc**2/Myr').value:.3e} ({D_b.to('cm**2/s').value:.3e} cm2/s)"
+    )
+    print(f"Debug: alpha_pre={alpha_pre.decompose().value:.3e}")
 
     # α_b = α(r=R_b,p)
     alpha_b = (v_b * R_TS / D_b) * (1.0 - R_TS / R_b)
 
+    print(f"Debug: alpha_b={alpha_b.decompose().value:.3e}")
+
     # β(p)
     beta = (D_out * R_b) / (v_b * R_TS**2)
 
-    # f_b(r,p) / f_TS
-    numerator = (
-        np.exp(alpha) + beta * (np.exp(alpha_b) - np.exp(alpha))
-    ) + f_gal / f_TS * beta * (np.exp(alpha) - 1.0)
-    denominator = 1.0 + beta * (np.exp(alpha_b) - 1.0)
-    f_b_over_ts = numerator / denominator
+    print(f"Warning: beta={beta.decompose().value:.4g} < 1.")
+    print(
+        "D_out = {:.3e}, v_b = {:.3e}, R_b = {:.3e}, R_TS = {:.3e}".format(
+            D_out.to("pc**2/Myr").value,
+            v_b.to("pc/Myr").value,
+            R_b.to("pc").value,
+            R_TS.to("pc").value,
+        )
+    )
 
-    f_b_over_ts_RB = (
-        (np.exp(alpha_b)) + f_gal / f_TS * beta * (np.exp(alpha_b) - 1.0)
-    ) / denominator
+    EXP_MAX = 700.0
+    EXP_MIN = -700.0
+    alpha_clip = np.clip(alpha, EXP_MIN, EXP_MAX)
+
+    if np.all(alpha == alpha_clip):  # Normal case
+        # f_b(r,p) / f_TS
+        numerator = (
+            np.exp(alpha) + beta * (np.exp(alpha_b) - np.exp(alpha))
+        ) + f_gal / f_TS * beta * (np.exp(alpha) - 1.0)
+        denominator = 1.0 + beta * (np.exp(alpha_b) - 1.0)
+        f_b_over_ts = numerator / denominator
+
+        f_b_over_ts_RB = (
+            (np.exp(alpha_b) + f_gal / f_TS * beta * (np.exp(alpha_b) - 1.0))
+        ) / denominator
+
+        print(f"Debug: f_b_over_ts_RB={f_b_over_ts_RB.decompose().value:.3e}")
+
+    else:  # Extreme case to avoid overflow
+
+        f_b_over_ts = 1 + (1 - beta) / beta * np.exp(alpha - alpha_b)
+        f_b_over_ts_RB = 1 / beta
 
     # f_out(r,p) / f_TS
-    f_out_over_ts = f_b_over_ts_RB * (R_b / (r[r_ISM_teo] * u.pc)) + f_gal / f_TS * (
-        1.0 - R_TS / (r[r_ISM_teo] * u.pc)
+    f_out_over_ts = f_b_over_ts_RB * (R_b / (r[r_ISM] * u.pc)) + f_gal / f_TS * (
+        1.0 - R_TS / (r[r_ISM] * u.pc)
     )
 
     # Concatenate the profiles
     f_b = f_b_over_ts
     f_out = f_out_over_ts
 
-    return np.append(f_b, f_out)
+    # TEMPORARY FIX
+    f_w = np.zeros(masks["r_wind"].sum())
+
+    return np.concatenate([f_w, f_b, f_out])
 
 
-def get_velocity_profile(r, v_w, R_TS, R_b):
+def get_velocity_profile(r, v_w, R_TS, R_b, masks):
     """
     Calculate velocity profile for Giovanni model.
 
@@ -95,9 +129,9 @@ def get_velocity_profile(r, v_w, R_TS, R_b):
     np.array
         Velocity profile in pc/Myr
     """
-    r_wind = r < R_TS.to("pc").value
-    r_bubble = (r >= R_TS.to("pc").value) & (r <= R_b.to("pc").value)
-    r_ISM = r > R_b.to("pc").value
+    r_wind = masks["r_wind"]
+    r_bubble = masks["r_bubble"]
+    r_ISM = masks["r_ISM"]
 
     v_field = np.zeros_like(r)
     v_field[r_wind] = v_w.to("pc/Myr").value
@@ -109,7 +143,16 @@ def get_velocity_profile(r, v_w, R_TS, R_b):
     return v_field
 
 
-def get_diffusion_profile(r, v_p, r_L, r_Inj, R_b, D_ISM=3e28 * u.cm**2 / u.s):
+def get_diffusion_profile(
+    r,
+    v_p,
+    r_L,
+    r_Inj,
+    R_b,
+    D_ISM=3e28 * u.cm**2 / u.s,
+    diffusion_model="kolmogorov",
+    masks=None,
+):
     """
     Calculate diffusion coefficient profile.
 
@@ -127,16 +170,30 @@ def get_diffusion_profile(r, v_p, r_L, r_Inj, R_b, D_ISM=3e28 * u.cm**2 / u.s):
         Bubble radius
     D_ISM : astropy Quantity, optional
         Diffusion coefficient in ISM
+    diffusion_model : str, optional
+        Diffusion model ('kolmogorov', 'kraichnan' or 'bohm')
 
     Returns:
     --------
     astropy Quantity array
         Diffusion coefficient profile
     """
-    r_ISM = r > R_b.to("pc").value
+    r_ISM = masks["r_ISM"]
 
-    # Bohm-like diffusion inside bubble
-    D_values = 1 / 3 * v_p * r_L ** (1 / 3) * r_Inj ** (2 / 3)
+    match diffusion_model.lower():
+        case "bohm":
+            # Bohm-like diffusion inside bubble
+            D_values = 1 / 3 * v_p * r_L
+        case "kraichnan":
+            # Kraichnan-like diffusion inside bubble
+            D_values = 1 / 3 * v_p * r_L ** (1 / 2) * r_Inj ** (1 / 2)
+        case "kolmogorov":
+            # Kolmogorov-like diffusion inside bubble
+            D_values = 1 / 3 * v_p * r_L ** (1 / 3) * r_Inj ** (2 / 3)
+        case _:
+            raise ValueError(
+                "Invalid diffusion model. Choose 'kolmogorov', 'kraichnan' or 'bohm'."
+            )
 
     # Constant diffusion in ISM
     D_values[r_ISM] = D_ISM
@@ -144,7 +201,7 @@ def get_diffusion_profile(r, v_p, r_L, r_Inj, R_b, D_ISM=3e28 * u.cm**2 / u.s):
     return D_values
 
 
-def get_magnetic_field_profile(r, eta_B, M_dot, v_w, R_TS, R_b):
+def get_magnetic_field_profile(r, eta_B, M_dot, v_w, R_TS, R_b, masks):
     """
     Calculate magnetic field profile.
 
@@ -168,9 +225,9 @@ def get_magnetic_field_profile(r, eta_B, M_dot, v_w, R_TS, R_b):
     astropy Quantity array
         Magnetic field profile in Gauss
     """
-    r_wind = r < R_TS.to("pc").value
-    r_bubble = (r >= R_TS.to("pc").value) & (r <= R_b.to("pc").value)
-    r_ISM = r > R_b.to("pc").value
+    r_wind = masks["r_wind"]
+    r_bubble = masks["r_bubble"]
+    r_ISM = masks["r_ISM"]
 
     delta_B = np.zeros_like(r) * u.G
 
@@ -201,13 +258,13 @@ def get_magnetic_field_profile(r, eta_B, M_dot, v_w, R_TS, R_b):
     return delta_B
 
 
-def get_larmor_radius(p_chosen, delta_B):
+def get_larmor_radius(p, delta_B):
     """
     Calculate Larmor radius profile.
 
     Parameters:
     -----------
-    p_chosen : astropy Quantity
+    p : astropy Quantity
         Particle momentum
     delta_B : astropy Quantity array
         Magnetic field profile
@@ -221,15 +278,12 @@ def get_larmor_radius(p_chosen, delta_B):
 
     # Only calculate where B > 0
     mask = delta_B.value > 0
-    r_L[mask] = (
-        (const.c.cgs * p_chosen).to("erg").value
-        / (const.e.esu.value * delta_B[mask].to("G").value)
-    ) * u.cm
+    r_L[mask] = (p / (const.e.si * delta_B[mask])).to("pc")
 
     return r_L
 
 
-def get_source_term(r, R_TS, eta_inj, rho_w, v_w, p_chosen, Q_amplitude=1000):
+def get_source_term(r, R_TS, eta_inj, rho_w, v_w, p, Q_amplitude=1000):
     """
     Calculate source term for cosmic ray injection.
 
@@ -245,7 +299,7 @@ def get_source_term(r, R_TS, eta_inj, rho_w, v_w, p_chosen, Q_amplitude=1000):
         Wind density
     v_w : astropy Quantity
         Wind velocity
-    p_chosen : astropy Quantity
+    p : astropy Quantity
         Particle momentum
     Q_amplitude : float, optional
         Source amplitude (simplified)
@@ -359,26 +413,26 @@ def get_cosmic_ray_sea():
     return {"f_sea": f_sea, "fsea_Voy": fsea_Voy, "f_sea_Mix": f_sea_Mix}
 
 
-def get_particle_velocity(p_chosen):
+def get_particle_velocity(E_k):
     """
-    Calculate particle velocity from momentum using relativistic formula.
+    Calculate particle velocity from kinetic energy using relativistic formula.
 
     Parameters:
     -----------
-    p_chosen : astropy Quantity
-        Particle momentum
+    E_k : astropy Quantity
+        Particle kinetic energy
 
     Returns:
     --------
     astropy Quantity
         Particle velocity
     """
-    v_p = (
-        p_chosen
-        * const.c**2
-        / np.sqrt((p_chosen * const.c) ** 2 + (const.m_p * const.c**2) ** 2)
+    p = (
+        np.sqrt((E_k + const.m_p * const.c**2) ** 2 - (const.m_p * const.c**2) ** 2)
+        / const.c
     )
-    return v_p
+    v_p = p * const.c**2 / np.sqrt((p * const.c) ** 2 + (const.m_p * const.c**2) ** 2)
+    return v_p, p
 
 
 def create_giovanni_setup(
@@ -391,7 +445,8 @@ def create_giovanni_setup(
     t_b=1 * u.Myr,
     eta_B=0.1,
     eta_inj=0.1,
-    p_chosen=None,
+    E_k=1 * u.GeV,
+    diffusion_model="kolmogorov",
 ):
     """
     Create a complete Giovanni model setup with all profiles.
@@ -416,16 +471,16 @@ def create_giovanni_setup(
         Magnetic field efficiency
     eta_inj : float, optional
         Injection efficiency
-    p_chosen : astropy Quantity, optional
-        Particle momentum
+    E_p : astropy Quantity, optional
+        Particle energy
+    diffusion_model : str, optional
+        Diffusion model ('kolmogorov', 'kraichnan' or 'bohm')
 
     Returns:
     --------
     dict
         Dictionary with all profiles and parameters
     """
-    if p_chosen is None:
-        p_chosen = (1 * u.GeV / const.c).to("cm*g/s")
 
     # Spatial grid
     r = np.linspace(r_0.value, r_end.value, num_points)
@@ -442,30 +497,48 @@ def create_giovanni_setup(
     r_bubble = (r >= R_TS.to("pc").value) & (r <= R_b.to("pc").value)
     r_ISM = r > R_b.to("pc").value
 
+    masks = {"r_wind": r_wind, "r_bubble": r_bubble, "r_ISM": r_ISM}
+
     # Particle velocity
-    v_p = get_particle_velocity(p_chosen)
+    v_p, p = get_particle_velocity(E_k)
 
     # Magnetic field profile
-    delta_B = get_magnetic_field_profile(r, eta_B, M_dot, v_w, R_TS, R_b)
+    delta_B = get_magnetic_field_profile(r, eta_B, M_dot, v_w, R_TS, R_b, masks=masks)
 
     # Larmor radius
-    r_L = get_larmor_radius(p_chosen, delta_B)
+    r_L = get_larmor_radius(p, delta_B)
 
     # Diffusion coefficient
     r_Inj = 1.0 * u.pc
-    D_values = get_diffusion_profile(r, v_p, r_L, r_Inj, R_b)
+    D_ISM = (3 * 10**28 * (E_k / (1 * u.GeV)) ** (1 / 3)) * u.cm**2 / u.s
+    D_values = get_diffusion_profile(
+        r,
+        v_p,
+        r_L,
+        r_Inj,
+        R_b,
+        diffusion_model=diffusion_model,
+        masks=masks,
+        D_ISM=D_ISM,
+    )
 
     # Velocity profile
-    v_field = get_velocity_profile(r, v_w, R_TS, R_b)
+    v_field = get_velocity_profile(r, v_w, R_TS, R_b, masks=masks)
 
     # Source term
-    Q = get_source_term(r, R_TS, eta_inj, rho_w, v_w, p_chosen)
+    Q = get_source_term(r, R_TS, eta_inj, rho_w, v_w, p)
 
     return {
         "r": r,
-        "r_wind": r_wind,
-        "r_bubble": r_bubble,
-        "r_ISM": r_ISM,
+        "r_0": r_0,
+        "r_end": r_end,
+        "num_points": num_points,
+        "L_wind": L_wind,
+        "M_dot": M_dot,
+        "rho_0": rho_0,
+        "t_b": t_b,
+        "eta_B": eta_B,
+        "eta_inj": eta_inj,
         "R_TS": R_TS,
         "R_b": R_b,
         "v_w": v_w,
@@ -476,6 +549,8 @@ def create_giovanni_setup(
         "D_values": D_values,
         "v_field": v_field,
         "Q": Q,
-        "p_chosen": p_chosen,
+        "E_k": E_k,
+        "p": p,
         "params": params,
+        "masks": masks,
     }
