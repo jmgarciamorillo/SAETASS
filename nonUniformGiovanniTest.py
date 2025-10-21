@@ -269,7 +269,7 @@ advectionFV_params = {
     "order": 2,
     "limiter": "minmod",
     "cfl": 0.8,
-    "inflow_value_W": 0.0,
+    "inflow_value_U": 0.0,
 }
 
 diffusion_params = {
