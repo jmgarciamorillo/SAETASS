@@ -497,9 +497,9 @@ def create_giovanni_setup(
     """
 
     # Spatial grid
-    r = np.linspace(r_0.value, r_end.value, num_points)
+    r = np.linspace(r_0.to("pc").value, r_end.to("pc").value, num_points)
     if include_shocks:
-        r = np.linspace(r_0.value, r_end.value, num_points - 2)
+        r = np.linspace(r_0.to("pc").value, r_end.to("pc").value, num_points - 2)
 
     # Calculate basic parameters
     params = calculate_giovanni_parameters(L_wind, M_dot, rho_0, t_b)
