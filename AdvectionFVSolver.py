@@ -110,7 +110,7 @@ class AdvectionFVSolver:
         # Check if we're dealing with 1D or 2D case based on momentum grid and state shape
         if self.p_centers is None or state.ndim == 1:
             # 1D case (spatial only) or a single momentum slice
-            logger.info("Advancing 1D state")
+            logger.debug("Advancing 1D state")
             self._advance_slice(n_steps, state)
         else:
             # 2D case (spatial × momentum)
