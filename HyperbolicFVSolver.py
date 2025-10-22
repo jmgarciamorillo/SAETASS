@@ -107,7 +107,7 @@ class HyperbolicFVSolver(ABC):
 
         # Determine axis
         main_axis = "r" if self.index == 0 else "p"
-        other_axis = "  p" if main_axis == "r" else "r"
+        other_axis = "p" if main_axis == "r" else "r"
         other_centers = getattr(self, f"{other_axis}_centers", None)
 
         # Detect 1D or 2D case

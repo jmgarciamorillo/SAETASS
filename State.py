@@ -205,7 +205,7 @@ class SliceState:
 
     def get_f(self) -> np.ndarray:
         """Return a proper np.array for computation."""
-        return self.f[0]  # return 1D array
+        return self.f  # return 1D array
 
     def update_f(self, new_f):
         """Update only the slice of the full state."""
