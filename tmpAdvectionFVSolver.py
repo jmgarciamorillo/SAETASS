@@ -66,7 +66,7 @@ class AdvectionFVSolver(HyperbolicFVSolver):
         # Initialize the base class
         super().__init__(grid, t_grid, hyperbolic_params, **kwargs)
 
-    def _generalized_variable(self, f: np.ndarray, r_centers: np.ndarray) -> np.ndarray:
+    def _generalized_variable(self, f: np.ndarray, grid: Grid) -> np.ndarray:
         """
         Convert primitive variable f to conservative variable U = r^2 * f.
 
@@ -77,19 +77,18 @@ class AdvectionFVSolver(HyperbolicFVSolver):
         -----------
         f : np.ndarray
             Primitive variable values (density/distribution function)
-        r_centers : np.ndarray
-            Cell center positions (radii)
+        grid : Grid
+            Grid object containing r_centers
 
         Returns:
         --------
         np.ndarray
             Conservative variable U = r^2 * f
         """
+        r_centers = grid.r_centers
         return r_centers**2 * f
 
-    def _inverse_generalized_variable(
-        self, U: np.ndarray, r_centers: np.ndarray
-    ) -> np.ndarray:
+    def _inverse_generalized_variable(self, U: np.ndarray, grid: Grid) -> np.ndarray:
         """
         Convert conservative variable U back to primitive variable f = U / r^2.
 
@@ -97,8 +96,8 @@ class AdvectionFVSolver(HyperbolicFVSolver):
         -----------
         U : np.ndarray
             Conservative variable values
-        r_centers : np.ndarray
-            Cell center positions (radii)
+        grid : Grid
+            Grid object containing r_centers
 
         Returns:
         --------
@@ -106,6 +105,7 @@ class AdvectionFVSolver(HyperbolicFVSolver):
             Primitive variable f = U / r^2
         """
         # Avoid division by zero at r=0
+        r_centers = grid.r_centers
         denom = r_centers**2
         mask = denom > 0.0
         f = np.zeros_like(U)

@@ -142,15 +142,12 @@ class HyperbolicFVSolver(ABC):
         inside the solver. All axis-dependent behaviors are delegated to hooks.
         """
         f = np.asarray(state.get_f().copy(), dtype=float)
-        centers = (
-            self._main_centers
-        )  # this returns e.g. self.r_centers or self.p_centers
         N = self.N
 
         if f.shape != (N,):
             raise ValueError(f"U shape mismatch: expected ({N},), got {f.shape}")
 
-        U = self._generalized_variable(f, centers)  # Convert to generalized variable
+        U = self._generalized_variable(f, self.grid)  # Convert to generalized variable
 
         dt_requested = float(n_steps) * np.diff(self.t_grid)[0]
         total_time = n_steps * dt_requested
@@ -178,9 +175,9 @@ class HyperbolicFVSolver(ABC):
             raise NotImplementedError("order must be 1 or 2")
 
         U_new = U - (total_time / self.dx) * (F[1:] - F[:-1])
-        f_new = self._inverse_generalized_variable(U_new, centers)
+        f_new = self._inverse_generalized_variable(U_new, self.grid)
         # TODO?: self._postprocess_solution(f_new,centers)
-        f_new[0] = f_new[1]
+        # f_new[0] = f_new[1]
         state.update_f(f_new)
 
         logger.debug(f"max(|f|) after step: {np.max(np.abs(f_new)):.4g}")

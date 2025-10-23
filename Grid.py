@@ -19,11 +19,12 @@ class Grid:
 
     def __init__(
         self,
-        r_faces: np.ndarray = None,
         r_centers: np.ndarray = None,
-        p_faces: np.ndarray = None,
+        r_faces: np.ndarray = None,
         p_centers: np.ndarray = None,
+        p_faces: np.ndarray = None,
         t_grid: np.ndarray = None,
+        is_p_log: bool = True,
     ):
         """
         Initialize a Grid object.
@@ -44,6 +45,8 @@ class Grid:
         ):
             raise ValueError("At least one grid (spatial or momentum) must be provided")
 
+        self.is_log_p = is_p_log
+
         # Initialize spatial grid if provided
         if r_faces is not None or r_centers is not None:
             self._init_spatial_grid(r_faces, r_centers)
@@ -62,6 +65,12 @@ class Grid:
         self.t_grid = np.asarray(t_grid) if t_grid is not None else None
         if self.t_grid is not None and len(self.t_grid) > 1:
             self.dt = np.diff(self.t_grid)
+
+        if self.is_log_p and self.p_centers is not None:
+            self._p_centers_phys = self.p_centers.copy()
+            self._p_faces_phys = self.p_faces.copy()
+            self.p_centers = self._p_to_y(self.p_centers)
+            self.p_faces = self._p_to_y(self.p_faces)
 
     def _init_spatial_grid(self, r_faces, r_centers):
         """Initialize the spatial grid from faces or centers."""
@@ -120,6 +129,8 @@ class Grid:
                 self.p_faces = np.array(
                     [self.p_centers[0] - 0.5 * dp, self.p_centers[0] + 0.5 * dp]
                 )
+        if np.any(self.p_centers <= 0) or np.any(self.p_faces <= 0):
+            raise ValueError("Momentum centers and faces must be positive values.")
 
     @cached_property
     def dr(self) -> np.ndarray:
@@ -171,6 +182,31 @@ class Grid:
         if self.p_centers is not None:
             return self.p_centers.size
         return 0
+
+    def _p_to_y(self, p: np.ndarray) -> np.ndarray:
+        """Convert momentum p to logarithmic variable y = log10(p)."""
+        return np.log10(p)
+
+    def _y_to_p(self, y: np.ndarray) -> np.ndarray:
+        """Convert logarithmic variable y = log10(p) back to momentum p."""
+        return 10**y
+
+    def post_process_calculations(self):
+        """Perform post-processing calculations after grid exit of solver pipeline.
+
+        This function is intended to be called after the solver has completed its operations,
+        not by the user directly.
+        """
+        if self.is_log_p:
+            self._p_centers_calc = self._y_to_p(self.p_centers)
+            self._p_faces_calc = self._y_to_p(self.p_faces)
+            self.dp_calc = self.dp
+            self.p_centers = self._p_centers_calc
+            self.p_faces = self._p_faces_calc
+        else:
+            logger.warning(
+                "Post-processing calculations skipped as momentum grid is not logarithmic."
+            )
 
     @classmethod
     def uniform(
@@ -323,25 +359,27 @@ class Grid:
             )
 
         # Create log-spaced spatial grid if specified
-        r_faces = None
+        r_centers = None
         if r_min is not None and r_max is not None and num_r_cells is not None:
             if r_min <= 0:
                 raise ValueError("r_min must be positive for log-spaced grid")
-            r_faces = np.logspace(np.log10(r_min), np.log10(r_max), num_r_cells + 1)
+            r_centers = np.logspace(np.log10(r_min), np.log10(r_max), num_r_cells)
 
         # Create log-spaced momentum grid if specified
-        p_faces = None
+        p_centers = None
         if p_min is not None and p_max is not None and num_p_cells is not None:
             if p_min <= 0:
                 raise ValueError("p_min must be positive for log-spaced grid")
-            p_faces = np.logspace(np.log10(p_min), np.log10(p_max), num_p_cells + 1)
+            p_centers = np.logspace(np.log10(p_min), np.log10(p_max), num_p_cells)
 
         # Create temporal grid if specified
         t_grid = None
         if t_min is not None and t_max is not None and num_timesteps is not None:
             t_grid = np.linspace(t_min, t_max, num_timesteps + 1)
 
-        return cls(r_faces=r_faces, p_faces=p_faces, t_grid=t_grid)
+        return cls(
+            r_centers=r_centers, p_centers=p_centers, t_grid=t_grid, is_p_log=True
+        )
 
     def __str__(self) -> str:
         """String representation of the Grid."""
