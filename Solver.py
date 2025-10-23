@@ -12,6 +12,7 @@ from LossFVSolver import LossFVSolver
 from SourceSolver import SourceSolver
 from State import State
 from Grid import Grid
+from SplittingScheme import StrangSplitting
 import logging
 
 logger = logging.getLogger(__name__)
@@ -82,6 +83,9 @@ class Solver:
         self.operator_subsolvers = []
         self._initialize_subsolvers(**kwargs)
 
+        # TEMPORAL:
+        self.splitting_scheme = StrangSplitting()
+
     def _refined_t_grid(self, n_sub):
         """Return a refined t_grid for n_sub substeps per global step."""
         t_grid = self.grid.t_grid
@@ -96,11 +100,15 @@ class Solver:
 
     def _initialize_subsolvers(self, **kwargs):
         """Initialize subsolvers with appropriate t_grids and parameters."""
-        for op in self.operator_list:
+        # TEMPORAL SOLUTION FOR STRANG SPLITTING HARDCODED, SUBREFINING DOUBLE FOR ALL OPS EXCEPT LAST
+        for i, op in enumerate(self.operator_list):
             solver_class = SUBSOLVER_MAP[op]
 
             # Refine t_grid according to substeps
             n_sub = self.substeps_per_op[op]
+            if i < self.n_os - 1:
+                n_sub = n_sub * 2  # Double substeps for all but last operator
+
             if n_sub > 1:
                 t_grid_refined = self._refined_t_grid(n_sub)
             else:
@@ -122,16 +130,17 @@ class Solver:
     def _advance(self, n_steps):
         """Advance the solution by n_steps using operator splitting."""
 
-        for step_idx in range(n_steps):
+        for _ in range(n_steps):
             self.global_step += 1
-            logger.debug(
+            logger.info(
                 f"Global step {self.global_step}/{self.total_steps} | max(f)={np.max(self.state.f):.4g} min(f)={np.min(self.state.f):.4g}"
             )
-            for i, op in enumerate(self.operator_list):
-                subsolver = self.operator_subsolvers[i]
-                n_sub = self.substeps_per_op[op]
-                logger.debug(f"Operation '{op}' with {n_sub} substeps")
-                subsolver.advance(n_sub, self.state)
+            self.splitting_scheme.apply(
+                self.operator_list,
+                self.operator_subsolvers,
+                self.substeps_per_op,
+                self.state,
+            )
         logger.debug(
             f"Advance finished | max(f)={np.max(self.state.f):.4g} min(f)={np.min(self.state.f):.4g}"
         )

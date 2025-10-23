@@ -65,7 +65,7 @@ def run_loss_source_test():
     p_max = 1000.0  # End of the domain
     num_points = 200  # Number of points in the momentum grid
     t_max = 0.2  # Maximum simulation time
-    num_timesteps = 100000  # Number of time steps
+    num_timesteps = 1000  # Number of time steps
 
     # Physics parameters
     beta = 2.0  # Exponent for momentum loss rate
