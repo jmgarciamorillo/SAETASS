@@ -75,12 +75,12 @@ class Solver:
             op: self.substeps.get(op, 1) for op in self.operator_list
         }
 
+        self.global_step = 0
+        self.total_steps = self.grid.num_timesteps
+
         # Prepare subsolvers using the mapping
         self.operator_subsolvers = []
         self._initialize_subsolvers(**kwargs)
-
-        self.global_step = 0
-        self.total_steps = self.grid.num_timesteps
 
     def _refined_t_grid(self, n_sub):
         """Return a refined t_grid for n_sub substeps per global step."""
