@@ -559,11 +559,11 @@ def boundary_test(use_saved=True, save=True, recalculate_factor=None):
     rel_errors = [rel_errors[i] for i in sort_idx]
 
     # Plot absolute error
-    ax2.semilogy(r_end_factors, errors, "bo-", lw=2, ms=8, label="Absolute Error")
+    ax2.loglog(r_end_factors, errors, "bo-", lw=2, ms=8, label="Absolute Error")
 
     # Plot relative error on secondary y-axis
     ax2_twin = ax2.twinx()
-    ax2_twin.semilogy(
+    ax2_twin.loglog(
         r_end_factors, rel_errors, "ro-", lw=2, ms=8, label="Relative Error"
     )
 
@@ -604,4 +604,4 @@ if __name__ == "__main__":
     # Para recalcular todo desde cero:
     # boundary_test(use_saved=False, save=True)
 
-    boundary_test(save=True, use_saved=True, recalculate_factor=8.0)
+    boundary_test(save=True, use_saved=True, recalculate_factor=None)
