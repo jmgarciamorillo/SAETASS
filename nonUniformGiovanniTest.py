@@ -274,10 +274,11 @@ advectionFV_params = {
 
 diffusion_params = {
     "D_values": D_values.to("pc**2/Myr").value,
-    "Q_values": Q,
+    "Q_values": np.zeros_like(Q),
     "f_end": f_end,
 }
-source_params = {"Q_values": Q}
+source_params = {"source": np.array([Q, Q])}
+
 op_params = {
     "advectionFV": advectionFV_params,
     "diffusionFV": diffusion_params,
@@ -286,12 +287,18 @@ op_params = {
 # Operator splitting: advectionFV then diffusion
 # Important: pass f_values as centers for advectionFV (length M-1)
 
-grid = Grid(r_centers=r, t_grid=t_grid, p_centers=None)
+grid = Grid(
+    r_centers=r,
+    t_grid=t_grid,
+    p_centers=np.array([p_chosen.value, p_chosen.value * 1.1]),
+)
 
 solver = Solver(
     grid=grid,
-    state=State(f_values),  # State will reshape this to (1, num_points) internally
-    problem_type="advectionFV-diffusionFV",
+    state=State(
+        np.asarray([f_values, f_values])
+    ),  # State will reshape this to (1, num_points) internally
+    problem_type="advectionFV-diffusionFV-source",
     operator_params=op_params,
     substeps={"advectionFV": 1, "diffusionFV": 1},
 )
