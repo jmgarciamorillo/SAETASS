@@ -6,6 +6,9 @@ logger = logging.getLogger(__name__)
 
 
 class SplittingScheme(ABC):
+    def __init__(self):
+        self.iterations = 0
+
     @abstractmethod
     def apply(self, operator_list: list, operator_subsolvers: list, state: State):
         """
@@ -26,6 +29,9 @@ class StrangSplitting(SplittingScheme):
         """
         Apply the Strang splitting scheme.
         """
+        self.iterations += 1
+        if self.iterations % 100 == 0:
+            logger.info(f"Strang splitting: completed {self.iterations} iterations")
         # First half-step for the first operators
         for op, subsolver in zip(operator_list[:-1], operator_subsolvers[:-1]):
             logger.debug(f"Strang splitting: first half-step for operator '{op}'")
