@@ -183,6 +183,11 @@ class Grid:
             return self.p_centers.size
         return 0
 
+    @cached_property
+    def shape(self) -> Tuple[int, int]:
+        """Return the shape of the grid as (n_p, n_r)."""
+        return (self.num_cells_p, self.num_cells_r)
+
     def _p_to_y(self, p: np.ndarray) -> np.ndarray:
         """Convert momentum p to logarithmic variable y = log10(p)."""
         return np.log10(p)
