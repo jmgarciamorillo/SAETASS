@@ -196,12 +196,24 @@ class State:
 class SliceState:
     """TEMPORARY SOLUTION: Helper class to represent a single slice of a 2D State."""
 
-    def __init__(self, full_state: State, p_idx: int):
+    def __init__(self, full_state: State, idx: int, axis: int = 1):
         self.full_state = full_state
-        self.p_idx = p_idx
-        self.f = (
-            full_state.f[p_idx].copy() if full_state.f.ndim > 1 else full_state.f.copy()
-        )
+        self.idx = idx
+        self.axis = axis
+        if self.axis == 1:
+            self.f = (
+                full_state.f[idx].copy()
+                if full_state.f.ndim > 1
+                else full_state.f.copy()
+            )
+        elif self.axis == 0:
+            self.f = (
+                full_state.f[:, idx].copy()
+                if full_state.f.ndim > 1
+                else full_state.f.copy()
+            )
+        else:
+            raise ValueError("axis must be 0 or 1")
 
     def get_f(self) -> np.ndarray:
         """Return a proper np.array for computation."""
@@ -210,12 +222,28 @@ class SliceState:
     def update_f(self, new_f):
         """Update only the slice of the full state."""
         new_f_arr = np.asarray(new_f, dtype=float)
-        if new_f_arr.shape != (self.full_state.n_r,):
-            raise ValueError(
-                f"new_f must have shape ({self.full_state.n_r},), got {new_f_arr.shape}"
-            )
-        if self.full_state.ndim > 1:
-            self.full_state.f[self.p_idx] = new_f_arr
+        if self.axis == 1:
+            # Space problem: update row idx
+            expected_shape = (self.full_state.n_r,)
+            if new_f_arr.shape != expected_shape:
+                raise ValueError(
+                    f"new_f must have shape {expected_shape}, got {new_f_arr.shape}"
+                )
+            if self.full_state.ndim > 1:
+                self.full_state.f[self.idx] = new_f_arr
+            else:
+                self.full_state.f[0] = new_f_arr
+        elif self.axis == 0:
+            # Momentum problem: update column idx
+            expected_shape = (self.full_state.n_p,)
+            if new_f_arr.shape != expected_shape:
+                raise ValueError(
+                    f"new_f must have shape {expected_shape}, got {new_f_arr.shape}"
+                )
+            if self.full_state.ndim > 1:
+                self.full_state.f[:, self.idx] = new_f_arr
+            else:
+                self.full_state.f[0] = new_f_arr
         else:
-            self.full_state.f[0] = new_f_arr
+            raise ValueError("axis must be 0 or 1")
         self.f = new_f_arr
