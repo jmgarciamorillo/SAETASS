@@ -52,7 +52,7 @@ class AdvectionFVSolver(HyperbolicFVSolver):
         hyperbolic_params = params.copy()
 
         # Set spatial axis (r) as the main axis for advection
-        hyperbolic_params["index"] = 0
+        hyperbolic_params["axis"] = 1
 
         # Rename advection-specific parameters to match the base class
         if "v_centers" in hyperbolic_params:
@@ -90,31 +90,23 @@ class AdvectionFVSolver(HyperbolicFVSolver):
 
     def _inverse_generalized_variable(self, U: np.ndarray, grid: Grid) -> np.ndarray:
         """
-        Convert conservative variable U back to primitive variable f = U / r^2.
-
-        Parameters:
-        -----------
-        U : np.ndarray
-            Conservative variable values
-        grid : Grid
-            Grid object containing r_centers
-
-        Returns:
-        --------
-        np.ndarray
-            Primitive variable f = U / r^2
+        Convert conservative variable U back to primitive variable f = U / r^2,
+        with support for multi-dimensional U where r varies along the last axis.
         """
-        # Avoid division by zero at r=0
-        r_centers = grid.r_centers
-        denom = r_centers**2
-        mask = denom > 0.0
-        f = np.zeros_like(U)
-        f[mask] = U[mask] / denom[mask]
+        r = grid.r_centers  # shape (800,)
+        denom = r**2  # (800,)
 
-        # For r=0, use the neighboring value to avoid singularity
+        # Reshape to broadcast along axis 1
+        # If U is (nr, nz) = (500,800), then denom should be (1,800)
+        denom = denom.reshape((1, -1))
+
+        mask = denom > 0.0
+        f = np.where(mask, U / denom, 0.0)
+
+        # Handle r=0 (singularity)
         if not np.all(mask) and np.any(mask):
-            first_nonzero = np.where(mask)[0][0]
-            f[~mask] = f[first_nonzero]
+            first_nonzero_index = np.where(mask[0])[0][0]  # first non-zero radius
+            f[:, ~mask[0]] = f[:, first_nonzero_index][:, None]
 
         return f
 

@@ -10,65 +10,26 @@ logger = logging.getLogger(__name__)
 
 
 class DiffusionFVSolver:
-    """
-    Finite Volume solver for spherical diffusion equation:
-    ∂f/∂t = 1/r^2 * ∂/∂r (r^2 * D(r) * ∂f/∂r) + Q(r)
-
-    This solver uses the Crank-Nicolson method for time discretization, which is
-    second-order accurate and unconditionally stable. The diffusion coefficient D(r)
-    can be discontinuous, and its value at cell faces is handled using a harmonic mean
-    to ensure flux conservation.
-
-    Supports both 1D (spatial-only) and 2D (spatial × momentum) grids.
-    When p_centers is present, processes each momentum slice independently.
-    """
-
-    def __init__(
-        self,
-        grid: Grid,
-        t_grid: np.ndarray,
-        params: dict,
-        **kwargs,
-    ) -> None:
-        """
-        Initializes the solver with grid, initial conditions, and physical parameters.
-        Now supports non-uniform grids with proper finite volume formulation.
-        """
+    def __init__(self, grid: Grid, t_grid: np.ndarray, params: dict, **kwargs) -> None:
         self._unpack_grid(grid)
         self.t_grid = np.asarray(t_grid, dtype=float)
-
         if self.r_centers.ndim != 1 or self.r_centers.size < 2:
-            raise ValueError("r_centers must be a 1D array with at least 2 points.")
+            raise ValueError("r_centers must be 1D with at least 2 points.")
         if abs(self.r_centers[0]) > 1e-14:
-            raise ValueError("The first point in r_centers must be 0.")
-
+            raise ValueError("first r_center must be 0.")
         self.N = len(self.r_centers)
-
-        # Cell widths and volumes
-        self.h = self.grid.dr  # cell radial widths
-        self.V = (
-            self.r_faces[1:] ** 3 - self.r_faces[:-1] ** 3
-        ) / 3.0  # spherical volumes
-
-        # Distances between cell centers (for gradient computation)
+        self.h = np.asarray(self.grid.dr, dtype=float)
+        self.V = (self.r_faces[1:] ** 3 - self.r_faces[:-1] ** 3) / 3.0
         self.d_centers = self.r_centers[1:] - self.r_centers[:-1]
-
         self.params = params or {}
         self._unpack_params()
 
-    def _unpack_grid(self, grid: Grid):
-        """Unpack and validate grid object."""
-        # Store reference to the grid
+    def _unpack_grid(self, grid):
         self.grid = grid
-
-        # Grid must include spatial grid
         if grid.r_centers is None:
-            raise ValueError("Grid must include r_centers for DiffusionFVSolver")
-        else:
-            self.r_centers = np.asarray(grid.r_centers, dtype=float)
-            self.r_faces = np.asarray(grid.r_faces, dtype=float)
-
-        # Check for momentum grid (optional)
+            raise ValueError("Grid must include r_centers")
+        self.r_centers = np.asarray(grid.r_centers, dtype=float)
+        self.r_faces = np.asarray(grid.r_faces, dtype=float)
         if grid.p_centers is not None:
             self.p_centers = np.asarray(grid.p_centers, dtype=float)
             self.p_faces = np.asarray(grid.p_faces, dtype=float)
@@ -79,148 +40,219 @@ class DiffusionFVSolver:
             logger.info("No momentum grid found, operating in 1D mode")
 
     def _unpack_params(self):
-        """Validates and unpacks parameters from the params dictionary."""
-        expected_keys = {"D_values", "Q_values", "f_end"}
-        provided_keys = set(self.params.keys())
-
-        if not expected_keys.issubset(provided_keys):
-            missing = expected_keys - provided_keys
-            raise ValueError(f"Missing required parameters: {missing}")
-
+        expected = {"D_values", "f_end"}
+        if not expected.issubset(set(self.params.keys())):
+            raise ValueError(f"Missing params: {expected - set(self.params.keys())}")
         self.D_values = np.asarray(self.params["D_values"], dtype=float)
-        if self.D_values.shape != (self.N,):
-            raise ValueError(f"D_values must have shape ({self.N},)")
-
-        self.Q_values = np.asarray(self.params["Q_values"], dtype=float)
-        if self.Q_values.shape != (self.N,):
-            raise ValueError(f"Q_values must have shape ({self.N},)")
-
+        if self.D_values.shape != self.grid.shape:
+            raise ValueError(
+                f"D_values shape mismatch: expected {self.grid.shape}, got {self.D_values.shape}"
+            )
         self.f_end = float(self.params["f_end"])
 
+    # ------------------- Public advance -------------------
     def advance(self, n_steps: int, state: State) -> None:
-        """
-        Advances the solution by n_steps, using the time step from t_grid.
+        dt = float(np.diff(self.t_grid)[0]) * n_steps
 
-        If state.f is 1D, processes it directly.
-        If state.f is 2D, processes each momentum slice independently.
-        """
-        # Check if we're dealing with 1D or 2D case based on momentum grid and state shape
-        if self.p_centers is None or state.f.ndim == 1:
-            # 1D case (spatial only) or a single momentum slice
-            self._advance_slice(n_steps, state)
-        else:
-            # 2D case (spatial × momentum)
-            # Process each momentum slice independently
-            n_p = len(self.p_centers)
+        # If no momentum grid or state is 1D, use scalar path
+        if (
+            self.p_centers is None
+            or getattr(state, "f", None) is None
+            or state.get_f().ndim == 1
+        ):
+            self._advance_slice(n_steps, state)  # existing single-slice code
+            return
 
-            if state.n_p != n_p:
+        # Try to extract the entire 2D f matrix from state.
+        # Best if State implements get_f() returning shape (n_p, N).
+        try:
+            f_all = state.get_f()  # expected (n_p, N)
+        except Exception:
+            # Fallback: attempt to use state.f attribute
+            f_all = np.asarray(state.f, dtype=float)
+            if f_all.ndim != 2:
                 raise ValueError(
-                    f"State shape mismatch: expected first dimension size {n_p}, got {state.n_p}"
+                    "Cannot extract 2D f array from state; implement get_f() for efficiency."
                 )
 
-            # Process each momentum slice
-            for i in range(n_p):
-                # Create a view into this momentum slice
-                slice_state = SliceState(state, i)
-                # Advance this slice
-                self._advance_slice(n_steps, slice_state)
-
-        return
-
-    def _advance_slice(self, n_steps: int, state: State) -> None:
-        """
-        Advances a single slice (either the whole 1D state or a momentum slice of 2D state).
-        Uses Crank-Nicolson method for time integration.
-        """
-        dt = np.diff(self.t_grid)[0] * n_steps
-        f_current = np.asarray(state.get_f().copy(), dtype=float)
-
-        if f_current.shape != (self.N,):
+        # Validate shapes
+        n_p = len(self.p_centers)
+        if f_all.shape != (n_p, self.N):
             raise ValueError(
-                f"f_current shape mismatch: expected ({self.N},), got {f_current.shape}"
+                f"State f shape {f_all.shape} does not match expected {(n_p, self.N)}"
             )
 
-        # Compute D on faces using non-uniform harmonic average
-        D_face = np.zeros(self.N + 1)
+        # Vectorized batched solve for all slices
+        f_new_all = self._advance_all_slices_batched(dt, f_all)
 
-        # Interior faces (between cells i-1 and i)
-        for j in range(1, self.N):
-            i_left = j - 1
-            i_right = j
-            num = self.h[i_left] + self.h[i_right]
-            den = (
-                self.h[i_left] / self.D_values[i_left]
-                + self.h[i_right] / self.D_values[i_right]
-            )
-            D_face[j] = num / den
-
-        # Boundary faces
-        D_face[0] = self.D_values[0]  # r=0 face
-        D_face[self.N] = self.D_values[-1]  # r=r_end face
-
-        # Compute conductances G on faces
-        G = np.zeros(self.N + 1)
-
-        # Interior faces
-        for j in range(1, self.N):
-            i_left = j - 1
-            denom = self.d_centers[i_left]  # distance between centers
-            G[j] = self.r_faces[j] ** 2 * D_face[j] / denom
-
-        # Boundary conductances
-        G[0] = 0.0  # symmetry at r=0 -> zero flux
-        if self.N >= 2:
-            denom = self.r_centers[-1] - self.r_centers[-2]
-            G[self.N] = self.r_faces[self.N] ** 2 * D_face[self.N] / denom
+        # Update state: ideally state.update_f(f_new_all)
+        if hasattr(state, "update_f"):
+            state.update_f(f_new_all)
         else:
-            G[self.N] = self.r_faces[self.N] ** 2 * D_face[self.N] / (self.h[0] / 2.0)
+            # fallback: update slice by slice
+            for i in range(n_p):
+                slice_state = SliceState(state, i)
+                slice_state.update_f(f_new_all[i, :])
 
-        # Setup Crank-Nicolson matrices A and B
-        # A * f_new = B * f_old + RHS
-        A_diag = np.zeros(self.N)
-        A_lower = np.zeros(self.N - 1)
-        A_upper = np.zeros(self.N - 1)
-        B_diag = np.zeros(self.N)
-        B_lower = np.zeros(self.N - 1)
-        B_upper = np.zeros(self.N - 1)
+    # ------------------- Core batched advance -------------------
+    def _advance_all_slices_batched(self, dt: float, f_all: np.ndarray) -> np.ndarray:
+        """
+        Vectorized Crank-Nicolson for all momentum slices at once.
 
-        # Assemble interior rows
-        for i in range(self.N):
-            a_left = G[i]  # conductance on left face of cell i
-            a_right = G[i + 1]  # conductance on right face of cell i
+        f_all: shape (n_p, N)
+        D_values: shape (n_p, N)  (or (N,) for 1D)
+        Returns f_new_all shape (n_p, N)
+        """
+        n_p = f_all.shape[0]
 
-            A_diag[i] = 2.0 * self.V[i] / dt + a_left + a_right
-            B_diag[i] = 2.0 * self.V[i] / dt - (a_left + a_right)
+        # D per slice
+        D = (
+            self.D_values if self.p_centers is None else self.D_values
+        )  # D shape should be (n_p,N)
+        if D.ndim == 1:
+            D = np.broadcast_to(D[None, :], (n_p, self.N))
+        # Now D shape (n_p, N)
 
-            if i > 0:
-                A_lower[i - 1] = -a_left
-                B_lower[i - 1] = a_left
-            if i < self.N - 1:
-                A_upper[i] = -a_right
-                B_upper[i] = a_right
+        # 1) Compute D_face for all slices: shape (n_p, N+1)
+        # We'll compute interior faces j = 1..N-1 using harmonic mean with nonuniform h
+        # Precompute h_left/h_right arrays: shape (N-1,)
+        h = np.asarray(self.h, dtype=float)
+        h_left = h[:-1]  # length N-1
+        h_right = h[1:]  # length N-1
+        # For broadcasting: make shapes (1, N-1)
+        hL = h_left[None, :]
+        hR = h_right[None, :]
 
-        # Boundary Conditions
-        # r=0: symmetry already enforced because G[0]=0
-        # r=r_end: Dirichlet BC - replace last row
-        A_diag[-1] = 1.0
-        if self.N > 1:
-            A_lower[-1] = 0.0
-        B_diag[-1] = 0.0
+        # D_left and D_right per face (for each slice)
+        D_left = D[:, :-1]  # shape (n_p, N-1)
+        D_right = D[:, 1:]  # shape (n_p, N-1)
+        num = hL + hR  # shape (1, N-1)
+        den = hL / D_left + hR / D_right  # broadcasts to (n_p, N-1)
+        # prevent division by zero
+        den = np.where(den == 0.0, np.finfo(float).tiny, den)
+        D_face_interior = num / den  # shape (n_p, N-1)
 
-        A = diags([A_lower, A_diag, A_upper], offsets=[-1, 0, 1], format="csr")
-        B = diags([B_lower, B_diag, B_upper], offsets=[-1, 0, 1], format="csr")
+        # assemble D_face: shape (n_p, N+1)
+        D_face = np.zeros((n_p, self.N + 1), dtype=float)
+        D_face[:, 1:-1] = D_face_interior
+        # Boundary faces: use cell-centered D as proxy
+        D_face[:, 0] = D[:, 0]
+        D_face[:, -1] = D[:, -1]
 
-        # Calculate RHS and solve
-        rhs = B @ f_current + 2.0 * self.V * self.Q_values * dt
-        rhs[-1] = self.f_end  # Dirichlet BC
+        # 2) Compute conductances G on faces: G = r_face^2 * D_face / dist_between_centers
+        # For interior faces j = 1..N-1 use self.d_centers[j-1], shape (N-1,)
+        r_faces = self.r_faces  # shape (N+1,)
+        # G shape (n_p, N+1)
+        G = np.zeros_like(D_face)
+        denom_centers = self.d_centers  # length N-1
+        G[:, 1:-1] = (
+            (r_faces[1:-1][None, :] ** 2) * D_face[:, 1:-1] / denom_centers[None, :]
+        )
 
-        f_new = spsolve(A, rhs)
+        # boundary G
+        G[:, 0] = 0.0
+        # outmost face: use difference between last two centers
+        if self.N >= 2:
+            denom_last = self.r_centers[-1] - self.r_centers[-2]
+        else:
+            denom_last = self.h[0] / 2.0
+        G[:, -1] = (r_faces[-1] ** 2) * D_face[:, -1] / denom_last
 
-        # Enforce boundary conditions explicitly for numerical safety
-        # f_new[-1] = self.f_end
-        # f_new[0] = f_new[1]  # symmetry at r=0
+        # 3) Assemble A and B coefficients (batched)
+        # A_diag shape (n_p, N), A_lower (n_p, N) with zero in first col,
+        # A_upper (n_p, N) with zero in last col
+        V = self.V  # shape (N,)
+        V_b = V[None, :]  # shape (1, N) for broadcast
 
-        state.update_f(f_new)
+        a_left = G[:, :-1]  # conductance on left face of cell i  → shape (n_p, N)
+        a_right = G[:, 1:]  # right face for cell i           → shape (n_p, N)
+
+        A_diag = 2.0 * V_b / dt + (a_left + a_right)
+        B_diag = 2.0 * V_b / dt - (a_left + a_right)
+
+        # A_lower at position i-1 corresponds to -a_left[i], so for i>=1 fill A_lower[:, i-1] = -a_left[:, i]
+        A_lower = np.zeros_like(A_diag)
+        B_lower = np.zeros_like(A_diag)
+        A_upper = np.zeros_like(A_diag)
+        B_upper = np.zeros_like(A_diag)
+
+        # For interior lower/upper (positions shifted)
+        A_lower[:, 1:] = -a_left[:, 1:]
+        B_lower[:, 1:] = a_left[:, 1:]
+        A_upper[:, :-1] = -a_right[:, :-1]
+        B_upper[:, :-1] = a_right[:, :-1]
+
+        # Boundary r=r_end: Dirichlet replacement (last row)
+        A_diag[:, -1] = 1.0
+        A_lower[:, -1] = 0.0
+        A_upper[:, -1] = 0.0
+        B_diag[:, -1] = 0.0
+        B_lower[:, -1] = 0.0
+        B_upper[:, -1] = 0.0
+
+        # 4) Build RHS: rhs = B @ f_current
+        # Implement matrix-vector product for tridiagonal B batched
+        # B_diag * f + B_lower * f shifted left + B_upper * f shifted right
+        f = f_all  # shape (n_p, N)
+        rhs = B_diag * f
+        rhs[:, 1:] += B_lower[:, 1:] * f[:, :-1]
+        rhs[:, :-1] += B_upper[:, :-1] * f[:, 1:]
+        # impose Dirichlet at last entry
+        rhs[:, -1] = self.f_end
+
+        # 5) Solve batched tridiagonal systems A * f_new = rhs
+        f_new = self._thomas_batched(A_lower, A_diag, A_upper, rhs)
+
+        return f_new
+
+    # ------------------- Batched Thomas solver -------------------
+    def _thomas_batched(self, a_lower, a_diag, a_upper, rhs):
+        """
+        Batched Thomas algorithm solving many independent tridiagonal systems in parallel.
+        Input shapes:
+          a_lower, a_diag, a_upper, rhs: (n_p, N)
+        Note: a_lower[:,0] and a_upper[:,-1] should be zeros.
+        Returns x shape (n_p, N)
+        """
+
+        # Work on copies to avoid modifying inputs
+        a = a_diag.astype(float).copy()  # main diagonal (n_p,N)
+        b = a_upper.astype(float).copy()  # upper (n_p,N)
+        c = a_lower.astype(float).copy()  # lower (n_p,N)
+        d = rhs.astype(float).copy()  # RHS (n_p,N)
+
+        n_p, N = a.shape
+        # Forward sweep: compute modified coefficients
+        # We will store cp = b'/a' in b, and dp = d'/a' in d (reuse arrays)
+        # First row (i=0):
+        # a0 = a[:,0]; b0 = b[:,0]; d0 = d[:,0]
+        # cp0 = b0 / a0
+        # dp0 = d0 / a0
+        # We must be careful with zeros on diag (shouldn't happen for well-posed A)
+        # To avoid division by zero, add eps
+        eps = np.finfo(float).eps
+
+        a0 = a[:, 0]
+        # Avoid division by zero
+        a0_safe = np.where(np.abs(a0) <= 0.0, eps, a0)
+        b[:, 0] = b[:, 0] / a0_safe
+        d[:, 0] = d[:, 0] / a0_safe
+
+        for i in range(1, N):
+            denom = a[:, i] - c[:, i] * b[:, i - 1]
+            # protect denom
+            denom_safe = np.where(np.abs(denom) <= 0.0, eps, denom)
+            if i < N - 1:
+                b[:, i] = b[:, i] / denom_safe
+            d[:, i] = (d[:, i] - c[:, i] * d[:, i - 1]) / denom_safe
+
+        # Back substitution:
+        x = np.zeros_like(d)
+        x[:, -1] = d[:, -1]
+        for i in range(N - 2, -1, -1):
+            x[:, i] = d[:, i] - b[:, i] * x[:, i + 1]
+
+        return x
 
 
 # =============================================================================

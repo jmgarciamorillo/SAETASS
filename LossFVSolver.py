@@ -53,7 +53,7 @@ class LossFVSolver(HyperbolicFVSolver):
         loss_params = params.copy()
 
         # Set momentum axis as the main axis for losses
-        loss_params["index"] = 1
+        loss_params["axis"] = 0
 
         # Rename loss-specific parameters to match the base class
         if "P_dot" in loss_params:
@@ -93,28 +93,40 @@ class LossFVSolver(HyperbolicFVSolver):
 
     def _inverse_generalized_variable(self, U: np.ndarray, grid: Grid) -> np.ndarray:
         """
-        Convert conservative variable U back to primitive variable f.
-
-        Parameters:
-        -----------
-        U : np.ndarray
-            Conservative variable values
-        grid : Grid
-            Grid object containing p_centers
-
-        Returns:
-        --------
-        np.ndarray
-            Primitive variable f
+        Convert conservative variable U back to primitive variable f = U / p,
+        with proper handling of p = 0 singularity, supporting multidimensional U.
         """
-        p_centers = grid._p_centers_phys
-        mask = p_centers > 0.0
-        f = np.zeros_like(U)
-        f[mask] = U[mask] / p_centers[mask]
+        p = grid._p_centers_phys  # 1D array of p values (e.g. radial or angular grid)
 
-        # For p=0, use neighboring value to avoid singularity
+        # Check alignment of p with U: find which axis matches length of p
+        if p.shape[0] == U.shape[0]:
+            # p varies along axis 0
+            reshape = (U.shape[0],) + (1,) * (U.ndim - 1)
+        elif p.shape[0] == U.shape[-1]:
+            # p varies along last axis
+            reshape = (1,) * (U.ndim - 1) + (U.shape[-1],)
+        else:
+            raise ValueError(
+                f"Shape mismatch: p_centers has shape {p.shape}, "
+                f"but doesn't align with any axis of U with shape {U.shape}"
+            )
+
+        p_broadcast = p.reshape(reshape)
+        mask = p_broadcast > 0.0
+
+        # Compute f safely
+        f = np.zeros_like(U)
+        f = np.where(mask, U / p_broadcast, 0.0)
+
+        # Handle singularity by propagating first non-zero value
         if not np.all(mask) and np.any(mask):
-            f[~mask] = f[mask][0]
+            # Project mask along non-p axis to find a non-singular index
+            nonzero_idx = (
+                np.where(mask)[0][0] if reshape[0] != 1 else np.where(mask)[-1][0]
+            )
+            f = np.where(
+                mask, f, np.take(f, nonzero_idx, axis=np.where(reshape != 1)[0][0])
+            )
 
         return f
 
@@ -137,6 +149,10 @@ class LossFVSolver(HyperbolicFVSolver):
         p_centers = grid._p_centers_phys
         ln10 = np.log(10)
         denom = p_centers * ln10
+        if P_dot.ndim == 2:
+            len_x = grid.shape[1]
+            denom = np.tile(denom[:, None], (1, len_x))  # Expand for 2D grids
+
         mask = denom > 0.0
         gen_vel = np.zeros_like(P_dot)
         gen_vel[mask] = P_dot[mask] / denom[mask]

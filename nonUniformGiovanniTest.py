@@ -10,7 +10,7 @@ from State import State
 from Grid import Grid
 
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     # format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     format="[%(levelname)s] %(name)s: %(message)s",
 )
@@ -106,6 +106,7 @@ f_sea_Mix = f_sea * (1 * u.GeV > 90 * u.GeV) + fsea_Voy * (1 * u.GeV < 90 * u.Ge
 f_end = f_sea_Mix.value
 
 f_end = 3.8682e-7
+f_end = 0
 
 
 ########################
@@ -114,7 +115,7 @@ f_end = 3.8682e-7
 r_0 = 0.0 * u.pc
 r_Inj = 1.0 * u.pc  # parsec
 r_end = 500.0 * u.pc  # parsec
-num_points = 3000
+num_points = 1500
 eta_B = 0.1  # Magnetic field efficiency
 L_wind = 1e38 * u.erg / u.s  # erg/s
 M_dot = 1e-4 * const.M_sun / u.yr
@@ -265,16 +266,15 @@ Q[Q != 0] = 1000
 # Prepare solver parameters
 # For advectionFV we pass v_centers via advectionFV_params
 advectionFV_params = {
-    "v_centers": v_field,
+    "v_centers": np.tile(v_field, (2, 1)),
     "order": 2,
     "limiter": "minmod",
     "cfl": 0.8,
-    "inflow_value_U": 0.0,
+    "inflow_value_U": np.asarray([0.0, 0.0]),
 }
 
 diffusion_params = {
-    "D_values": D_values.to("pc**2/Myr").value,
-    "Q_values": np.zeros_like(Q),
+    "D_values": np.tile(D_values.to("pc**2/Myr").value, (2, 1)),
     "f_end": f_end,
 }
 source_params = {"source": np.array([Q, Q])}
@@ -300,7 +300,7 @@ solver = Solver(
     ),  # State will reshape this to (1, num_points) internally
     problem_type="advectionFV-diffusionFV-source",
     operator_params=op_params,
-    substeps={"advectionFV": 1, "diffusionFV": 1},
+    substeps={"advectionFV": 1, "diffusionFV": 5, "source": 1},
 )
 import matplotlib as mpl
 
