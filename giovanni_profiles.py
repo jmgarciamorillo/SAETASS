@@ -119,7 +119,7 @@ def get_theoretical_profile(r, masks, v_w, D_values, R_TS, R_b, f_gal, f_TS):
     else:
         f_w = np.array([f_TS])
 
-    return np.concatenate([f_w, f_b, f_out])
+    return np.concatenate([f_w, f_b.decompose().value, f_out.decompose().value])
 
 
 def get_velocity_profile(r, v_w, R_TS, R_b, masks):
@@ -448,6 +448,113 @@ def get_particle_velocity(E_k):
     return v_p, p
 
 
+def get_weaver_density_profile(r, M_dot, v_w, rho_0, L_w, t_b, eta_c=0.2, R_c=0 * u.pc):
+    """
+    Compute the gas density profile following Weaver et al. (1977)
+    for a stellar cluster bubble.
+
+    Parameters
+    ----------
+    r : array-like
+        Radial coordinate (pc)
+    M_dot : Quantity
+        Mass-loss rate
+    v_w : Quantity
+        Wind velocity
+    rho_0 : Quantity
+        Ambient density
+    L_w : Quantity
+        Wind mechanical luminosity
+    t_b : Quantity
+        Bubble age
+    eta_c : float, optional
+        Efficiency factor for contact discontinuity (default=0.2)
+    R_c : Quantity, optional
+        Cluster core radius (default=0 pc)
+
+    Returns
+    -------
+    dict
+        Dictionary with density regions and total profile (cm⁻³)
+    """
+
+    # --- Constants and key scalings ---
+    kappa = ((3 * 5**3 * (5 / 3 - 1)) / (4 * np.pi * (63 * 5 / 3 - 28))) ** (1 / 5)
+    kappa = 0.762865  # given in the image
+
+    # Bubble outer radius
+    Rb = kappa * (L_w / rho_0 * t_b**3) ** (1 / 5)
+
+    # Termination shock radius
+    Rs = (
+        ((25 / (28 * np.pi)) ** 0.5)
+        * (kappa**-1)
+        * (L_w**-0.2)
+        * (M_dot**0.5 * v_w**0.5)
+        * rho_0 ** (-3 / 10)
+        * t_b ** (2 / 5)
+    )
+
+    # Contact discontinuity
+    Rcd = (eta_c * L_w * t_b**3 / rho_0) ** (1 / 5) * kappa
+    Rcd = 0.72478 * Rb  # given in the image
+
+    # Convert to pc for convenience
+    Rb_pc = Rb.to("pc").value
+    Rs_pc = Rs.to("pc").value
+    Rcd_pc = Rcd.to("pc").value
+    Rc_pc = R_c.to("pc").value
+
+    # --- Density definitions ---
+    n0 = (rho_0 / const.m_p).to("cm-3").value
+
+    # Core region (constant)
+    n_c = (
+        (M_dot / (4 * np.pi * R_c * v_w) / const.m_p).to("cm-3").value if R_c > 0 else 0
+    )
+
+    # Cold wind (∝ r⁻²)
+    n_w = (M_dot / (4 * np.pi * (r * u.pc) ** 2 * v_w) / const.m_p).to("cm-3").value
+    if R_c == 0:
+        n_w[0] = n_w[1]
+
+    # Hot bubble (constant)
+    M_bubble = M_dot * t_b  # crude assumption for mass in bubble
+    n_b = (M_bubble / (4 / 3 * np.pi * ((Rcd - Rs) ** 3) * const.m_p)).to("cm-3").value
+
+    # Cold ISM shell
+    n_shell = n0 / (1 - (Rcd_pc / Rb_pc) ** 3)
+    n_shell = 7.02 * n0
+
+    # --- Piecewise profile ---
+    n_profile = np.zeros_like(r)
+
+    mask_core = r < Rc_pc
+    mask_wind = (r >= Rc_pc) & (r < Rs_pc)
+    mask_hot = (r >= Rs_pc) & (r < Rcd_pc)
+    mask_shell = (r >= Rcd_pc) & (r < Rb_pc)
+    mask_ISM = r >= Rb_pc
+
+    n_profile[mask_core] = n_c
+    n_profile[mask_wind] = n_w[mask_wind]
+    n_profile[mask_hot] = n_b
+    n_profile[mask_shell] = n_shell
+    n_profile[mask_ISM] = n0
+
+    return {
+        "r": r,
+        "R_c": R_c,
+        "R_s": Rs,
+        "R_cd": Rcd,
+        "R_b": Rb,
+        "n_profile": n_profile * u.cm**-3,
+        "n_c": n_c * u.cm**-3,
+        "n_b": n_b * u.cm**-3,
+        "n_shell": n_shell * u.cm**-3,
+        "n0": n0 * u.cm**-3,
+    }
+
+
 def create_giovanni_setup(
     r_0=0.0 * u.pc,
     r_end=500.0 * u.pc,
@@ -548,6 +655,10 @@ def create_giovanni_setup(
     # Source term
     Q = get_source_term(r, R_TS, eta_inj, rho_w, v_w, p)
 
+    weaver = get_weaver_density_profile(
+        r, M_dot, v_w, rho_0, L_wind, t_b, eta_c=0.2, R_c=0 * u.pc
+    )
+
     return {
         "r": r,
         "r_0": r_0,
@@ -573,4 +684,6 @@ def create_giovanni_setup(
         "p": p,
         "params": params,
         "masks": masks,
+        "n_profile_weaver": weaver["n_profile"],
+        "weaver_details": weaver,
     }
