@@ -120,6 +120,10 @@ class Grid:
                 right_face = self.p_centers[-1] + 0.5 * (
                     self.p_centers[-1] - self.p_centers[-2]
                 )
+                if left_face <= 0:
+                    ValueError("Momentum faces must be positive values.")
+                else:
+                    left_face = left_face  # np.finfo(float).tiny
                 self.p_faces = np.concatenate(
                     [[left_face], internal_faces, [right_face]]
                 )
@@ -129,8 +133,8 @@ class Grid:
                 self.p_faces = np.array(
                     [self.p_centers[0] - 0.5 * dp, self.p_centers[0] + 0.5 * dp]
                 )
-        if np.any(self.p_centers <= 0) or np.any(self.p_faces <= 0):
-            raise ValueError("Momentum centers and faces must be positive values.")
+        # if np.any(self.p_centers <= 0) or np.any(self.p_faces <= 0):
+        # raise ValueError("Momentum centers and faces must be positive values.")
 
     @cached_property
     def dr(self) -> np.ndarray:
@@ -252,21 +256,21 @@ class Grid:
             )
 
         # Create uniform face-centered spatial grid if specified
-        r_faces = None
+        r_centers = None
         if r_min is not None and r_max is not None and num_r_cells is not None:
-            r_faces = np.linspace(r_min, r_max, num_r_cells + 1)
+            r_centers = np.linspace(r_min, r_max, num_r_cells)
 
         # Create uniform face-centered momentum grid if specified
-        p_faces = None
+        p_centers = None
         if p_min is not None and p_max is not None and num_p_cells is not None:
-            p_faces = np.linspace(p_min, p_max, num_p_cells + 1)
+            p_centers = np.linspace(p_min, p_max, num_p_cells)
 
         # Create temporal grid if specified
         t_grid = None
         if t_min is not None and t_max is not None and num_timesteps is not None:
             t_grid = np.linspace(t_min, t_max, num_timesteps + 1)
 
-        return cls(r_faces=r_faces, p_faces=p_faces, t_grid=t_grid)
+        return cls(r_centers=r_centers, p_centers=p_centers, t_grid=t_grid)
 
     @classmethod
     def non_uniform_clustering(
