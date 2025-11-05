@@ -94,41 +94,60 @@ class LossFVSolver(HyperbolicFVSolver):
     def _inverse_generalized_variable(self, U: np.ndarray, grid: Grid) -> np.ndarray:
         """
         Convert conservative variable U back to primitive variable f = U / p,
-        with proper handling of p = 0 singularity, supporting multidimensional U.
-        """
-        p = grid._p_centers_phys  # 1D array of p values (e.g. radial or angular grid)
+        handling both 1D and 2D cases where p corresponds to the momentum coordinate.
 
-        # Check alignment of p with U: find which axis matches length of p
-        if p.shape[0] == U.shape[0]:
-            # p varies along axis 0
-            reshape = (U.shape[0],) + (1,) * (U.ndim - 1)
-        elif p.shape[0] == U.shape[-1]:
-            # p varies along last axis
-            reshape = (1,) * (U.ndim - 1) + (U.shape[-1],)
+        Parameters
+        ----------
+        U : np.ndarray
+            Conservative variable array.
+            - 1D case: shape (N,) or (N,1) or (1,N)
+            - 2D case: shape (Np, Nx), where Np is number of momentum points,
+            and Nx number of spatial points.
+        p : np.ndarray
+            1D array of momentum values of length Np.
+
+        Returns
+        -------
+        f : np.ndarray
+            Primitive variable array with same shape as U.
+        """
+        p = np.asarray(grid._p_centers_phys).flatten()
+
+        # 1D CASE
+        if U.ndim == 1:
+            if U.shape[0] != p.shape[0]:
+                raise ValueError(f"Shape mismatch: U {U.shape}, p {p.shape}")
+            mask = p > 0
+            f = np.zeros_like(U)
+            f[mask] = U[mask] / p[mask]
+            if mask.sum() < len(p):
+                raise ValueError(
+                    "p contains non-positive values, cannot divide by zero."
+                )
+            return f
+
+        # 2D CASE
+        elif U.ndim == 2:
+            # U: (n_r, n_p), p: (n_p,)
+            if U.shape[1] != p.shape[0]:
+                raise ValueError(
+                    f"Expected U.shape[1] == p.shape[0], got U {U.shape}, p {p.shape}"
+                )
+
+            mask = p > 0.0
+            f = np.zeros_like(U)
+            # Solo dividimos columnas donde p > 0
+            f[:, mask] = U[:, mask] / p[mask]
+            if mask.sum() < len(p):
+                raise ValueError(
+                    "p contains non-positive values, cannot divide by zero."
+                )
+            return f
+
         else:
             raise ValueError(
-                f"Shape mismatch: p_centers has shape {p.shape}, "
-                f"but doesn't align with any axis of U with shape {U.shape}"
+                "inverse_generalized_variable only supports 1D or 2D arrays."
             )
-
-        p_broadcast = p.reshape(reshape)
-        mask = p_broadcast > 0.0
-
-        # Compute f safely
-        f = np.zeros_like(U)
-        f = np.where(mask, U / p_broadcast, 0.0)
-
-        # Handle singularity by propagating first non-zero value
-        if not np.all(mask) and np.any(mask):
-            # Project mask along non-p axis to find a non-singular index
-            nonzero_idx = (
-                np.where(mask)[0][0] if reshape[0] != 1 else np.where(mask)[-1][0]
-            )
-            f = np.where(
-                mask, f, np.take(f, nonzero_idx, axis=np.where(reshape != 1)[0][0])
-            )
-
-        return f
 
     def _generalized_velocity(self, P_dot: np.ndarray, grid: Grid) -> np.ndarray:
         """
@@ -191,7 +210,7 @@ if __name__ == "__main__":
     params = {
         "P_dot": P_dot,
         "limiter": "minmod",
-        "cfl": 0.8,
+        "cfl": 0.4,
         "inflow_value_f": 0.0,
         "order": 2,
     }
