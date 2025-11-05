@@ -55,6 +55,16 @@ class LossFVSolver(HyperbolicFVSolver):
         # Set momentum axis as the main axis for losses
         loss_params["axis"] = 0
 
+        # Add adiabatic losses
+        if loss_params["adiabatic_losses"] == True:
+            try:
+                v_centers_physical = loss_params.pop("v_centers_physical")
+            except:
+                raise ValueError(
+                    "If adiabatic_losses is True, v_centers_physical must be provided."
+                )
+            self.P_dot_adiabatic = self._adiabatic_losses(grid, v_centers_physical)
+
         # Rename loss-specific parameters to match the base class
         if "P_dot" in loss_params:
             loss_params["V_centers"] = self._generalized_velocity(
@@ -181,6 +191,26 @@ class LossFVSolver(HyperbolicFVSolver):
             gen_vel[~mask] = 0.0
 
         return gen_vel
+
+    def _adiabatic_losses(
+        self, grid: Grid, v_centers_physical: np.ndarray
+    ) -> np.ndarray:
+
+        r_faces = grid.r_faces
+        A_face = 4.0 * np.pi * r_faces
+        V = (4.0 / 3.0) * np.pi * (r_faces[1:] ** 3 - r_faces[:-1] ** 3)
+
+        # TEMPORARY SOLUTION
+        N = len(grid.r_centers)
+        v_faces = np.zeros((len(grid._p_centers_phys), N + 1))
+        v_faces[:, 1:N] = 0.5 * (v_centers_physical[:, :-1] - v_centers_physical[:, 1:])
+        v_faces[:, 0] = v_centers_physical[:, 0]
+        v_faces[:, -1] = v_centers_physical[:, -1]
+
+        Phi = A_face * v_faces
+        div = (Phi[:, 1:] - Phi[:, :-1]) / V
+
+        return (-grid._p_centers_phys * div.T).T / 3.0 * 0
 
 
 # Example usage
