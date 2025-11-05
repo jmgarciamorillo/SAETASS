@@ -15,7 +15,7 @@ from State import State
 from Solver import Solver
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG, format="[%(levelname)s] %(name)s: %(message)s")
+logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("loss_test")
 
 # Set plot style
@@ -63,9 +63,9 @@ def run_loss_source_test():
     # Parameters
     p_min = 1.0  # Start of the domain
     p_max = 1000.0  # End of the domain
-    num_points = 200  # Number of points in the momentum grid
+    num_points = 4000  # Number of points in the momentum grid
     t_max = 0.2  # Maximum simulation time
-    num_timesteps = 1000  # Number of time steps
+    num_timesteps = 20000  # Number of time steps
 
     # Physics parameters
     beta = 2.0  # Exponent for momentum loss rate
@@ -127,6 +127,8 @@ def run_loss_source_test():
     # Storage for plotting
     saved_states = []
     saved_times = []
+    saved_integrals = []
+    saved_total_flux = []
 
     # Define steps to save (more points at beginning to capture rapid changes)
     time_points = np.concatenate(
@@ -142,6 +144,8 @@ def run_loss_source_test():
     # Add initial state
     saved_states.append(state.f.copy())
     saved_times.append(0.0)
+    saved_integrals.append(np.trapz(state.f * p_centers**2, p_centers))
+    saved_total_flux.append(np.trapz(Q_values * p_centers**2, p_centers))
 
     plt.title("Initial parameter setup for Loss and Source Test")
     plt.loglog(p_centers, Q_values, label="Source Q(p)")
@@ -160,6 +164,8 @@ def run_loss_source_test():
             current_step = step
             saved_states.append(state.f.copy())
             saved_times.append(step * t_max / num_timesteps)
+            saved_integrals.append(np.trapz(state.f * p_centers**2, p_centers))
+            saved_total_flux.append(np.trapz(Q_values * p_centers**2, p_centers))
 
     # Compute analytical solution for comparison
     p_values = grid._p_centers_phys
@@ -271,6 +277,19 @@ def run_loss_source_test():
     plt.title("Time Evolution of Momentum Distribution")
     plt.tight_layout()
     plt.savefig("loss_source_evolution.png", dpi=150)
+    plt.show()
+
+    # plot integral and total flux over time
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.plot(saved_times, saved_integrals, "b-", label="Integral of p^2 * f")
+    ax.plot(saved_times, saved_total_flux, "r--", label="Total Flux of Q")
+    ax.set_xlabel("Time $t$")
+    ax.set_ylabel("Values")
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    plt.title("Integral of p^2 * f and Total Flux of Q over Time")
+    plt.tight_layout()
+    plt.savefig("loss_source_integral_flux.png", dpi=150)
     plt.show()
 
 
