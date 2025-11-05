@@ -3,21 +3,24 @@ from typing import Literal
 from State import State, SliceState
 from Grid import Grid
 from abc import ABC, abstractmethod
+from numba import njit, prange
 
 import logging
 
 logger = logging.getLogger(__name__)
 
 
-def minmod_multi(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> np.ndarray:
-    """Vectorized minmod for three arrays (same shape)."""
-    # returns sign * min(|a|,|b|,|c|) when all same sign, else 0
-    s = np.sign(a)
-    same = (a * b > 0.0) & (a * c > 0.0)
-    out = np.zeros_like(a)
-    out[same] = s[same] * np.minimum(
-        np.minimum(np.abs(a[same]), np.abs(b[same])), np.abs(c[same])
-    )
+@njit(parallel=True, fastmath=True)
+def minmod_multi(a, b, c):
+    out = np.empty_like(a)
+    n = a.size
+    for i in prange(n):
+        ai, bi, ci = a.flat[i], b.flat[i], c.flat[i]
+        if ai * bi > 0.0 and ai * ci > 0.0:
+            s = 1.0 if ai > 0 else -1.0
+            out.flat[i] = s * min(abs(ai), abs(bi), abs(ci))
+        else:
+            out.flat[i] = 0.0
     return out
 
 
@@ -331,10 +334,10 @@ class HyperbolicFVSolver(ABC):
         # check missing / extra
         missing = expected_keys - provided_keys
         extra = provided_keys - expected_keys
-        if missing:
-            raise ValueError(f"Missing required params: {missing}")
-        if extra:
-            raise ValueError(f"Unexpected params provided: {extra}")
+        # if missing:
+        #    raise ValueError(f"Missing required params: {missing}")
+        # if extra:
+        #    raise ValueError(f"Unexpected params provided: {extra}")
 
         # --- axis ---
         try:
@@ -519,8 +522,16 @@ class HyperbolicFVSolver(ABC):
         Right boundary (outer face): use last cell's left state and slope for prediction.
         """
 
-        # Left boundary (r=0): symmetry
-        flux_L = 0.0
+        if self._main_faces[0] <= 0.0 and self.axis == 1:
+            # Left face (r=0): symmetry
+            flux_L = 0.0
+        elif self.axis == 0:
+            # Left face (momentum inflow): use first cell right-state, or inflow
+            V_in = V_centers[0]
+            U_right_inner = U[0]
+            flux_L = V_in * (inflow_value_U if V_in >= 0.0 else U_right_inner)
+        else:
+            raise ValueError("Invalid left face position for the given axis.")
 
         # Right boundary (outer face):
         # left-state at outer face (from last cell)
@@ -547,7 +558,16 @@ class HyperbolicFVSolver(ABC):
         """
         flux_int = np.where(V_faces >= 0.0, V_faces * U[:-1], V_faces * U[1:])
         F = np.empty(self.N + 1, dtype=float)
-        F[0] = 0.0
+        if self._main_faces[0] <= 0.0 and self.axis == 1:
+            # Left face (r=0): symmetry
+            F[0] = 0.0
+        elif self._main_faces[0] > 0.0:
+            # Left face (momentum inflow): use first cell right-state, or inflow
+            V_in = V_centers[0]
+            U_right_inner = U[0]
+            F[0] = V_in * (inflow_value_U if V_in >= 0.0 else U_right_inner)
+        else:
+            raise ValueError("Invalid left face position for the given axis.")
         F[1:-1] = flux_int
         # Outer face (use last cell left-state, or inflow)
         V_out = V_centers[-1]
@@ -609,7 +629,9 @@ class HyperbolicFVSolver(ABC):
         elif self.axis == 0:
             shape = (self.N, U.shape[1])
             F = np.empty(shape, dtype=float)
-            F[0, :] = 0.0
+            F[0, :] = V_centers[0, :] * (
+                self.inflow_value_U if V_centers[0, :] >= 0.0 else U[0, :]
+            )  # assuming zero inflow for 2D
             F[1:-1, :] = flux_int
             F[-1, :] = V_centers[-1, :] * (
                 U[:, -1] if V_centers[-1, :] >= 0.0 else self.inflow_value_U
@@ -677,8 +699,39 @@ class HyperbolicFVSolver(ABC):
             raise NotImplementedError("limiter must be 'minmod', 'vanleer' or 'mc'")
         # Assign slopes to correct slices
         slopes[:, 1:-1] = slopes_interior
-        slopes[:, 0] = 0.0
-        slopes[:, -1] = 0.0
+
+        # TEMPORARY SOLUTION
+        # Left boundary i=0 : forward/backward differences built with same center spacing
+        d_fwd = (U[:, 1] - U[:, 0]) / (centers[1] - centers[0])  # forward 1-step
+        d_fwd2 = (U[:, 2] - U[:, 0]) / (
+            centers[2] - centers[0]
+        )  # two-cell centred forward
+
+        if self.limiter == "minmod":
+            slopes[:, 0] = minmod_multi(d_fwd, d_fwd2, d_fwd)
+        elif self.limiter == "vanleer":
+            prod = d_fwd * d_fwd2
+            slopes[:, 0] = np.where(prod > 0.0, (2.0 * prod) / (d_fwd + d_fwd2), 0.0)
+        elif self.limiter == "mc":
+            slopes[:, 0] = minmod_multi(2.0 * d_fwd, 2.0 * d_fwd2, 0.5 * d_fwd2)
+        else:
+            slopes[:, 0] = d_fwd  # fallback (shouldn't happen)
+
+        # Right boundary i=N-1 : backward / two-cell centred backward
+        d_bwd = (U[:, -1] - U[:, -2]) / (centers[-1] - centers[-2])  # backward 1-step
+        d_bwd2 = (U[:, -1] - U[:, -3]) / (
+            centers[-1] - centers[-3]
+        )  # two-cell centred backward
+
+        if self.limiter == "minmod":
+            slopes[:, -1] = minmod_multi(d_bwd, d_bwd2, d_bwd)
+        elif self.limiter == "vanleer":
+            prod = d_bwd * d_bwd2
+            slopes[:, -1] = np.where(prod > 0.0, (2.0 * prod) / (d_bwd + d_bwd2), 0.0)
+        elif self.limiter == "mc":
+            slopes[:, -1] = minmod_multi(2.0 * d_bwd, 2.0 * d_bwd2, 0.5 * d_bwd2)
+        else:
+            slopes[:, -1] = d_bwd  # fallback
 
         return slopes
 
@@ -699,6 +752,12 @@ class HyperbolicFVSolver(ABC):
         )  # right state of face i (value from left cell)
         UR[:, 1:-1] = U[:, 0 : self.N - 1] + slopes[:, 0 : self.N - 1] * self.dx_L
         UL[:, 1:-1] = U[:, 1 : self.N] - slopes[:, 1 : self.N] * self.dx_R
+
+        # TEMPORARY FIX FOR BOUNDARIES
+        UR[:, 0] = U[:, 0] - slopes[:, 0] * self.dx_L[0]
+        UR[:, -1] = U[:, -1]
+        UL[:, 0] = U[:, 0]
+        UL[:, -1] = U[:, -1] + slopes[:, -1] * self.dx_R[-1]
         return UL, UR
 
     def _predictor_states_2d(
@@ -721,6 +780,11 @@ class HyperbolicFVSolver(ABC):
             ULh[:, 1:-1] -= 0.5 * dt * V_centers[:, 1:] * slopes[:, 1:]
             # UR* (state coming from cell i-1) uses v_{i-1} and slope_{i-1}
             URh[:, 1:-1] -= 0.5 * dt * V_centers[:, :-1] * slopes[:, :-1]
+
+        # TEMPORARY FIX FOR BOUNDARIES
+        ULh[:, 0] -= 0.5 * dt * V_centers[:, 0] * slopes[:, 0]
+        URh[:, -1] -= 0.5 * dt * V_centers[:, -1] * slopes[:, -1]
+
         return ULh, URh
 
     def _boundary_fluxes_2d(
@@ -737,6 +801,20 @@ class HyperbolicFVSolver(ABC):
         """
 
         flux_L = np.zeros(U.shape[0], dtype=float)
+        if self._main_faces[0] <= 0.0 and self.axis == 1:
+            # Left face (r=0): symmetry
+            flux_L[:] = 0.0
+        elif self.axis == 0:
+            # Left face (momentum inflow): use first cell right-state, or inflow
+            V_in = V_centers[:, 0]
+            U_right_inner = U[:, 0]
+            flux_L = V_in * np.where(
+                V_in >= 0.0,
+                self.inflow_value_U,
+                U_right_inner,
+            )
+        else:
+            raise ValueError("Invalid left face position for the given axis.")
 
         # Right boundary (outer face):
         dx_to_right = self._main_faces[-1] - self._main_centers[-1]
