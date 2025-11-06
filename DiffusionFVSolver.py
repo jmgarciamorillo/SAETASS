@@ -5,6 +5,7 @@ from scipy.sparse.linalg import spsolve
 from State import State, SliceState
 from Grid import Grid
 import logging
+from numba import njit, prange
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,7 @@ class DiffusionFVSolver:
         self.d_centers = self.r_centers[1:] - self.r_centers[:-1]
         self.params = params or {}
         self._unpack_params()
+        self._init_buffers()
 
     def _unpack_grid(self, grid):
         self.grid = grid
@@ -50,6 +52,27 @@ class DiffusionFVSolver:
             )
         self.f_end = float(self.params["f_end"])
 
+    def _init_buffers(self):
+        # Buffers for batched Thomas solver
+        n_p = 1 if self.p_centers is None else len(self.p_centers)
+        self._D_face = np.zeros((n_p, self.N + 1), dtype=float)
+        self._G = np.zeros((n_p, self.N + 1), dtype=float)
+        self._A_lower = np.zeros((n_p, self.N), dtype=float)
+        self._A_diag = np.zeros((n_p, self.N), dtype=float)
+        self._A_upper = np.zeros((n_p, self.N), dtype=float)
+        self._B_lower = np.zeros((n_p, self.N), dtype=float)
+        self._B_diag = np.zeros((n_p, self.N), dtype=float)
+        self._B_upper = np.zeros((n_p, self.N), dtype=float)
+        self._rhs = np.zeros((n_p, self.N), dtype=float)
+        self._f_new = np.zeros((n_p, self.N), dtype=float)
+
+        # Additional precomputations
+        self.V_b = self.V[None, :]
+        self.h_left = self.h[:-1].astype(float)
+        self.h_right = self.h[1:].astype(float)
+        self.hL_b = self.h_left[None, :]
+        self.hR_b = self.h_right[None, :]
+
     # ------------------- Public advance -------------------
     def advance(self, n_steps: int, state: State) -> None:
         dt = float(np.diff(self.t_grid)[0]) * n_steps
@@ -60,11 +83,10 @@ class DiffusionFVSolver:
             or getattr(state, "f", None) is None
             or state.get_f().ndim == 1
         ):
-            self._advance_slice(n_steps, state)  # existing single-slice code
-            return
+            raise NotImplementedError(
+                "1D advance not implemented in this optimized version."
+            )
 
-        # Try to extract the entire 2D f matrix from state.
-        # Best if State implements get_f() returning shape (n_p, N).
         try:
             f_all = state.get_f()  # expected (n_p, N)
         except Exception:
@@ -105,107 +127,80 @@ class DiffusionFVSolver:
         """
         n_p = f_all.shape[0]
 
-        # D per slice
-        D = (
-            self.D_values if self.p_centers is None else self.D_values
-        )  # D shape should be (n_p,N)
-        if D.ndim == 1:
-            D = np.broadcast_to(D[None, :], (n_p, self.N))
-        # Now D shape (n_p, N)
-
         # 1) Compute D_face for all slices: shape (n_p, N+1)
         # We'll compute interior faces j = 1..N-1 using harmonic mean with nonuniform h
-        # Precompute h_left/h_right arrays: shape (N-1,)
-        h = np.asarray(self.h, dtype=float)
-        h_left = h[:-1]  # length N-1
-        h_right = h[1:]  # length N-1
-        # For broadcasting: make shapes (1, N-1)
-        hL = h_left[None, :]
-        hR = h_right[None, :]
-
         # D_left and D_right per face (for each slice)
-        D_left = D[:, :-1]  # shape (n_p, N-1)
-        D_right = D[:, 1:]  # shape (n_p, N-1)
-        num = hL + hR  # shape (1, N-1)
-        den = hL / D_left + hR / D_right  # broadcasts to (n_p, N-1)
+        D_left = self.D_values[:, :-1]  # shape (n_p, N-1)
+        D_right = self.D_values[:, 1:]  # shape (n_p, N-1)
+        num = self.hL_b + self.hR_b  # shape (1, N-1)
+        den = self.hL_b / D_left + self.hR_b / D_right  # broadcasts to (n_p, N-1)
         # prevent division by zero
         den = np.where(den == 0.0, np.finfo(float).tiny, den)
-        D_face_interior = num / den  # shape (n_p, N-1)
-
-        # assemble D_face: shape (n_p, N+1)
-        D_face = np.zeros((n_p, self.N + 1), dtype=float)
-        D_face[:, 1:-1] = D_face_interior
+        self._D_face[:, 1:-1] = num / den  # shape (n_p, N-1)
         # Boundary faces: use cell-centered D as proxy
-        D_face[:, 0] = D[:, 0]
-        D_face[:, -1] = D[:, -1]
+        self._D_face[:, 0] = self.D_values[:, 0]
+        self._D_face[:, -1] = self.D_values[:, -1]
 
         # 2) Compute conductances G on faces: G = r_face^2 * D_face / dist_between_centers
         # For interior faces j = 1..N-1 use self.d_centers[j-1], shape (N-1,)
-        r_faces = self.r_faces  # shape (N+1,)
+        rf2 = (self.r_faces[1:-1] ** 2)[None, :]  # shape (1, N-1)
         # G shape (n_p, N+1)
-        G = np.zeros_like(D_face)
-        denom_centers = self.d_centers  # length N-1
-        G[:, 1:-1] = (
-            (r_faces[1:-1][None, :] ** 2) * D_face[:, 1:-1] / denom_centers[None, :]
-        )
-
+        self._G[:, 1:-1] = (rf2 * self._D_face[:, 1:-1]) / self.d_centers[None, :]
         # boundary G
-        G[:, 0] = 0.0
+        self._G[:, 0] = 0.0
         # outmost face: use difference between last two centers
         if self.N >= 2:
             denom_last = self.r_centers[-1] - self.r_centers[-2]
         else:
             denom_last = self.h[0] / 2.0
-        G[:, -1] = (r_faces[-1] ** 2) * D_face[:, -1] / denom_last
+        self._G[:, -1] = (self.r_faces[-1] ** 2) * self._D_face[:, -1] / denom_last
 
         # 3) Assemble A and B coefficients (batched)
         # A_diag shape (n_p, N), A_lower (n_p, N) with zero in first col,
         # A_upper (n_p, N) with zero in last col
-        V = self.V  # shape (N,)
-        V_b = V[None, :]  # shape (1, N) for broadcast
-
-        a_left = G[:, :-1]  # conductance on left face of cell i  → shape (n_p, N)
-        a_right = G[:, 1:]  # right face for cell i           → shape (n_p, N)
-
-        A_diag = 2.0 * V_b / dt + (a_left + a_right)
-        B_diag = 2.0 * V_b / dt - (a_left + a_right)
+        a_left = self._G[:, :-1]  # conductance on left face of cell i  → shape (n_p, N)
+        a_right = self._G[:, 1:]  # right face for cell i           → shape (n_p, N)
+        self._A_diag[:] = 2.0 * self.V_b / dt + (a_left + a_right)
+        self._B_diag[:] = 2.0 * self.V_b / dt - (a_left + a_right)
 
         # A_lower at position i-1 corresponds to -a_left[i], so for i>=1 fill A_lower[:, i-1] = -a_left[:, i]
-        A_lower = np.zeros_like(A_diag)
-        B_lower = np.zeros_like(A_diag)
-        A_upper = np.zeros_like(A_diag)
-        B_upper = np.zeros_like(A_diag)
+        self._A_lower.fill(0.0)
+        self._B_lower.fill(0.0)
+        self._A_upper.fill(0.0)
+        self._B_upper.fill(0.0)
 
         # For interior lower/upper (positions shifted)
-        A_lower[:, 1:] = -a_left[:, 1:]
-        B_lower[:, 1:] = a_left[:, 1:]
-        A_upper[:, :-1] = -a_right[:, :-1]
-        B_upper[:, :-1] = a_right[:, :-1]
+        self._A_lower[:, 1:] = -a_left[:, 1:]
+        self._B_lower[:, 1:] = a_left[:, 1:]
+        self._A_upper[:, :-1] = -a_right[:, :-1]
+        self._B_upper[:, :-1] = a_right[:, :-1]
 
         # Boundary r=r_end: Dirichlet replacement (last row)
-        A_diag[:, -1] = 1.0
-        A_lower[:, -1] = 0.0
-        A_upper[:, -1] = 0.0
-        B_diag[:, -1] = 0.0
-        B_lower[:, -1] = 0.0
-        B_upper[:, -1] = 0.0
+        self._A_diag[:, -1] = 1.0
+        self._A_lower[:, -1] = 0.0
+        self._A_upper[:, -1] = 0.0
+        self._B_diag[:, -1] = 0.0
+        self._B_lower[:, -1] = 0.0
+        self._B_upper[:, -1] = 0.0
 
         # 4) Build RHS: rhs = B @ f_current
         # Implement matrix-vector product for tridiagonal B batched
         # B_diag * f + B_lower * f shifted left + B_upper * f shifted right
         f = f_all  # shape (n_p, N)
-        rhs = B_diag * f
-        rhs[:, 1:] += B_lower[:, 1:] * f[:, :-1]
-        rhs[:, :-1] += B_upper[:, :-1] * f[:, 1:]
+        self._rhs = self._B_diag * f
+        self._rhs[:, 1:] += self._B_lower[:, 1:] * f[:, :-1]
+        self._rhs[:, :-1] += self._B_upper[:, :-1] * f[:, 1:]
         # impose Dirichlet at last entry
-        rhs[:, -1] = self.f_end
+        self._rhs[:, -1] = self.f_end
 
         # 5) Solve batched tridiagonal systems A * f_new = rhs
-        f_new = self._thomas_batched(A_lower, A_diag, A_upper, rhs)
+        f_new = _thomas_batched_numba(
+            self._A_lower, self._A_diag, self._A_upper, self._rhs
+        )
 
         return f_new
 
-    # ------------------- Batched Thomas solver -------------------
+    # ------------------- Batched Thomas solver (deprecated) -------------------
     def _thomas_batched(self, a_lower, a_diag, a_upper, rhs):
         """
         Batched Thomas algorithm solving many independent tridiagonal systems in parallel.
@@ -253,6 +248,42 @@ class DiffusionFVSolver:
             x[:, i] = d[:, i] - b[:, i] * x[:, i + 1]
 
         return x
+
+
+@njit(parallel=True, fastmath=True)
+def _thomas_batched_numba(a_lower, a_diag, a_upper, rhs):
+    n_p, N = a_diag.shape
+    x = np.empty_like(rhs)
+    eps = np.finfo(np.float64).eps
+
+    # Work on local arrays per slice inside parallel loop
+    for s in prange(n_p):
+        # allocate small 1D temporaries per slice (fast)
+        a = a_diag[s, :].copy()
+        b = a_upper[s, :].copy()
+        c = a_lower[s, :].copy()
+        d = rhs[s, :].copy()
+
+        # forward
+        a0 = a[0]
+        if a0 == 0.0:
+            a0 = eps
+        b[0] = b[0] / a0
+        d[0] = d[0] / a0
+        for i in range(1, N):
+            denom = a[i] - c[i] * b[i - 1]
+            if denom == 0.0:
+                denom = eps
+            if i < N - 1:
+                b[i] = b[i] / denom
+            d[i] = (d[i] - c[i] * d[i - 1]) / denom
+
+        # back substitution
+        x[s, N - 1] = d[N - 1]
+        for i in range(N - 2, -1, -1):
+            x[s, i] = d[i] - b[i] * x[s, i + 1]
+
+    return x
 
 
 # =============================================================================
