@@ -234,7 +234,17 @@ class HyperbolicFVSolver(ABC):
                     V_faces,
                 )
             elif self.order == 2:
-                F = self._compute_second_order_fluxes_2d(U, V_centers, V_faces, dt_step)
+                # F = self._compute_second_order_fluxes_2d(U, V_centers, V_faces, dt_step)
+                # Use numba for performance test
+                F = _numba_second_order_fluxes_2d_core(
+                    U,
+                    V_centers,
+                    V_faces,
+                    self._main_centers,
+                    self._main_faces,
+                    dt_step,
+                    0,
+                )
             else:
                 raise NotImplementedError("order must be 1 or 2")
 
@@ -244,7 +254,11 @@ class HyperbolicFVSolver(ABC):
         if self.order == 1:
             F = self._compute_first_order_fluxes_2d(U, V_centers, V_faces)
         elif self.order == 2:
-            F = self._compute_second_order_fluxes_2d(U, V_centers, V_faces, total_time)
+            # F = self._compute_second_order_fluxes_2d(U, V_centers, V_faces, total_time)
+            # Use numba for performance test
+            F = _numba_second_order_fluxes_2d_core(
+                U, V_centers, V_faces, self._main_centers, self._main_faces, dt_step, 0
+            )
         else:
             raise NotImplementedError("order must be 1 or 2")
 
@@ -839,3 +853,78 @@ class HyperbolicFVSolver(ABC):
         self, U: np.ndarray, centers: np.ndarray
     ) -> np.ndarray:
         pass
+
+
+@njit(parallel=True, fastmath=True)
+def _numba_second_order_fluxes_2d_core(
+    U, V_centers, V_faces, centers, faces, dt, limiter
+):
+    """
+    Numba-accelerated 2D MUSCL-Hancock flux computation core.
+    This performs slope computation, reconstruction, predictor, and flux calculation in one pass.
+    """
+    M, N = U.shape  # M: other axis, N: main axis
+    F = np.zeros((M, N + 1))
+    dx_L = faces[1:-1] - centers[:-1]
+    dx_R = centers[1:] - faces[1:-1]
+
+    for j in prange(M):
+        # Extract 1D row (active axis)
+        Uj = U[j, :]
+        Vcj = V_centers[j, :]
+        Vfj = V_faces[j, :]
+
+        slopes = np.zeros(N)
+
+        if N > 2:
+            dL = (Uj[1:-1] - Uj[:-2]) / (centers[1:-1] - centers[:-2])
+            dR = (Uj[2:] - Uj[1:-1]) / (centers[2:] - centers[1:-1])
+            dC = (Uj[2:] - Uj[:-2]) / (centers[2:] - centers[:-2])
+
+            # Apply limiter
+            if limiter == 0:  # minmod
+                for i in range(1, N - 1):
+                    a, b, c = dL[i - 1], dR[i - 1], dC[i - 1]
+                    if a * b > 0.0 and a * c > 0.0:
+                        s = 1.0 if a > 0 else -1.0
+                        slopes[i] = s * min(abs(a), abs(b), abs(c))
+                    else:
+                        slopes[i] = 0.0
+            elif limiter == 1:  # vanleer
+                for i in range(1, N - 1):
+                    a, b = dL[i - 1], dR[i - 1]
+                    prod = a * b
+                    slopes[i] = (2.0 * prod / (a + b)) if prod > 0.0 else 0.0
+            elif limiter == 2:  # MC
+                for i in range(1, N - 1):
+                    a, b, c = 2 * dL[i - 1], 2 * dR[i - 1], 0.5 * dC[i - 1]
+                    if a * b > 0.0 and a * c > 0.0:
+                        s = 1.0 if a > 0 else -1.0
+                        slopes[i] = s * min(abs(a), abs(b), abs(c))
+                    else:
+                        slopes[i] = 0.0
+
+        # Reconstruction at faces
+        UL = np.zeros(N + 1)
+        UR = np.zeros(N + 1)
+        for i in range(1, N):
+            UR[i] = Uj[i - 1] + slopes[i - 1] * dx_L[i - 1]
+            UL[i] = Uj[i] - slopes[i] * dx_R[i - 1]
+
+        # Predictor step
+        ULh = UL.copy()
+        URh = UR.copy()
+        for i in range(1, N):
+            ULh[i] -= 0.5 * dt * Vcj[i] * slopes[i]
+            URh[i] -= 0.5 * dt * Vcj[i - 1] * slopes[i - 1]
+
+        # Internal fluxes
+        for i in range(1, N):
+            F[j, i] = Vfj[i - 1] * (URh[i] if Vfj[i - 1] >= 0.0 else ULh[i])
+
+        # Boundary fluxes (simplified, can adapt later)
+        F[j, 0] = 0.0  # symmetry / inflow
+        Vout = Vcj[-1]
+        F[j, -1] = Vout * (Uj[-1] if Vout >= 0.0 else 0.0)
+
+    return F

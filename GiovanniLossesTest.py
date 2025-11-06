@@ -24,12 +24,12 @@ logger = logging.getLogger("GiovanniLossesTest")
 
 def run_giovanni_losses_test(filename="giovanni_losses_results.pkl"):
     # Physical and grid parameters
-    num_r = 2000
+    num_r = 1500
     num_E = 400
     r_0 = 0.0 * u.pc
     r_end = 300.0 * u.pc
     E_min = 0.001 * u.GeV
-    E_max = 1000000 * u.GeV
+    E_max = 100000 * u.GeV
 
     # Log-spaced energy grid
     E_grid = np.logspace(np.log10(E_min.value), np.log10(E_max.value), num_E) * u.GeV
@@ -173,8 +173,8 @@ def run_giovanni_losses_test(filename="giovanni_losses_results.pkl"):
     P_dot_numeric = P_dot.value  # shape (num_E, num_r)
 
     # Time grid
-    t_max = 0.8  # Myr
-    num_timesteps = 200000
+    t_max = 0.1  # Myr
+    num_timesteps = 1000000
     t_grid = np.linspace(0, t_max, num_timesteps)
 
     # Initial condition: zero everywhere (shape expected: (n_p, n_r) or (num_E, num_r))
@@ -212,12 +212,12 @@ def run_giovanni_losses_test(filename="giovanni_losses_results.pkl"):
     )
 
     index_1GeV = np.abs(E_grid.to("GeV").value - 1.0).argmin()
-    index_1PeV = np.abs(E_grid.to("GeV").value - 1e6).argmin()
+    index_100TeV = np.abs(E_grid.to("GeV").value - 1e5).argmin()
 
     s = 4
     mask_cols = np.any(Q_2d > 0, axis=0)
     spectrum = (p_grid / p_grid[index_1GeV]) ** (-s) * np.exp(
-        -p_grid / p_grid[index_1PeV]
+        -p_grid / p_grid[index_100TeV]
     )
     Q_2d[:, mask_cols] = spectrum[:, np.newaxis]
 
@@ -295,7 +295,7 @@ def run_giovanni_losses_test(filename="giovanni_losses_results.pkl"):
 
     # Plot results for a few energies, overlay Giovanni steady-state profile per energy
     fig, axes = plt.subplots(2, 4, figsize=(18, 8), sharex=True, sharey=True)
-    energies_to_plot = [0.001, 0.01, 0.1, 1, 10, 1000, 100000, 1000000]  # GeV
+    energies_to_plot = [10, 30, 50, 70, 100, 300, 700, 1000]  # GeV
     energy_indices = [np.abs(E_grid.value - e).argmin() for e in energies_to_plot]
 
     for i, (ax, e_idx, E_val) in enumerate(
@@ -466,7 +466,7 @@ def plot_from_results(results_dict, out_prefix="giovanni_losses_fromfile"):
 if __name__ == "__main__":
     # Edit the two variables below to choose behaviour (no CLI needed):
     LOAD_ONLY = False  # set to False to run the simulation
-    RESULTS_FILE = "giovanni_losses_results_subgevProt.pkl"
+    RESULTS_FILE = "giovanni_losses_results_tests.pkl"
 
     if LOAD_ONLY:
         data = load_results_file(RESULTS_FILE)
