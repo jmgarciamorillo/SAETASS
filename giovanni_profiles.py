@@ -448,7 +448,20 @@ def get_particle_velocity(E_k):
     return v_p, p
 
 
-def get_weaver_density_profile(r, M_dot, v_w, rho_0, L_w, t_b, eta_c=0.2, R_c=0 * u.pc):
+def get_weaver_profile(
+    r,
+    M_dot,
+    v_w,
+    rho_0,
+    L_w,
+    t_b,
+    eta_c=0.2,
+    R_c=0 * u.pc,
+    T_w=2e2 * u.K,
+    T_ISM=10 * u.K,
+    T_bubble=1e6 * u.K,
+    T_shell=100 * u.K,
+):
     """
     Compute the gas density profile following Weaver et al. (1977)
     for a stellar cluster bubble.
@@ -496,8 +509,8 @@ def get_weaver_density_profile(r, M_dot, v_w, rho_0, L_w, t_b, eta_c=0.2, R_c=0 
     )
 
     # Contact discontinuity
-    Rcd = (eta_c * L_w * t_b**3 / rho_0) ** (1 / 5) * kappa
-    Rcd = 0.72478 * Rb  # given in the image
+    # Rcd = (eta_c * L_w * t_b**3 / rho_0) ** (1 / 5) * kappa
+    Rcd = 0.95 * Rb
 
     # Convert to pc for convenience
     Rb_pc = Rb.to("pc").value
@@ -528,6 +541,7 @@ def get_weaver_density_profile(r, M_dot, v_w, rho_0, L_w, t_b, eta_c=0.2, R_c=0 
 
     # --- Piecewise profile ---
     n_profile = np.zeros_like(r)
+    T_profile = np.zeros_like(r)
 
     mask_core = r < Rc_pc
     mask_wind = (r >= Rc_pc) & (r < Rs_pc)
@@ -540,6 +554,11 @@ def get_weaver_density_profile(r, M_dot, v_w, rho_0, L_w, t_b, eta_c=0.2, R_c=0 
     n_profile[mask_hot] = n_b
     n_profile[mask_shell] = n_shell
     n_profile[mask_ISM] = n0
+    T_profile[mask_core] = 1e4  # K
+    T_profile[mask_wind] = T_w
+    T_profile[mask_hot] = T_bubble  # K
+    T_profile[mask_shell] = T_shell  # K
+    T_profile[mask_ISM] = T_ISM  # K
 
     return {
         "r": r,
@@ -548,6 +567,7 @@ def get_weaver_density_profile(r, M_dot, v_w, rho_0, L_w, t_b, eta_c=0.2, R_c=0 
         "R_cd": Rcd,
         "R_b": Rb,
         "n_profile": n_profile * u.cm**-3,
+        "T_profile": T_profile * u.K,
         "n_c": n_c * u.cm**-3,
         "n_b": n_b * u.cm**-3,
         "n_shell": n_shell * u.cm**-3,
@@ -568,6 +588,10 @@ def create_giovanni_setup(
     E_k=1 * u.GeV,
     diffusion_model="kolmogorov",
     include_shocks=False,
+    T_wind=200 * u.K,
+    T_ISM=10 * u.K,
+    T_bubble=1e6 * u.K,
+    T_shell=100 * u.K,
 ):
     """
     Create a complete Giovanni model setup with all profiles.
@@ -655,7 +679,7 @@ def create_giovanni_setup(
     # Source term
     Q = get_source_term(r, R_TS, eta_inj, rho_w, v_w, p)
 
-    weaver = get_weaver_density_profile(
+    weaver_profiles = get_weaver_profile(
         r, M_dot, v_w, rho_0, L_wind, t_b, eta_c=0.2, R_c=0 * u.pc
     )
 
@@ -684,6 +708,7 @@ def create_giovanni_setup(
         "p": p,
         "params": params,
         "masks": masks,
-        "n_profile_weaver": weaver["n_profile"],
-        "weaver_details": weaver,
+        "n_profile_weaver": weaver_profiles["n_profile"],
+        "T_profile_weaver": weaver_profiles["T_profile"],
+        "weaver_details": weaver_profiles,
     }
