@@ -234,17 +234,19 @@ class HyperbolicFVSolver(ABC):
                     V_faces,
                 )
             elif self.order == 2:
-                # F = self._compute_second_order_fluxes_2d(U, V_centers, V_faces, dt_step)
-                # Use numba for performance test
-                F = _numba_second_order_fluxes_2d_core(
-                    U,
-                    V_centers,
-                    V_faces,
-                    self._main_centers,
-                    self._main_faces,
-                    dt_step,
-                    0,
+                F = self._compute_second_order_fluxes_2d(
+                    U, V_centers, V_faces, total_time
                 )
+                # Use numba for performance test
+                # F = _numba_second_order_fluxes_2d_core(
+                #     U,
+                #     V_centers,
+                #     V_faces,
+                #     self._main_centers,
+                #     self._main_faces,
+                #     dt_step,
+                #     0,
+                # )
             else:
                 raise NotImplementedError("order must be 1 or 2")
 
@@ -254,11 +256,11 @@ class HyperbolicFVSolver(ABC):
         if self.order == 1:
             F = self._compute_first_order_fluxes_2d(U, V_centers, V_faces)
         elif self.order == 2:
-            # F = self._compute_second_order_fluxes_2d(U, V_centers, V_faces, total_time)
+            F = self._compute_second_order_fluxes_2d(U, V_centers, V_faces, total_time)
             # Use numba for performance test
-            F = _numba_second_order_fluxes_2d_core(
-                U, V_centers, V_faces, self._main_centers, self._main_faces, dt_step, 0
-            )
+            # F = _numba_second_order_fluxes_2d_core(
+            #     U, V_centers, V_faces, self._main_centers, self._main_faces, dt_step, 0
+            # )
         else:
             raise NotImplementedError("order must be 1 or 2")
 
@@ -665,6 +667,9 @@ class HyperbolicFVSolver(ABC):
         Compute second-order MUSCL-Hancock fluxes at faces given conservative generalized variable U and face generalized velocities for 2D case.
         Returns flux matrix with length N+1 on axis and M on other_axis.
         """
+        if self.axis == 0:
+            # For debugging breakpoints
+            logger.debug("Computing 2D second-order fluxes along r-axis")
         # 1) compute slopes for W in non-uniform grid (minmod / vanleer)
         slopes = self._compute_slopes_2d(U)  # shape (N,M) or (M,N)
         # 2) reconstruct left/right states at internal faces (t^n)
@@ -673,8 +678,21 @@ class HyperbolicFVSolver(ABC):
         ULh, URh = self._predictor_states_2d(UL, UR, V_centers, slopes, dt)
         # 4) compute V at internal faces and fluxes by upwind using sign of V_face
         flux_int = np.where(
-            V_faces >= 0.0, V_faces * URh[:, 1:-1], V_faces * ULh[:, 0 : self.N - 1]
+            V_faces >= 0.0, V_faces * URh[:, 1:-1], V_faces * ULh[:, 1:-1]
         )
+
+        # TEST
+        # seleccionar solo caras internas (1..N-1)
+        # Vf_internal = V_faces  # shape (M, N-1)
+        # ULh_internal = ULh[:, 1 : self.N]  # estado izquierdo en esas caras
+        # URh_internal = URh[:, 1 : self.N]  # estado derecho en esas caras
+
+        # upwind clásico: v>=0 -> toma estado izquierdo; v<0 -> toma estado derecho
+        # flux_int = np.where(
+        #     Vf_internal >= 0.0,
+        #     Vf_internal * URh_internal,
+        #     Vf_internal * ULh_internal,
+        # )
 
         shape = (U.shape[0], self.N + 1)
         F = np.empty(shape, dtype=float)
@@ -747,6 +765,10 @@ class HyperbolicFVSolver(ABC):
         else:
             slopes[:, -1] = d_bwd  # fallback
 
+        # TESTING: zero slopes at boundaries
+        # slopes[:, 0] = 0.0
+        # slopes[:, -1] = 0.0
+
         return slopes
 
     def _recontruct_face_states_2d(
@@ -772,6 +794,10 @@ class HyperbolicFVSolver(ABC):
         UR[:, -1] = U[:, -1]
         UL[:, 0] = U[:, 0]
         UL[:, -1] = U[:, -1] + slopes[:, -1] * self.dx_R[-1]
+
+        # TESTING: direct assignment at boundaries
+        # UR[:, 0] = U[:, 0]
+        # UL[:, -1] = U[:, -1]
         return UL, UR
 
     def _predictor_states_2d(
@@ -796,8 +822,8 @@ class HyperbolicFVSolver(ABC):
             URh[:, 1:-1] -= 0.5 * dt * V_centers[:, :-1] * slopes[:, :-1]
 
         # TEMPORARY FIX FOR BOUNDARIES
-        ULh[:, 0] -= 0.5 * dt * V_centers[:, 0] * slopes[:, 0]
-        URh[:, -1] -= 0.5 * dt * V_centers[:, -1] * slopes[:, -1]
+        # ULh[:, 0] -= 0.5 * dt * V_centers[:, 0] * slopes[:, 0]
+        # URh[:, -1] -= 0.5 * dt * V_centers[:, -1] * slopes[:, -1]
 
         return ULh, URh
 
@@ -820,11 +846,18 @@ class HyperbolicFVSolver(ABC):
             flux_L[:] = 0.0
         elif self.axis == 0:
             # Left face (momentum inflow): use first cell right-state, or inflow
-            V_in = V_centers[:, 0]
-            U_right_inner = U[:, 0]
+            slp = (V_centers[:, 1] - V_centers[:, 0]) / (
+                self._main_centers[1] - self._main_centers[0]
+            )
+            V_in = V_centers[:, 0] - slp * (self._main_centers[0] - self._main_faces[0])
+            U_right_inner = U[:, 0] - slopes[:, 0] * (
+                self._main_centers[0] - self._main_faces[0]
+            )
+            # V_in = V_centers[:, 0]  # proxy for face velocity
+            # U_right_inner = U[:, 0]
             flux_L = V_in * np.where(
                 V_in >= 0.0,
-                self.inflow_value_U,
+                0.0,
                 U_right_inner,
             )
         else:
@@ -923,7 +956,10 @@ def _numba_second_order_fluxes_2d_core(
             F[j, i] = Vfj[i - 1] * (URh[i] if Vfj[i - 1] >= 0.0 else ULh[i])
 
         # Boundary fluxes (simplified, can adapt later)
-        F[j, 0] = 0.0  # symmetry / inflow
+        # outflow inner face
+        Vin = Vcj[0]
+        U_right_inner = Uj[0]
+        F[j, 0] = Vin * (U_right_inner if Vin <= 0.0 else 0.0)
         Vout = Vcj[-1]
         F[j, -1] = Vout * (Uj[-1] if Vout >= 0.0 else 0.0)
 
