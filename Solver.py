@@ -12,7 +12,7 @@ from LossFVSolver import LossFVSolver
 from SourceSolver import SourceSolver
 from State import State
 from Grid import Grid
-from SplittingScheme import StrangSplitting
+from SplittingScheme import StrangSplitting, LieSplitting, create_splitting_scheme
 import logging
 
 logger = logging.getLogger(__name__)
@@ -37,6 +37,7 @@ class Solver:
         problem_type: str,
         operator_params: dict = None,
         substeps: dict = None,
+        splitting_scheme=None,
         **kwargs,
     ):
         """
@@ -79,12 +80,15 @@ class Solver:
         self.global_step = 0
         self.total_steps = self.grid.num_timesteps
 
+        # Initialize splitting scheme
+        if splitting_scheme is None:
+            splitting_scheme = "strang"
+            logger.info("No splitting scheme specified; defaulting to 'strang'.")
+        self.splitting_scheme = create_splitting_scheme(splitting_scheme)
+
         # Prepare subsolvers using the mapping
         self.operator_subsolvers = []
         self._initialize_subsolvers(**kwargs)
-
-        # TEMPORAL:
-        self.splitting_scheme = StrangSplitting()
 
     def _refined_t_grid(self, n_sub):
         """Return a refined t_grid for n_sub substeps per global step."""
@@ -100,20 +104,19 @@ class Solver:
 
     def _initialize_subsolvers(self, **kwargs):
         """Initialize subsolvers with appropriate t_grids and parameters."""
-        # TEMPORAL SOLUTION FOR STRANG SPLITTING HARDCODED, SUBREFINING DOUBLE FOR ALL OPS EXCEPT LAST
+
+        refined_t_grids = self.splitting_scheme.initialize_t_grid(
+            self.operator_list, self.substeps_per_op, self.grid.t_grid
+        )
+
+        logger.info(
+            f"Lengths of refined t_grids: {[len(refined_t_grids[op]) for op in self.operator_list]}"
+        )
+
         for i, op in enumerate(self.operator_list):
+
             solver_class = SUBSOLVER_MAP[op]
-
-            # Refine t_grid according to substeps
-            n_sub = self.substeps_per_op[op]
-            if i < self.n_os - 1:
-                n_sub = n_sub * 2  # Double substeps for all but last operator
-
-            if n_sub > 1:
-                t_grid_refined = self._refined_t_grid(n_sub)
-            else:
-                t_grid_refined = self.grid.t_grid
-
+            t_grid_refined = refined_t_grids[op]
             op_params = self.operator_params.get(op, {})
 
             self.operator_subsolvers.append(
@@ -132,6 +135,8 @@ class Solver:
 
         for _ in range(n_steps):
             self.global_step += 1
+            if self.global_step == 505:
+                logger.debug("Reached global step 505.")
             logger.info(
                 f"Global step {self.global_step}/{self.total_steps} | max(f)={np.max(self.state.f):.4g} min(f)={np.min(self.state.f):.4g}"
             )
