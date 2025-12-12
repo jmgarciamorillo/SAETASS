@@ -24,17 +24,22 @@ logger = logging.getLogger("GiovanniLossesTest")
 
 def run_giovanni_losses_test(filename="giovanni_losses_results.pkl"):
     # Physical and grid parameters
-    num_r = 1500
-    num_E = 400
+    num_r = 500
+    num_E = 200
     r_0 = 0.0 * u.pc
     r_end = 300.0 * u.pc
     E_min = 0.001 * u.GeV
-    E_max = 100000 * u.GeV
+    E_max = 1 * u.GeV
 
     # Log-spaced energy grid
     E_grid = np.logspace(np.log10(E_min.value), np.log10(E_max.value), num_E) * u.GeV
 
     # Spatial grid
+    r_grid_1 = np.linspace(r_0.to("pc").value, 50, num_r // 15)
+    r_grid_2 = np.linspace(50, r_end.to("pc").value, 14 * num_r // 15)
+    r_grid = (
+        np.concatenate((r_grid_1, r_grid_2[1:])) * u.pc
+    )  # avoid duplicate point at 50 pc
     r_grid = np.linspace(r_0.to("pc").value, r_end.to("pc").value, num_r)
 
     # Bubble parameters
@@ -153,28 +158,37 @@ def run_giovanni_losses_test(filename="giovanni_losses_results.pkl"):
         E_grid.to("GeV").value / (-E_dot_pion[:, numplot]).to("GeV/Myr").value
     )
     timescale_total = E_grid.to("GeV").value / (-E_dot[:, numplot]).to("GeV/Myr").value
-    plt.figure(figsize=(8, 6))
-    plt.loglog(E_grid.to("GeV").value, timescale_ion, label="Ionization")
-    plt.loglog(E_grid.to("GeV").value, timescale_pion, label="Pion Production")
-    plt.loglog(
-        E_grid.to("GeV").value, timescale_total, label="Total Losses", linewidth=2
-    )
-    plt.xlabel("Energy (GeV)")
-    plt.ylabel("Loss Timescale (Myr)")
-    plt.title("Loss Timescales at r = {:.1f} pc".format(r_grid[numplot]))
-    plt.legend()
-    plt.grid(True)
-    plt.show()
+    # plt.figure(figsize=(8, 6))
+    # plt.loglog(E_grid.to("GeV").value, timescale_ion, label="Ionization")
+    # plt.loglog(E_grid.to("GeV").value, timescale_pion, label="Pion Production")
+    # plt.loglog(
+    #     E_grid.to("GeV").value, timescale_total, label="Total Losses", linewidth=2
+    # )
+    # plt.xlabel("Energy (GeV)")
+    # plt.ylabel("Loss Timescale (Myr)")
+    # plt.title("Loss Timescales at r = {:.1f} pc".format(r_grid[numplot]))
+    # plt.legend()
+    # plt.grid(True)
+    # plt.show()
 
     # calculate P_dot from E_dot
-    v_particle = beta * const.c
-    P_dot = (E_dot / v_particle[:, np.newaxis]).to("g*cm/Myr**2")  # keep units
+
+    # Calculate momentum from kinetic energy for protons
+    p_grid = np.sqrt((E_grid**2 + 2 * E_grid * (const.m_p * const.c**2))) / const.c
+
+    P_dot = (
+        E_dot
+        * ((E_grid + const.m_p * const.c**2) / (p_grid * const.c**2))[:, np.newaxis]
+    ).to(
+        "g*pc/Myr**2"
+    )  # keep units
+
     # convert to numeric array in solver units (g*cm/Myr)
     P_dot_numeric = P_dot.value  # shape (num_E, num_r)
 
     # Time grid
-    t_max = 0.1  # Myr
-    num_timesteps = 1000000
+    t_max = 2  # Myr
+    num_timesteps = 10000
     t_grid = np.linspace(0, t_max, num_timesteps)
 
     # Initial condition: zero everywhere (shape expected: (n_p, n_r) or (num_E, num_r))
@@ -195,24 +209,18 @@ def run_giovanni_losses_test(filename="giovanni_losses_results.pkl"):
         "f_end": 0.0,
     }
     lossFV_params = {
-        "P_dot": P_dot_numeric,  # numeric (num_E, num_r)
+        "P_dot": P_dot_numeric * 0.1,  # numeric (num_E, num_r)
         "limiter": "minmod",
-        "cfl": 0.8,
+        "cfl": 0.2,
         "inflow_value_U": np.zeros((num_r, 1), dtype=float),
         "order": 2,
         "adiabatic_losses": True,
         "v_centers_physical": np.tile(v_field, (num_E, 1)),  # shape (num_E, num_r)
     }
 
-    # Calculate momentum from kinetic energy for grid setup for protons (same as before)
-    p_grid = (
-        (np.sqrt((E_grid**2 + 2 * E_grid * (const.m_p * const.c**2))) / const.c)
-        .to("g*cm/Myr")
-        .value
-    )
-
     index_1GeV = np.abs(E_grid.to("GeV").value - 1.0).argmin()
     index_100TeV = np.abs(E_grid.to("GeV").value - 1e5).argmin()
+    p_grid = p_grid.to("g*pc/Myr").value
 
     s = 4
     mask_cols = np.any(Q_2d > 0, axis=0)
@@ -246,6 +254,7 @@ def run_giovanni_losses_test(filename="giovanni_losses_results.pkl"):
         problem_type="advectionFV-lossFV-source-diffusionFV",
         operator_params=op_params,
         substeps={"advectionFV": 1, "diffusionFV": 1, "lossFV": 1, "source": 1},
+        splitting_scheme="strang",
     )
 
     # Run simulation and store results at selected times
@@ -295,7 +304,7 @@ def run_giovanni_losses_test(filename="giovanni_losses_results.pkl"):
 
     # Plot results for a few energies, overlay Giovanni steady-state profile per energy
     fig, axes = plt.subplots(2, 4, figsize=(18, 8), sharex=True, sharey=True)
-    energies_to_plot = [10, 30, 50, 70, 100, 300, 700, 1000]  # GeV
+    energies_to_plot = [0.001, 0.003, 0.007, 0.01, 0.03, 0.1, 0.3, 1]  # GeV
     energy_indices = [np.abs(E_grid.value - e).argmin() for e in energies_to_plot]
 
     for i, (ax, e_idx, E_val) in enumerate(
@@ -379,6 +388,58 @@ def run_giovanni_losses_test(filename="giovanni_losses_results.pkl"):
     plt.savefig("giovanni_losses_3d.png", dpi=150)
     plt.show()
 
+    # Compare last curve spectum in bubble (steady state) with F_injected
+    index_R_TS = np.where(r_grid >= R_TS.to("pc").value)[0][0]
+    r_bubble = r_grid <= R_b.to("pc").value
+    F_injected = (
+        4
+        * np.pi
+        / 3
+        * R_b**3
+        * spectrum
+        * u.Myr**3
+        / (u.pc * u.g * u.pc) ** 3
+        * (
+            4
+            * np.pi
+            * (p_grid * u.g * u.pc / u.Myr) ** 2
+            * (E_grid + (const.m_p * const.c**2))
+            / (p_grid * u.g * u.pc / u.Myr * const.c**2)
+        )
+    )
+
+    F_obs = (
+        4
+        * np.pi
+        * (r_grid[r_bubble] * u.pc) ** 2
+        * final_curve[:, r_bubble]
+        * (1 / (u.g * u.pc / u.Myr) ** 3 / u.pc**3)
+    )
+    F_obs_integrated = np.trapezoid(F_obs, r_grid[r_bubble] * u.pc, axis=1) * (
+        4
+        * np.pi
+        * (p_grid * u.g * u.pc / u.Myr) ** 2
+        * (E_grid + (const.m_p * const.c**2))
+        / (p_grid * u.g * u.pc / u.Myr * const.c**2)
+    )
+    plt.figure(figsize=(8, 6))
+    plt.loglog(
+        E_grid.to("GeV").value,
+        F_injected.to("1/GeV"),
+        label="Injected Spectrum",
+        linewidth=2,
+    )
+    plt.loglog(
+        E_grid.to("GeV").value,
+        F_obs_integrated.to("1/GeV"),
+        label="Observed Spectrum in Bubble",
+        linewidth=2,
+    )
+    plt.xlabel("Energy (GeV)")
+    plt.ylabel("Spectrum F(E) (arbitrary units)")
+    plt.title("Giovanni Model: Injected vs Observed Spectrum in Bubble")
+    plt.show()
+
 
 def load_results_file(filename="giovanni_losses_results.pkl"):
     """Load previously saved results produced by this script."""
@@ -408,7 +469,7 @@ def plot_from_results(results_dict, out_prefix="giovanni_losses_fromfile"):
 
     # Main multi-panel figure (same energies as in simulation)
     fig, axes = plt.subplots(2, 4, figsize=(18, 8), sharex=True, sharey=True)
-    energies_to_plot = [1, 3, 10, 30, 100, 300, 600, 1000]  # GeV
+    energies_to_plot = [0.001, 0.01, 0.1, 1, 100, 1000, 10000, 100000]  # GeV
     energy_indices = [np.abs(E_grid - e).argmin() for e in energies_to_plot]
 
     for i, (ax, e_idx, E_val) in enumerate(
