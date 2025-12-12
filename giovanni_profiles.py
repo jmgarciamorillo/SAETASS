@@ -566,6 +566,7 @@ def get_weaver_profile(
         "R_s": Rs,
         "R_cd": Rcd,
         "R_b": Rb,
+        "shell_mask": mask_shell,
         "n_profile": n_profile * u.cm**-3,
         "T_profile": T_profile * u.K,
         "n_c": n_c * u.cm**-3,
@@ -711,4 +712,5 @@ def create_giovanni_setup(
         "n_profile_weaver": weaver_profiles["n_profile"],
         "T_profile_weaver": weaver_profiles["T_profile"],
         "weaver_details": weaver_profiles,
+        "weaver_shell_mask": weaver_profiles["shell_mask"],
     }
