@@ -98,9 +98,11 @@ class HyperbolicFVSolver(ABC):
             V_left = V[:, :-1]
             V_right = V[:, 1:]
 
-        dist_left_b = np.tile(dist_left, (V.shape[0], 1)) if V.ndim == 2 else dist_left
+        dist_left_b = (
+            np.tile(dist_left[1:], (V.shape[0], 1)) if V.ndim == 2 else dist_left
+        )
         dist_right_b = (
-            np.tile(dist_right, (V.shape[0], 1)) if V.ndim == 2 else dist_right
+            np.tile(dist_right[:-1], (V.shape[0], 1)) if V.ndim == 2 else dist_right
         )
 
         # Compute interpolation denominator safely
@@ -422,8 +424,8 @@ class HyperbolicFVSolver(ABC):
             self.N = len(centers)
             self.dx = getattr(grid, f"d{name}", None)  # for compatibility (dr or dp)
             self.dx_c = centers[1:] - centers[:-1]  # Δ between centers
-            self.dx_L = faces[1:-1] - centers[:-1]  # distance center to left face
-            self.dx_R = centers[1:] - faces[1:-1]  # distance center to right face
+            self.dx_R = faces[1:] - centers  # distance center to right face
+            self.dx_L = centers - faces[:-1]  # distance center to left face
 
         # --- main logic ---
         axes = {0: "p", 1: "r"}
@@ -497,8 +499,8 @@ class HyperbolicFVSolver(ABC):
         """
         UL = np.zeros(self.N + 1)  # left state of face i (value from right cell)
         UR = np.zeros(self.N + 1)  # right state of face i (value from left cell)
-        UR[1:-1] = U[:-1] + slopes[:-1] * self.dx_L  # UR at face i uses left cell (i-1)
-        UL[1:-1] = U[1:] - slopes[1:] * self.dx_R  # UL at face i uses right cell (i)
+        UL[1:] = U + slopes * self.dx_R  # UL at face i uses left cell (i-1)
+        UR[:-1] = U - slopes * self.dx_L  # UR at face i uses right cell (i)
         return UL, UR
 
     def _predictor_states(
@@ -519,9 +521,9 @@ class HyperbolicFVSolver(ABC):
         URh = UR.copy()
         if self.N > 1:
             # UL* (state coming from cell i) uses v_i and slope_i
-            ULh[1:-1] -= 0.5 * dt * V_centers[1:] * slopes[1:]
+            ULh[1:] -= 0.5 * dt * V_centers * slopes
             # UR* (state coming from cell i-1) uses v_{i-1} and slope_{i-1}
-            URh[1:-1] -= 0.5 * dt * V_centers[:-1] * slopes[:-1]
+            URh[:-1] -= 0.5 * dt * V_centers * slopes
         return ULh, URh
 
     def _boundary_fluxes(
@@ -610,10 +612,10 @@ class HyperbolicFVSolver(ABC):
         # 3) predictor to t^{n+1/2}
         ULh, URh = self._predictor_states(UL, UR, V_centers, slopes, dt)
         # 4) compute V at internal faces and fluxes by upwind using sign of V_face
-        flux_int = np.where(V_faces >= 0.0, V_faces * URh[1:-1], V_faces * ULh[1:-1])
+        flux_int = np.where(V_faces >= 0.0, V_faces * ULh[1:-1], V_faces * URh[1:-1])
         F = np.empty(self.N + 1)
         F[1:-1] = flux_int
-        # Note: if V_face>0 donor is left cell => URh (value from left), else ULh (from right)
+        # Note: if V_face>0 donor is left cell => ULh (value from left), else URh (from right)
 
         # 5) boundary fluxes:
         F[0], F[-1] = self._boundary_fluxes(U, V_centers, slopes, inflow_value_U, dt)
@@ -678,26 +680,13 @@ class HyperbolicFVSolver(ABC):
         ULh, URh = self._predictor_states_2d(UL, UR, V_centers, slopes, dt)
         # 4) compute V at internal faces and fluxes by upwind using sign of V_face
         flux_int = np.where(
-            V_faces >= 0.0, V_faces * URh[:, 1:-1], V_faces * ULh[:, 1:-1]
+            V_faces >= 0.0, V_faces * ULh[:, 1:-1], V_faces * URh[:, 1:-1]
         )
-
-        # TEST
-        # seleccionar solo caras internas (1..N-1)
-        # Vf_internal = V_faces  # shape (M, N-1)
-        # ULh_internal = ULh[:, 1 : self.N]  # estado izquierdo en esas caras
-        # URh_internal = URh[:, 1 : self.N]  # estado derecho en esas caras
-
-        # upwind clásico: v>=0 -> toma estado izquierdo; v<0 -> toma estado derecho
-        # flux_int = np.where(
-        #     Vf_internal >= 0.0,
-        #     Vf_internal * URh_internal,
-        #     Vf_internal * ULh_internal,
-        # )
 
         shape = (U.shape[0], self.N + 1)
         F = np.empty(shape, dtype=float)
         F[:, 1:-1] = flux_int
-        F[:, 0], F[:, -1] = self._boundary_fluxes_2d(U, V_centers, slopes, dt)
+        F[:, 0], F[:, -1] = self._boundary_fluxes_2d(U, ULh, URh, V_centers, slopes, dt)
         return F
 
     def _compute_slopes_2d(self, U: np.ndarray) -> np.ndarray:
@@ -786,18 +775,13 @@ class HyperbolicFVSolver(ABC):
         UR = np.zeros(
             (U.shape[0], self.N + 1)
         )  # right state of face i (value from left cell)
-        UR[:, 1:-1] = U[:, 0 : self.N - 1] + slopes[:, 0 : self.N - 1] * self.dx_L
-        UL[:, 1:-1] = U[:, 1 : self.N] - slopes[:, 1 : self.N] * self.dx_R
+        UR[:, :-1] = U - slopes * self.dx_L
+        UL[:, 1:] = U + slopes * self.dx_R
 
         # TEMPORARY FIX FOR BOUNDARIES
-        UR[:, 0] = U[:, 0] - slopes[:, 0] * self.dx_L[0]
         UR[:, -1] = U[:, -1]
         UL[:, 0] = U[:, 0]
-        UL[:, -1] = U[:, -1] + slopes[:, -1] * self.dx_R[-1]
 
-        # TESTING: direct assignment at boundaries
-        # UR[:, 0] = U[:, 0]
-        # UL[:, -1] = U[:, -1]
         return UL, UR
 
     def _predictor_states_2d(
@@ -817,9 +801,9 @@ class HyperbolicFVSolver(ABC):
         URh = UR.copy()
         if self.N > 1:
             # UL* (state coming from cell i) uses v_i and slope_i
-            ULh[:, 1:-1] -= 0.5 * dt * V_centers[:, 1:] * slopes[:, 1:]
+            ULh[:, 1:] -= 0.5 * dt * V_centers * slopes
             # UR* (state coming from cell i-1) uses v_{i-1} and slope_{i-1}
-            URh[:, 1:-1] -= 0.5 * dt * V_centers[:, :-1] * slopes[:, :-1]
+            URh[:, :-1] -= 0.5 * dt * V_centers * slopes
 
         # TEMPORARY FIX FOR BOUNDARIES
         # ULh[:, 0] -= 0.5 * dt * V_centers[:, 0] * slopes[:, 0]
@@ -830,6 +814,8 @@ class HyperbolicFVSolver(ABC):
     def _boundary_fluxes_2d(
         self,
         U: np.ndarray,
+        ULh: np.ndarray,
+        URh: np.ndarray,
         V_centers: np.ndarray,
         slopes: np.ndarray,
         dt: float,
@@ -850,28 +836,24 @@ class HyperbolicFVSolver(ABC):
                 self._main_centers[1] - self._main_centers[0]
             )
             V_in = V_centers[:, 0] - slp * (self._main_centers[0] - self._main_faces[0])
-            U_right_inner = U[:, 0] - slopes[:, 0] * (
-                self._main_centers[0] - self._main_faces[0]
-            )
-            # V_in = V_centers[:, 0]  # proxy for face velocity
             # U_right_inner = U[:, 0]
             flux_L = V_in * np.where(
                 V_in >= 0.0,
                 0.0,
-                U_right_inner,
+                URh[:, 0],
             )
         else:
             raise ValueError("Invalid left face position for the given axis.")
 
-        # Right boundary (outer face):
-        dx_to_right = self._main_faces[-1] - self._main_centers[-1]
-        U_left_outer = U[:, -1] + slopes[:, -1] * dx_to_right
-
-        U_left_outer_star = U_left_outer - 0.5 * dt * V_centers[:, -1] * slopes[:, -1]
-        V_out = V_centers[:, -1]  # proxy for face velocity
+        # Right boundary (outer face)
+        slp = (V_centers[:, -1] - V_centers[:, -2]) / (
+            self._main_centers[-1] - self._main_centers[-2]
+        )
+        V_out = V_centers[:, -1] + slp * (self._main_faces[-1] - self._main_centers[-1])
+        # left-state
         flux_R = V_out * np.where(
             V_out >= 0.0,
-            U_left_outer_star,
+            ULh[:, -1],
             self.inflow_value_U,
         )
 
