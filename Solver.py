@@ -1,9 +1,4 @@
 import numpy as np
-import inspect
-
-from AdvectionSolver import AdvectionSolver
-from DiffusionSolver import DiffusionSolver
-from LossSolver import LossSolver
 
 # from AdvectionFVSolver import AdvectionFVSolver
 from DiffusionFVSolver import DiffusionFVSolver
@@ -19,9 +14,6 @@ logger = logging.getLogger(__name__)
 
 # Map operator names to their solver classes
 SUBSOLVER_MAP = {
-    "advection": AdvectionSolver,
-    "diffusion": DiffusionSolver,
-    "loss": LossSolver,
     "advectionFV": AdvectionFVSolver,
     "diffusionFV": DiffusionFVSolver,
     "lossFV": LossFVSolver,
