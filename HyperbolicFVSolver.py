@@ -99,10 +99,12 @@ class HyperbolicFVSolver(ABC):
             V_right = V[:, 1:]
 
         dist_left_b = (
-            np.tile(dist_left[1:], (V.shape[0], 1)) if V.ndim == 2 else dist_left
+            np.tile(dist_left[1:], (V.shape[0], 1)) if V.ndim == 2 else dist_left[1:]
         )
         dist_right_b = (
-            np.tile(dist_right[:-1], (V.shape[0], 1)) if V.ndim == 2 else dist_right
+            np.tile(dist_right[:-1], (V.shape[0], 1))
+            if V.ndim == 2
+            else dist_right[:-1]
         )
 
         # Compute interpolation denominator safely

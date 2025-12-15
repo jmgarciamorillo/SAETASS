@@ -41,20 +41,37 @@ class DiffusionFVSolver:
             self.p_faces = None
             logger.info("No momentum grid found, operating in 1D mode")
 
+        self.n_p = 1 if self.p_centers is None else len(self.p_centers)
+
     def _unpack_params(self):
         expected = {"D_values", "f_end"}
-        if not expected.issubset(set(self.params.keys())):
+        if not expected.issubset(self.params):
             raise ValueError(f"Missing params: {expected - set(self.params.keys())}")
-        self.D_values = np.asarray(self.params["D_values"], dtype=float)
-        if self.D_values.shape != self.grid.shape:
+
+        D = np.asarray(self.params["D_values"], dtype=float)
+
+        if D.shape != self.grid.shape:
             raise ValueError(
-                f"D_values shape mismatch: expected {self.grid.shape}, got {self.D_values.shape}"
+                f"D_values shape {D.shape} does not match grid shape {self.grid.shape}"
             )
+
+        if D.ndim == 1:
+            # 1D -> promote to (1, N)
+            if D.size != len(self.r_centers):
+                raise ValueError(
+                    "1D D_values must have the same size than the number of radial cells"
+                )
+            self.D_values = D[None, :]  # shape = (1, N)
+        elif D.ndim == 2:
+            self.D_values = D  # shape = (n_p, N)
+        else:
+            raise ValueError("D_values must be 1D or 2D")
+
         self.f_end = float(self.params["f_end"])
 
     def _init_buffers(self):
         # Buffers for batched Thomas solver
-        n_p = 1 if self.p_centers is None else len(self.p_centers)
+        n_p = self.n_p
         self._D_face = np.zeros((n_p, self.N + 1), dtype=float)
         self._G = np.zeros((n_p, self.N + 1), dtype=float)
         self._A_lower = np.zeros((n_p, self.N), dtype=float)
@@ -77,31 +94,26 @@ class DiffusionFVSolver:
     def advance(self, n_steps: int, state: State) -> None:
         dt = float(np.diff(self.t_grid)[0]) * n_steps
 
+        f_all = state.get_f()
+
         # If no momentum grid or state is 1D, use scalar path
         if (
             self.p_centers is None
             or getattr(state, "f", None) is None
             or state.get_f().ndim == 1
         ):
-            raise NotImplementedError(
-                "1D advance not implemented in this optimized version."
-            )
+            # Promote a 1D f(r) into shape (1, N)
+            f_all = state.get_f()
 
-        try:
-            f_all = state.get_f()  # expected (n_p, N)
-        except Exception:
-            # Fallback: attempt to use state.f attribute
-            f_all = np.asarray(state.f, dtype=float)
-            if f_all.ndim != 2:
-                raise ValueError(
-                    "Cannot extract 2D f array from state; implement get_f() for efficiency."
-                )
+            if f_all.ndim == 1:
+                # 1D case → promote
+                if f_all.size != self.N:
+                    raise ValueError("1D state f must have size N")
+                f_all = f_all[None, :]  # shape = (1, N)
 
-        # Validate shapes
-        n_p = len(self.p_centers)
-        if f_all.shape != (n_p, self.N):
+        if f_all.shape != (self.n_p, self.N):
             raise ValueError(
-                f"State f shape {f_all.shape} does not match expected {(n_p, self.N)}"
+                f"State f shape {f_all.shape} does not match expected {(self.n_p, self.N)}"
             )
 
         # Vectorized batched solve for all slices
@@ -112,7 +124,7 @@ class DiffusionFVSolver:
             state.update_f(f_new_all)
         else:
             # fallback: update slice by slice
-            for i in range(n_p):
+            for i in range(self.n_p):
                 slice_state = SliceState(state, i)
                 slice_state.update_f(f_new_all[i, :])
 
@@ -125,7 +137,6 @@ class DiffusionFVSolver:
         D_values: shape (n_p, N)  (or (N,) for 1D)
         Returns f_new_all shape (n_p, N)
         """
-        n_p = f_all.shape[0]
 
         # 1) Compute D_face for all slices: shape (n_p, N+1)
         # We'll compute interior faces j = 1..N-1 using harmonic mean with nonuniform h
@@ -200,55 +211,6 @@ class DiffusionFVSolver:
 
         return f_new
 
-    # ------------------- Batched Thomas solver (deprecated) -------------------
-    def _thomas_batched(self, a_lower, a_diag, a_upper, rhs):
-        """
-        Batched Thomas algorithm solving many independent tridiagonal systems in parallel.
-        Input shapes:
-          a_lower, a_diag, a_upper, rhs: (n_p, N)
-        Note: a_lower[:,0] and a_upper[:,-1] should be zeros.
-        Returns x shape (n_p, N)
-        """
-
-        # Work on copies to avoid modifying inputs
-        a = a_diag.astype(float).copy()  # main diagonal (n_p,N)
-        b = a_upper.astype(float).copy()  # upper (n_p,N)
-        c = a_lower.astype(float).copy()  # lower (n_p,N)
-        d = rhs.astype(float).copy()  # RHS (n_p,N)
-
-        n_p, N = a.shape
-        # Forward sweep: compute modified coefficients
-        # We will store cp = b'/a' in b, and dp = d'/a' in d (reuse arrays)
-        # First row (i=0):
-        # a0 = a[:,0]; b0 = b[:,0]; d0 = d[:,0]
-        # cp0 = b0 / a0
-        # dp0 = d0 / a0
-        # We must be careful with zeros on diag (shouldn't happen for well-posed A)
-        # To avoid division by zero, add eps
-        eps = np.finfo(float).eps
-
-        a0 = a[:, 0]
-        # Avoid division by zero
-        a0_safe = np.where(np.abs(a0) <= 0.0, eps, a0)
-        b[:, 0] = b[:, 0] / a0_safe
-        d[:, 0] = d[:, 0] / a0_safe
-
-        for i in range(1, N):
-            denom = a[:, i] - c[:, i] * b[:, i - 1]
-            # protect denom
-            denom_safe = np.where(np.abs(denom) <= 0.0, eps, denom)
-            if i < N - 1:
-                b[:, i] = b[:, i] / denom_safe
-            d[:, i] = (d[:, i] - c[:, i] * d[:, i - 1]) / denom_safe
-
-        # Back substitution:
-        x = np.zeros_like(d)
-        x[:, -1] = d[:, -1]
-        for i in range(N - 2, -1, -1):
-            x[:, i] = d[:, i] - b[:, i] * x[:, i + 1]
-
-        return x
-
 
 @njit(parallel=True, fastmath=True)
 def _thomas_batched_numba(a_lower, a_diag, a_upper, rhs):
@@ -284,151 +246,3 @@ def _thomas_batched_numba(a_lower, a_diag, a_upper, rhs):
             x[s, i] = d[i] - b[i] * x[s, i + 1]
 
     return x
-
-
-# =============================================================================
-# Example / Test Case
-# =============================================================================
-if __name__ == "__main__":
-    import matplotlib as mpl
-
-    # Parameters matching DiffValidation5.py and untitled.py
-    r_0 = 0.0
-    r_end = 1.0
-    num_points = 200
-    f_end_bc = 0.0
-
-    # Non-uniform grid test option
-    is_nonuniform_test = True
-
-    # Create grid
-    if is_nonuniform_test:
-        # Create refined grid around the diffusion coefficient jump at r=0.5
-        grid = Grid.create(
-            space_grid_type="clustered",
-            r_min=r_0,
-            r_max=r_end,
-            num_r_cells=num_points - 1,
-            r_cluster_center=0.5,
-            r_cluster_width=0.1,
-            r_cluster_strength=0.9,
-            t_min=0.0,
-            t_max=0.1,
-            num_timesteps=50,
-        )
-    else:
-        grid = Grid.uniform(
-            r_min=r_0,
-            r_max=r_end,
-            num_r_cells=num_points - 1,
-            t_min=0.0,
-            t_max=0.1,
-            num_timesteps=50,
-        )
-
-    # Get grid data
-    r = grid.r_centers
-    t_grid = grid.t_grid
-
-    # Initial profile (Gaussian-like)
-    f_initial = np.exp(-((r - 0.3) ** 2) / (2 * 0.05**2))
-
-    # Create state
-    state = State(f=f_initial)
-
-    # Discontinuous diffusion coefficient
-    D_values = np.ones(num_points)
-    D_values[r >= 0.5] = 0.1
-
-    # Source term (Q)
-    Q = np.zeros(num_points)
-
-    dif_param = {
-        "D_values": D_values,
-        "Q_values": Q,
-        "f_end": f_end_bc,
-    }
-
-    # Prepare solver
-    solver = DiffusionFVSolver(grid=grid, t_grid=t_grid, params=dif_param)
-
-    # Run simulation
-    num_timesteps = len(t_grid) - 1
-    f_evolution = [state.f.copy()]
-
-    for n in range(1, num_timesteps + 1):
-        solver.advance(1, state)
-        f_evolution.append(state.f.copy())
-
-    # Plotting
-    fig, ax = plt.subplots(figsize=(10, 4.5))
-
-    num_curves = 10
-    indices = np.linspace(0, num_timesteps, num_curves, dtype=int)
-    colors = plt.cm.viridis(np.linspace(0, 1, num_curves))
-
-    for idx, curve_idx in enumerate(indices):
-        ax.plot(
-            r,
-            (
-                f_evolution[curve_idx][0]
-                if f_evolution[curve_idx].ndim > 1
-                else f_evolution[curve_idx]
-            ),
-            color=colors[idx],
-            linestyle="-",
-            label=f"t={t_grid[curve_idx]:.2f}" if idx in [0, num_curves - 1] else None,
-        )
-
-    # Also plot the diffusion coefficient profile
-    ax2 = ax.twinx()
-    ax2.plot(r, D_values, "r--", label="D(r)", alpha=0.5)
-    ax2.set_ylabel("Diffusion Coefficient D(r)", color="r")
-    ax2.tick_params(axis="y", labelcolor="r")
-
-    ax.set_xlabel("$r$ in parsec")
-    ax.set_ylabel("Solution $f(t,r)$")
-    from matplotlib.lines import Line2D
-
-    legend_elements = [
-        Line2D([0], [0], color="k", linestyle="-", label="Numerical (FV Solver)"),
-        Line2D([0], [0], color="r", linestyle="--", label="D(r)"),
-    ]
-    ax.legend(handles=legend_elements)
-    ax.grid()
-    fig.tight_layout()
-
-    sm = mpl.cm.ScalarMappable(
-        cmap=plt.cm.viridis, norm=plt.Normalize(vmin=0, vmax=t_grid[-1])
-    )
-    sm.set_array([])
-    cbar = fig.colorbar(sm, ax=ax, pad=0.1)
-    cbar.set_label("$t$")
-
-    plt.xlim(r_0, r_end)
-    plt.ylim(0, 1.1)
-    plt.grid(False)
-
-    # Update title based on grid type
-    if is_nonuniform_test:
-        plt.title(
-            "Diffusion with Discontinuous Coefficient (Non-uniform Grid FV Solver)"
-        )
-    else:
-        plt.title("Diffusion with Discontinuous Coefficient (Uniform Grid FV Solver)")
-
-    plt.show()
-
-    # Print grid information
-    print(f"\nGrid Information:")
-    print(f"Total grid points: {len(r)}")
-    if is_nonuniform_test:
-        print(f"Grid type: Non-uniform (clustered around r=0.5)")
-        # Calculate grid spacing statistics
-        dr = np.diff(r)
-        print(f"Min grid spacing: {dr.min():.6f}")
-        print(f"Max grid spacing: {dr.max():.6f}")
-        print(f"Mean grid spacing: {dr.mean():.6f}")
-    else:
-        print(f"Grid type: Uniform")
-        print(f"Grid spacing: {(r_end - r_0)/(len(r)-1):.6f}")

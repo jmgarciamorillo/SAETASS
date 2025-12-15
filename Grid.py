@@ -189,8 +189,15 @@ class Grid:
 
     @cached_property
     def shape(self) -> Tuple[int, int]:
-        """Return the shape of the grid as (n_p, n_r)."""
-        return (self.num_cells_p, self.num_cells_r)
+        """Return the shape of the grid as (n_p, n_r) if 2D or the 1D shape if only one dimension is defined."""
+        if self.p_centers is not None and self.r_centers is not None:
+            return (self.num_cells_p, self.num_cells_r)
+        elif self.r_centers is not None:
+            return (self.num_cells_r,)
+        elif self.p_centers is not None:
+            return (self.num_cells_p,)
+        else:
+            raise ValueError("No grid dimensions are defined.")
 
     def _p_to_y(self, p: np.ndarray) -> np.ndarray:
         """Convert momentum p to logarithmic variable y = log10(p)."""
