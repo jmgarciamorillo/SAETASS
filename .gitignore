@@ -1,8 +1,10 @@
 *.png
 GiovanniConv/
 __pycache__/
+.pytest_cache/
 .vscode/
 *.pyc
 *.npz
 *.pkl
 *.out
+.coverage
