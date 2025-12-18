@@ -11,7 +11,10 @@ logger = logging.getLogger(__name__)
 
 
 @njit(parallel=True, fastmath=True)
-def minmod_multi(a, b, c):
+def minmod_multi_arr(A, B, C):
+    a = np.asarray(A)
+    b = np.asarray(B)
+    c = np.asarray(C)
     out = np.empty_like(a)
     n = a.size
     for i in prange(n):
@@ -22,6 +25,18 @@ def minmod_multi(a, b, c):
         else:
             out.flat[i] = 0.0
     return out
+
+
+def minmod_multi(a, b, c):
+
+    if np.isscalar(a) and np.isscalar(b) and np.isscalar(c):
+        if a * b > 0.0 and a * c > 0.0:
+            s = 1.0 if a > 0 else -1.0
+            return s * min(abs(a), abs(b), abs(c))
+        else:
+            return 0.0
+
+    return minmod_multi_arr(a, b, c)
 
 
 class HyperbolicFVSolver(ABC):
@@ -91,12 +106,8 @@ class HyperbolicFVSolver(ABC):
         dist_left = self.dx_L
         dist_right = self.dx_R
 
-        if V.ndim == 1:
-            V_left = V[:-1]
-            V_right = V[1:]
-        else:
-            V_left = V[:, :-1]
-            V_right = V[:, 1:]
+        V_left = V[..., :-1]
+        V_right = V[..., 1:]
 
         dist_left_b = (
             np.tile(dist_left[1:], (V.shape[0], 1)) if V.ndim == 2 else dist_left[1:]
@@ -173,42 +184,11 @@ class HyperbolicFVSolver(ABC):
         # Detect 1D or 2D case
         is_1d = other_centers is None or state.ndim == 1
 
-        if is_1d:
-            # Case 1D: single field dependent on main axis
-            logger.debug(f"Advancing 1D state along {main_axis}")
-            V_faces_1d = self._face_generalized_velocity_interpolated()
-            V_centers_1d = self._slice_array(self.V_centers, 0)
-            self._advance_slice(
-                n_steps, state, V_centers_1d, V_faces_1d, self.inflow_value_U
-            )
-        else:
-            # Case 2D: process slices along secondary axis
-            # n_other = len(other_centers)
-            # state_n_other = getattr(state, f"n_{other_axis}", None)
-
-            # if state_n_other != n_other:
-            #     raise ValueError(
-            #         f"State shape mismatch: expected {n_other} {other_axis}-slices, "
-            #         f"got {state_n_other}"
-            #     )
-
-            # V_faces_all = self._face_generalized_velocity_interpolated()
-
-            # for i in range(n_other):
-            # Create a view/slice of the state at fixed other_axis axis
-            # slice_state = SliceState(state, i, axis=self.axis)
-            # V_faces_1d = self._slice_array(V_faces_all, i)
-            # V_centers_1d = self._slice_array(self.V_centers, i)
-            # inflow_value_U = self.inflow_value_U[i]
-            # logger.debug(f"Advancing slice {i+1}/{n_other} along {main_axis}")
-            # self._advance_slice(
-            #    n_steps, slice_state, V_centers_1d, V_faces_1d, inflow_value_U
-            # )
-            self._advance_slice_2d(n_steps, state)
+        self._advance_slice(n_steps, state)
 
         return
 
-    def _advance_slice_2d(self, n_steps: int, state: State) -> None:
+    def _advance_slice(self, n_steps: int, state: State) -> None:
         """
         Advance a 2D state by n_steps * dt along the main axis.
         This method is currently not used; the main advance method handles 2D via slices.
@@ -216,14 +196,12 @@ class HyperbolicFVSolver(ABC):
         f = np.asarray(state.get_f(), dtype=float)
         if self.axis == 0:
             f = f.T
-        N = self.N
-        M = self.M  # size along other axis
 
         U = self._generalized_variable(f, self.grid)
 
         V_centers = self.V_centers
         V_faces = self._face_generalized_velocity_interpolated()
-        dx = np.tile(self.dx, (M, 1))
+        dx = self.dx if self.M is None else self.dx[None, :]
 
         dt_requested = float(n_steps) * np.diff(self.t_grid)[0]
         total_time = n_steps * dt_requested
@@ -232,17 +210,15 @@ class HyperbolicFVSolver(ABC):
 
         while total_time - dt_step > 0.0:
             if self.order == 1:
-                F = self._compute_first_order_fluxes_2d(
+                F = self._compute_first_order_fluxes(
                     U,
                     V_centers,
                     V_faces,
                 )
             elif self.order == 2:
-                F = self._compute_second_order_fluxes_2d(
-                    U, V_centers, V_faces, total_time
-                )
+                F = self._compute_second_order_fluxes(U, V_centers, V_faces, total_time)
                 # Use numba for performance test
-                # F = _numba_second_order_fluxes_2d_core(
+                # F = _numba_second_order_fluxes_core(
                 #     U,
                 #     V_centers,
                 #     V_faces,
@@ -254,83 +230,25 @@ class HyperbolicFVSolver(ABC):
             else:
                 raise NotImplementedError("order must be 1 or 2")
 
-            U = U - (dt_step / dx) * (F[:, 1:] - F[:, :-1])
+            U = U - (dt_step / dx) * (F[..., 1:] - F[..., :-1])
             total_time -= dt_step
 
         if self.order == 1:
-            F = self._compute_first_order_fluxes_2d(U, V_centers, V_faces)
+            F = self._compute_first_order_fluxes(U, V_centers, V_faces)
         elif self.order == 2:
-            F = self._compute_second_order_fluxes_2d(U, V_centers, V_faces, total_time)
+            F = self._compute_second_order_fluxes(U, V_centers, V_faces, total_time)
             # Use numba for performance test
-            # F = _numba_second_order_fluxes_2d_core(
+            # F = _numba_second_order_fluxes_core(
             #     U, V_centers, V_faces, self._main_centers, self._main_faces, dt_step, 0
             # )
         else:
             raise NotImplementedError("order must be 1 or 2")
 
-        U_new = U - (total_time / dx) * (F[:, 1:] - F[:, :-1])
+        U_new = U - (total_time / dx) * (F[..., 1:] - F[..., :-1])
         f_new = self._inverse_generalized_variable(U_new, self.grid)
         # TODO?: self._postprocess_solution(f_new,centers)
         # f_new[0] = f_new[1]
         f_new = f_new.T if self.axis == 0 else f_new
-        state.update_f(f_new)
-
-        logger.debug(f"max(|f|) after step: {np.max(np.abs(f_new)):.4g}")
-        return
-
-    def _advance_slice(
-        self,
-        n_steps: int,
-        state: State,
-        V_centers: np.ndarray,
-        V_faces: np.ndarray,
-        inflow_value_U: float,
-    ) -> None:
-        """
-        Advance a single slice (1D). Works with a generalized conservative variable W
-        inside the solver. All axis-dependent behaviors are delegated to hooks.
-        """
-        f = np.asarray(state.get_f().copy(), dtype=float)
-        N = self.N
-
-        if f.shape != (N,):
-            raise ValueError(f"U shape mismatch: expected ({N},), got {f.shape}")
-
-        U = self._generalized_variable(f, self.grid)  # Convert to generalized variable
-
-        dt_requested = float(n_steps) * np.diff(self.t_grid)[0]
-        total_time = n_steps * dt_requested
-        dt_cfl = float(self.compute_dt())
-        dt_step = min(dt_requested, dt_cfl)
-
-        while total_time - dt_step > 0.0:
-            if self.order == 1:
-                F = self._compute_first_order_fluxes(
-                    U, V_centers, V_faces, inflow_value_U
-                )
-            elif self.order == 2:
-                F = self._compute_second_order_fluxes(
-                    U, V_centers, V_faces, inflow_value_U, dt_step
-                )
-            else:
-                raise NotImplementedError("order must be 1 or 2")
-
-            U = U - (dt_step / self.dx) * (F[1:] - F[:-1])
-            total_time -= dt_step
-
-        if self.order == 1:
-            F = self._compute_first_order_fluxes(U, V_centers, V_faces, inflow_value_U)
-        elif self.order == 2:
-            F = self._compute_second_order_fluxes(
-                U, V_centers, V_faces, inflow_value_U, total_time
-            )
-        else:
-            raise NotImplementedError("order must be 1 or 2")
-
-        U_new = U - (total_time / self.dx) * (F[1:] - F[:-1])
-        f_new = self._inverse_generalized_variable(U_new, self.grid)
-        # TODO?: self._postprocess_solution(f_new,centers)
-        # f_new[0] = f_new[1]
         state.update_f(f_new)
 
         logger.debug(f"max(|f|) after step: {np.max(np.abs(f_new)):.4g}")
@@ -451,179 +369,9 @@ class HyperbolicFVSolver(ABC):
             self.M = len(getattr(self, f"{other_axis}_centers"))
         else:
             logger.info(f"No {other_axis}-grid found, operating in 1D mode")
-
-    def _compute_slopes(self, U: np.ndarray) -> np.ndarray:
-        """
-        Compute limited slopes on non-uniform grid.
-        We'll compute left derivative, right derivative, and central derivative
-        with correct Δr factors, then apply the chosen limiter.
-        """
-        N = self.N
-        slopes = np.zeros_like(U)
-        if N <= 2:
-            return slopes
-
-        centers = self._main_centers
-
-        # left derivative at i (using centers i-1 and i)
-        # we compute for i = 1..N-2 (interior centers)
-        dL = (U[1:-1] - U[:-2]) / (centers[1:-1] - centers[:-2])  # length N-2
-        # right derivative at i (using centers i and i+1)
-        dR = (U[2:] - U[1:-1]) / (centers[2:] - centers[1:-1])  # length N-2
-        # central derivative across two cells
-        dC = (U[2:] - U[:-2]) / (centers[2:] - centers[:-2])  # length N-2
-
-        if self.limiter == "minmod":
-            slopes_interior = minmod_multi(dL, dR, dC)
-        elif self.limiter == "vanleer":  # generalized
-            prod = dL * dR
-            slopes_interior = np.where(prod > 0.0, (2.0 * prod) / (dL + dR), 0.0)
-        elif self.limiter == "mc":
-            slopes_interior = minmod_multi(
-                2.0 * dL, 2.0 * dR, 0.5 * dC
-            )  # TODO: check factor 0.5
-        else:  # should not happen due to earlier check, but just in case
-            raise NotImplementedError("limiter must be 'minmod', 'vanleer' or 'mc'")
-
-        slopes[1:-1] = slopes_interior
-        slopes[0] = 0.0
-        slopes[-1] = 0.0
-        return slopes
-
-    def _recontruct_face_states(
-        self, U: np.ndarray, slopes: np.ndarray
-    ) -> tuple[np.ndarray, np.ndarray]:
-        """
-        Reconstruct left/right states at internal faces from cell-centered values and slopes.
-        Returns UL, UR arrays of length N+1 (faces).
-        UL[i] = left state at face i (from right cell)
-        UR[i] = right state at face i (from left cell)
-        """
-        UL = np.zeros(self.N + 1)  # left state of face i (value from right cell)
-        UR = np.zeros(self.N + 1)  # right state of face i (value from left cell)
-        UL[1:] = U + slopes * self.dx_R  # UL at face i uses left cell (i-1)
-        UR[:-1] = U - slopes * self.dx_L  # UR at face i uses right cell (i)
-        return UL, UR
-
-    def _predictor_states(
-        self,
-        UL: np.ndarray,
-        UR: np.ndarray,
-        V_centers: np.ndarray,
-        slopes: np.ndarray,
-        dt: float,
-    ) -> tuple[np.ndarray, np.ndarray]:
-        """
-        Perform MUSCL-Hancock predictor step to advance interface states to t^{n+1/2}.
-        Each interface state is predicted using the donor cell's slope.
-        Returns ULh, URh arrays of length N+1 (faces).
-        """
-        # donor - cell - based
-        ULh = UL.copy()
-        URh = UR.copy()
-        if self.N > 1:
-            # UL* (state coming from cell i) uses v_i and slope_i
-            ULh[1:] -= 0.5 * dt * V_centers * slopes
-            # UR* (state coming from cell i-1) uses v_{i-1} and slope_{i-1}
-            URh[:-1] -= 0.5 * dt * V_centers * slopes
-        return ULh, URh
-
-    def _boundary_fluxes(
-        self,
-        U: np.ndarray,
-        V_centers: np.ndarray,
-        slopes: np.ndarray,
-        inflow_value_U: float,
-        dt: float,
-    ) -> tuple[float, float]:
-        """
-        Compute fluxes at the domain boundaries (faces 0 and N).
-        Left boundary (r=0): assume symmetry => flux=0.
-        Right boundary (outer face): use last cell's left state and slope for prediction.
-        """
-
-        if self._main_faces[0] <= 0.0 and self.axis == 1:
-            # Left face (r=0): symmetry
-            flux_L = 0.0
-        elif self.axis == 0:
-            # Left face (momentum inflow): use first cell right-state, or inflow
-            V_in = V_centers[0]
-            U_right_inner = U[0]
-            flux_L = V_in * (inflow_value_U if V_in >= 0.0 else U_right_inner)
-        else:
-            raise ValueError("Invalid left face position for the given axis.")
-
-        # Right boundary (outer face):
-        # left-state at outer face (from last cell)
-        centers = self._main_centers
-        faces = self._main_faces
-        dx_to_right = faces[-1] - centers[-1]
-        U_left_outer = U[-1] + slopes[-1] * dx_to_right
-        U_left_outer_star = U_left_outer - 0.5 * dt * V_centers[-1] * slopes[-1]
-        V_out = V_centers[-1]  # proxy for face velocity
-        flux_R = V_out * (U_left_outer_star if V_out >= 0.0 else inflow_value_U)
-
-        return flux_L, flux_R
+            self.M = None
 
     def _compute_first_order_fluxes(
-        self,
-        U: np.ndarray,
-        V_centers: np.ndarray,
-        V_faces: np.ndarray,
-        inflow_value_U: float,
-    ) -> np.ndarray:
-        """
-        Compute first-order upwind fluxes at faces given conservative variable U and face generalized velocities.
-        Returns flux array of length N+1.
-        """
-        flux_int = np.where(V_faces >= 0.0, V_faces * U[:-1], V_faces * U[1:])
-        F = np.empty(self.N + 1, dtype=float)
-        if self._main_faces[0] <= 0.0 and self.axis == 1:
-            # Left face (r=0): symmetry
-            F[0] = 0.0
-        elif self._main_faces[0] > 0.0:
-            # Left face (momentum inflow): use first cell right-state, or inflow
-            V_in = V_centers[0]
-            U_right_inner = U[0]
-            F[0] = V_in * (inflow_value_U if V_in >= 0.0 else U_right_inner)
-        else:
-            raise ValueError("Invalid left face position for the given axis.")
-        F[1:-1] = flux_int
-        # Outer face (use last cell left-state, or inflow)
-        V_out = V_centers[-1]
-        U_left_outer = U[-1]
-        F[-1] = V_out * (U_left_outer if V_out >= 0.0 else inflow_value_U)
-        return F
-
-    def _compute_second_order_fluxes(
-        self,
-        U: np.ndarray,
-        V_centers: np.ndarray,
-        V_faces: np.ndarray,
-        inflow_value_U: float,
-        dt: float,
-    ) -> np.ndarray:
-        """
-        Compute second-order MUSCL-Hancock fluxes at faces given conservative generalized variable U and face generalized velocities.
-        Returns flux array of length N+1.
-        """
-        # 1) compute slopes for W in non-uniform grid (minmod / vanleer)
-        slopes = self._compute_slopes(U)  # length N (slopes at centers)
-        # 2) reconstruct left/right states at internal faces (t^n)
-        UL, UR = self._recontruct_face_states(U, slopes)
-        # 3) predictor to t^{n+1/2}
-        ULh, URh = self._predictor_states(UL, UR, V_centers, slopes, dt)
-        # 4) compute V at internal faces and fluxes by upwind using sign of V_face
-        flux_int = np.where(V_faces >= 0.0, V_faces * ULh[1:-1], V_faces * URh[1:-1])
-        F = np.empty(self.N + 1)
-        F[1:-1] = flux_int
-        # Note: if V_face>0 donor is left cell => ULh (value from left), else URh (from right)
-
-        # 5) boundary fluxes:
-        F[0], F[-1] = self._boundary_fluxes(U, V_centers, slopes, inflow_value_U, dt)
-        return F
-
-    def _compute_first_order_fluxes_2d(
         self,
         U: np.ndarray,
         V_centers: np.ndarray,
@@ -660,7 +408,7 @@ class HyperbolicFVSolver(ABC):
         else:
             raise ValueError("Invalid axis for main axis.")
 
-    def _compute_second_order_fluxes_2d(
+    def _compute_second_order_fluxes(
         self,
         U: np.ndarray,
         V_centers: np.ndarray,
@@ -675,23 +423,24 @@ class HyperbolicFVSolver(ABC):
             # For debugging breakpoints
             logger.debug("Computing 2D second-order fluxes along r-axis")
         # 1) compute slopes for W in non-uniform grid (minmod / vanleer)
-        slopes = self._compute_slopes_2d(U)  # shape (N,M) or (M,N)
+        slopes = self._compute_slopes(U)  # shape (N,M) or (M,N)
         # 2) reconstruct left/right states at internal faces (t^n)
-        UL, UR = self._recontruct_face_states_2d(U, slopes)
+        UL, UR = self._recontruct_face_states(U, slopes)
         # 3) predictor to t^{n+1/2}
-        ULh, URh = self._predictor_states_2d(UL, UR, V_centers, slopes, dt)
+        ULh, URh = self._predictor_states(UL, UR, V_centers, slopes, dt)
         # 4) compute V at internal faces and fluxes by upwind using sign of V_face
         flux_int = np.where(
-            V_faces >= 0.0, V_faces * ULh[:, 1:-1], V_faces * URh[:, 1:-1]
+            V_faces >= 0.0, V_faces * ULh[..., 1:-1], V_faces * URh[..., 1:-1]
         )
 
-        shape = (U.shape[0], self.N + 1)
-        F = np.empty(shape, dtype=float)
-        F[:, 1:-1] = flux_int
-        F[:, 0], F[:, -1] = self._boundary_fluxes_2d(U, ULh, URh, V_centers, slopes, dt)
+        F = np.empty((*U.shape[:-1], U.shape[-1] + 1), dtype=float)
+        F[..., 1:-1] = flux_int
+        F[..., 0], F[..., -1] = self._boundary_fluxes(
+            U, ULh, URh, V_centers, slopes, dt
+        )
         return F
 
-    def _compute_slopes_2d(self, U: np.ndarray) -> np.ndarray:
+    def _compute_slopes(self, U: np.ndarray) -> np.ndarray:
         """
         Compute limited slopes on non-uniform grid for 2D case.
         We'll compute left derivative, right derivative, and central derivative
@@ -705,11 +454,11 @@ class HyperbolicFVSolver(ABC):
         centers = self._main_centers
 
         # left derivative at i (using centers i-1 and i)
-        dL = (U[:, 1:-1] - U[:, :-2]) / (centers[1:-1] - centers[:-2])  # length N-2
+        dL = (U[..., 1:-1] - U[..., :-2]) / (centers[1:-1] - centers[:-2])  # length N-2
         # right derivative at i (using centers i and i+1)
-        dR = (U[:, 2:] - U[:, 1:-1]) / (centers[2:] - centers[1:-1])  # length N-2
+        dR = (U[..., 2:] - U[..., 1:-1]) / (centers[2:] - centers[1:-1])  # length N-2
         # central derivative across two cells
-        dC = (U[:, 2:] - U[:, :-2]) / (centers[2:] - centers[:-2])  # length N-2
+        dC = (U[..., 2:] - U[..., :-2]) / (centers[2:] - centers[:-2])  # length N-2
 
         if self.limiter == "minmod":
             slopes_interior = minmod_multi(dL, dR, dC)
@@ -721,48 +470,50 @@ class HyperbolicFVSolver(ABC):
         else:  # should not happen due to earlier check, but just in case
             raise NotImplementedError("limiter must be 'minmod', 'vanleer' or 'mc'")
         # Assign slopes to correct slices
-        slopes[:, 1:-1] = slopes_interior
+        slopes[..., 1:-1] = slopes_interior
 
         # TEMPORARY SOLUTION
         # Left boundary i=0 : forward/backward differences built with same center spacing
-        d_fwd = (U[:, 1] - U[:, 0]) / (centers[1] - centers[0])  # forward 1-step
-        d_fwd2 = (U[:, 2] - U[:, 0]) / (
+        d_fwd = (U[..., 1] - U[..., 0]) / (centers[1] - centers[0])  # forward 1-step
+        d_fwd2 = (U[..., 2] - U[..., 0]) / (
             centers[2] - centers[0]
         )  # two-cell centred forward
 
         if self.limiter == "minmod":
-            slopes[:, 0] = minmod_multi(d_fwd, d_fwd2, d_fwd)
+            slopes[..., 0] = minmod_multi(d_fwd, d_fwd2, d_fwd)
         elif self.limiter == "vanleer":
             prod = d_fwd * d_fwd2
-            slopes[:, 0] = np.where(prod > 0.0, (2.0 * prod) / (d_fwd + d_fwd2), 0.0)
+            slopes[..., 0] = np.where(prod > 0.0, (2.0 * prod) / (d_fwd + d_fwd2), 0.0)
         elif self.limiter == "mc":
-            slopes[:, 0] = minmod_multi(2.0 * d_fwd, 2.0 * d_fwd2, 0.5 * d_fwd2)
+            slopes[..., 0] = minmod_multi(2.0 * d_fwd, 2.0 * d_fwd2, 0.5 * d_fwd2)
         else:
-            slopes[:, 0] = d_fwd  # fallback (shouldn't happen)
+            slopes[..., 0] = d_fwd  # fallback (shouldn't happen)
 
         # Right boundary i=N-1 : backward / two-cell centred backward
-        d_bwd = (U[:, -1] - U[:, -2]) / (centers[-1] - centers[-2])  # backward 1-step
-        d_bwd2 = (U[:, -1] - U[:, -3]) / (
+        d_bwd = (U[..., -1] - U[..., -2]) / (
+            centers[-1] - centers[-2]
+        )  # backward 1-step
+        d_bwd2 = (U[..., -1] - U[..., -3]) / (
             centers[-1] - centers[-3]
         )  # two-cell centred backward
 
         if self.limiter == "minmod":
-            slopes[:, -1] = minmod_multi(d_bwd, d_bwd2, d_bwd)
+            slopes[..., -1] = minmod_multi(d_bwd, d_bwd2, d_bwd)
         elif self.limiter == "vanleer":
             prod = d_bwd * d_bwd2
-            slopes[:, -1] = np.where(prod > 0.0, (2.0 * prod) / (d_bwd + d_bwd2), 0.0)
+            slopes[..., -1] = np.where(prod > 0.0, (2.0 * prod) / (d_bwd + d_bwd2), 0.0)
         elif self.limiter == "mc":
-            slopes[:, -1] = minmod_multi(2.0 * d_bwd, 2.0 * d_bwd2, 0.5 * d_bwd2)
+            slopes[..., -1] = minmod_multi(2.0 * d_bwd, 2.0 * d_bwd2, 0.5 * d_bwd2)
         else:
-            slopes[:, -1] = d_bwd  # fallback
+            slopes[..., -1] = d_bwd  # fallback
 
         # TESTING: zero slopes at boundaries
-        # slopes[:, 0] = 0.0
-        # slopes[:, -1] = 0.0
+        # slopes[..., 0] = 0.0
+        # slopes[..., -1] = 0.0
 
         return slopes
 
-    def _recontruct_face_states_2d(
+    def _recontruct_face_states(
         self, U: np.ndarray, slopes: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray]:
         """
@@ -772,21 +523,21 @@ class HyperbolicFVSolver(ABC):
         UR[i] = right state at face i (from left cell)
         """
         UL = np.zeros(
-            (U.shape[0], self.N + 1)
+            (*U.shape[:-1], U.shape[-1] + 1)
         )  # left state of face i (value from right cell)
         UR = np.zeros(
-            (U.shape[0], self.N + 1)
+            (*U.shape[:-1], U.shape[-1] + 1)
         )  # right state of face i (value from left cell)
-        UR[:, :-1] = U - slopes * self.dx_L
-        UL[:, 1:] = U + slopes * self.dx_R
+        UR[..., :-1] = U - slopes * self.dx_L
+        UL[..., 1:] = U + slopes * self.dx_R
 
         # TEMPORARY FIX FOR BOUNDARIES
-        UR[:, -1] = U[:, -1]
-        UL[:, 0] = U[:, 0]
+        UR[..., -1] = U[..., -1]
+        UL[..., 0] = U[..., 0]
 
         return UL, UR
 
-    def _predictor_states_2d(
+    def _predictor_states(
         self,
         UL: np.ndarray,
         UR: np.ndarray,
@@ -803,17 +554,17 @@ class HyperbolicFVSolver(ABC):
         URh = UR.copy()
         if self.N > 1:
             # UL* (state coming from cell i) uses v_i and slope_i
-            ULh[:, 1:] -= 0.5 * dt * V_centers * slopes
+            ULh[..., 1:] -= 0.5 * dt * V_centers * slopes
             # UR* (state coming from cell i-1) uses v_{i-1} and slope_{i-1}
-            URh[:, :-1] -= 0.5 * dt * V_centers * slopes
+            URh[..., :-1] -= 0.5 * dt * V_centers * slopes
 
         # TEMPORARY FIX FOR BOUNDARIES
-        # ULh[:, 0] -= 0.5 * dt * V_centers[:, 0] * slopes[:, 0]
-        # URh[:, -1] -= 0.5 * dt * V_centers[:, -1] * slopes[:, -1]
+        # ULh[..., 0] -= 0.5 * dt * V_centers[..., 0] * slopes[..., 0]
+        # URh[..., -1] -= 0.5 * dt * V_centers[..., -1] * slopes[..., -1]
 
         return ULh, URh
 
-    def _boundary_fluxes_2d(
+    def _boundary_fluxes(
         self,
         U: np.ndarray,
         ULh: np.ndarray,
@@ -828,34 +579,39 @@ class HyperbolicFVSolver(ABC):
         Right boundary (outer face): use last cell's left state and slope for prediction.
         """
 
-        flux_L = np.zeros(U.shape[0], dtype=float)
+        size = U.shape[0] if U.ndim > 1 else 1
+        flux_L = np.zeros(size, dtype=float)
         if self._main_faces[0] <= 0.0 and self.axis == 1:
             # Left face (r=0): symmetry
-            flux_L[:] = 0.0
+            flux_L[...] = 0.0
         elif self.axis == 0:
             # Left face (momentum inflow): use first cell right-state, or inflow
-            slp = (V_centers[:, 1] - V_centers[:, 0]) / (
+            slp = (V_centers[..., 1] - V_centers[..., 0]) / (
                 self._main_centers[1] - self._main_centers[0]
             )
-            V_in = V_centers[:, 0] - slp * (self._main_centers[0] - self._main_faces[0])
-            # U_right_inner = U[:, 0]
+            V_in = V_centers[..., 0] - slp * (
+                self._main_centers[0] - self._main_faces[0]
+            )
+            # U_right_inner = U[..., 0]
             flux_L = V_in * np.where(
                 V_in >= 0.0,
                 0.0,
-                URh[:, 0],
+                URh[..., 0],
             )
         else:
             raise ValueError("Invalid left face position for the given axis.")
 
         # Right boundary (outer face)
-        slp = (V_centers[:, -1] - V_centers[:, -2]) / (
+        slp = (V_centers[..., -1] - V_centers[..., -2]) / (
             self._main_centers[-1] - self._main_centers[-2]
         )
-        V_out = V_centers[:, -1] + slp * (self._main_faces[-1] - self._main_centers[-1])
+        V_out = V_centers[..., -1] + slp * (
+            self._main_faces[-1] - self._main_centers[-1]
+        )
         # left-state
         flux_R = V_out * np.where(
             V_out >= 0.0,
-            ULh[:, -1],
+            ULh[..., -1],
             self.inflow_value_U,
         )
 
@@ -873,9 +629,7 @@ class HyperbolicFVSolver(ABC):
 
 
 @njit(parallel=True, fastmath=True)
-def _numba_second_order_fluxes_2d_core(
-    U, V_centers, V_faces, centers, faces, dt, limiter
-):
+def _numba_second_order_fluxes_core(U, V_centers, V_faces, centers, faces, dt, limiter):
     """
     Numba-accelerated 2D MUSCL-Hancock flux computation core.
     This performs slope computation, reconstruction, predictor, and flux calculation in one pass.
