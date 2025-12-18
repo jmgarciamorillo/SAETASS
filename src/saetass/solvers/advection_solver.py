@@ -2,7 +2,7 @@ import numpy as np
 from typing import Dict, Any
 from .hyperbolic_solver import HyperbolicSolver
 from ..state import State
-from grid import Grid
+from ..grid import Grid
 
 import logging
 
