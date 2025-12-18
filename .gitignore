@@ -11,3 +11,4 @@ __pycache__/
 outputs/
 untitled*
 testing_scripts/
+.venv/
