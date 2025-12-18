@@ -224,6 +224,11 @@ class Grid:
                 "Post-processing calculations skipped as momentum grid is not logarithmic."
             )
 
+    def is_compatible_array(self, array: np.ndarray) -> bool:
+        """Check if the given array is compatible with this Grid."""
+        expected_shape = self.shape
+        return array.shape == expected_shape
+
     @classmethod
     def uniform(
         cls,
