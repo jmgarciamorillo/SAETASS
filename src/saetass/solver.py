@@ -7,7 +7,7 @@ from loss_solver import LossFVSolver
 from source_solver import SourceSolver
 from state import State
 from grid import Grid
-from splitting_scheme import StrangSplitting, LieSplitting, create_splitting_scheme
+from src.saetass.splitting import StrangSplitting, LieSplitting, create_splitting_scheme
 import logging
 
 logger = logging.getLogger(__name__)
