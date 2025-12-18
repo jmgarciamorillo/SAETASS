@@ -1,7 +1,7 @@
 import numpy as np
 from typing import Dict, Any
-from hyperbolic_solver import HyperbolicFVSolver
-from state import State
+from .hyperbolic_solver import HyperbolicSolver
+from ..state import State
 from grid import Grid
 
 import logging
@@ -9,7 +9,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-class AdvectionFVSolver(HyperbolicFVSolver):
+class AdvectionSolver(HyperbolicSolver):
     """
     FV solver for spherical advection using W = r^2 u (reduced variable).
     Inherits core logic from HyperbolicFVSolver.

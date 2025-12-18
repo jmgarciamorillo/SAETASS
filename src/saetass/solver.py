@@ -1,12 +1,11 @@
 import numpy as np
 
-# from AdvectionFVSolver import AdvectionFVSolver
-from diffusion_solver import DiffusionFVSolver
-from advection_solver import AdvectionFVSolver
-from loss_solver import LossFVSolver
-from source_solver import SourceSolver
-from state import State
-from grid import Grid
+from .solvers.diffusion_solver import DiffusionSolver
+from .solvers.advection_solver import AdvectionSolver
+from .solvers.loss_solver import LossSolver
+from .solvers.source_solver import SourceSolver
+from .state import State
+from .grid import Grid
 from src.saetass.splitting import StrangSplitting, LieSplitting, create_splitting_scheme
 import logging
 
@@ -14,9 +13,9 @@ logger = logging.getLogger(__name__)
 
 # Map operator names to their solver classes
 SUBSOLVER_MAP = {
-    "advectionFV": AdvectionFVSolver,
-    "diffusionFV": DiffusionFVSolver,
-    "lossFV": LossFVSolver,
+    "advectionFV": AdvectionSolver,
+    "diffusionFV": DiffusionSolver,
+    "lossFV": LossSolver,
     "source": SourceSolver,
 }
 

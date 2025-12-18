@@ -2,15 +2,15 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.sparse import diags
 from scipy.sparse.linalg import spsolve
-from state import State, SliceState
-from grid import Grid
+from ..state import State, SliceState
+from ..grid import Grid
 import logging
 from numba import njit, prange
 
 logger = logging.getLogger(__name__)
 
 
-class DiffusionFVSolver:
+class DiffusionSolver:
     def __init__(self, grid: Grid, t_grid: np.ndarray, params: dict, **kwargs) -> None:
         self._unpack_grid(grid)
         self.t_grid = np.asarray(t_grid, dtype=float)

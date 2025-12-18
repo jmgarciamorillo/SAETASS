@@ -1,15 +1,15 @@
 import numpy as np
 from typing import Dict, Any
-from hyperbolic_solver import HyperbolicFVSolver
-from state import State
-from grid import Grid
+from .hyperbolic_solver import HyperbolicSolver
+from ..state import State
+from ..grid import Grid
 
 import logging
 
 logger = logging.getLogger(__name__)
 
 
-class LossFVSolver(HyperbolicFVSolver):
+class LossSolver(HyperbolicSolver):
     """
     FV solver for momentum losses using the generalized hyperbolic solver framework.
 
@@ -211,54 +211,3 @@ class LossFVSolver(HyperbolicFVSolver):
         div = (Phi[:, 1:] - Phi[:, :-1]) / V
 
         return (-grid._p_centers_phys * div.T).T / 3.0 * 0
-
-
-# Example usage
-if __name__ == "__main__":
-    # Create a grid and state for momentum space
-    p_centers = np.logspace(0, 3, 100)  # log-spaced momentum grid from 1 to 1000
-    p_faces = np.concatenate(
-        [
-            [0.9 * p_centers[0]],
-            np.sqrt(p_centers[:-1] * p_centers[1:]),
-            [1.1 * p_centers[-1]],
-        ]
-    )
-    grid = Grid(p_centers=p_centers, p_faces=p_faces)
-
-    # Initial condition (power law distribution)
-    f_init = p_centers ** (-2.0)  # p^-2 power law
-    state = State(f_init)
-
-    # Loss rate (e.g., synchrotron losses ~ p^2)
-    P_dot = -0.01 * p_centers**2  # negative for losses
-
-    # Time grid
-    t_grid = np.linspace(0.0, 1.0, 100)
-
-    # Create solver
-    params = {
-        "P_dot": P_dot,
-        "limiter": "minmod",
-        "cfl": 0.4,
-        "inflow_value_f": 0.0,
-        "order": 2,
-    }
-
-    solver = LossFVSolver(grid=grid, t_grid=t_grid, params=params)
-
-    # Run for 10 steps
-    solver.advance(10, state)
-
-    # Visualize results
-    import matplotlib.pyplot as plt
-
-    plt.figure(figsize=(10, 6))
-    plt.loglog(p_centers, f_init, "k--", label="Initial")
-    plt.loglog(p_centers, state.f, "r-", label="Final")
-    plt.xlabel("Momentum")
-    plt.ylabel("f(p)")
-    plt.legend()
-    plt.title("Momentum Loss Test")
-    plt.grid(True)
-    plt.show()

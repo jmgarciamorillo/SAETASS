@@ -1,7 +1,7 @@
 import numpy as np
 from typing import Literal
-from state import State, SliceState
-from grid import Grid
+from ..state import State, SliceState
+from ..grid import Grid
 from abc import ABC, abstractmethod
 from numba import njit, prange
 
@@ -39,7 +39,7 @@ def minmod_multi(a, b, c):
     return minmod_multi_arr(a, b, c)
 
 
-class HyperbolicFVSolver(ABC):
+class HyperbolicSolver(ABC):
 
     def __init__(
         self,
