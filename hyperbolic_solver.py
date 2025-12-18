@@ -1,7 +1,7 @@
 import numpy as np
 from typing import Literal
-from State import State, SliceState
-from Grid import Grid
+from state import State, SliceState
+from grid import Grid
 from abc import ABC, abstractmethod
 from numba import njit, prange
 

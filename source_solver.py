@@ -1,8 +1,8 @@
 import numpy as np
 import logging
-from State import State
-from Grid import Grid
-from State import State
+from state import State
+from grid import Grid
+from state import State
 from typing import Callable, Optional
 
 logger = logging.getLogger(__name__)

@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from State import State
+from state import State
 import logging
 import numpy as np
 

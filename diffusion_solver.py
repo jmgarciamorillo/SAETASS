@@ -2,8 +2,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.sparse import diags
 from scipy.sparse.linalg import spsolve
-from State import State, SliceState
-from Grid import Grid
+from state import State, SliceState
+from grid import Grid
 import logging
 from numba import njit, prange
 

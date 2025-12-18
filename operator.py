@@ -14,7 +14,7 @@ Contents
 from __future__ import annotations
 from typing import Protocol, runtime_checkable
 import numpy as np
-from State import State
+from state import State
 
 
 @runtime_checkable

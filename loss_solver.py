@@ -1,8 +1,8 @@
 import numpy as np
 from typing import Dict, Any
-from HyperbolicFVSolver import HyperbolicFVSolver
-from State import State
-from Grid import Grid
+from hyperbolic_solver import HyperbolicFVSolver
+from state import State
+from grid import Grid
 
 import logging
 
