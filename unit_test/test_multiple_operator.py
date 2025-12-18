@@ -9,9 +9,7 @@ parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
-from State import State
-from Grid import Grid
-from Solver import Solver
+from saetass import State, Grid, Solver
 
 
 def run_solver_test(grid_params, operator_params, problem_types, initial_f):

@@ -9,9 +9,7 @@ parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
-from State import State
-from Grid import Grid
-from Solver import Solver
+from saetass import State, Grid, Solver
 
 
 # Helper function to set up and run an advection problem
@@ -24,7 +22,7 @@ def run_advection_test(grid_params, solver_params, initial_f):
     grid = Grid(
         r_centers=grid_params["r_grid"],
         t_grid=grid_params["t_grid"],
-        p_centers=grid_params.get("p_grid", np.array([1.0])),
+        p_centers=grid_params.get("p_grid", None),
     )
     state = State(initial_f)
 
@@ -55,12 +53,12 @@ class Test1DRadialAdvection:
         Validates that a Gaussian pulse advects correctly against the analytical
         solution, including spherical dilution.
         """
-        num_r, r_end, t_final = 2000, 100.0, 10.0
+        num_r, r_end, t_final = 4000, 100.0, 10.0
         v_const = 5.0
         r_initial_peak = 20.0
         sigma = 2.0
         r_grid = np.linspace(0.0, r_end, num_r)
-        t_grid = np.linspace(0, t_final, 1000)
+        t_grid = np.linspace(0, t_final, 7000)
 
         # Initial condition: Gaussian pulse
         f_initial = np.exp(-((r_grid - r_initial_peak) ** 2) / (2 * sigma**2))
@@ -117,7 +115,7 @@ class Test1DRadialAdvection:
         r_initial = 20.0
         sigma = 2.0
         r_grid = np.linspace(0.0, r_end, num_r)
-        t_grid = np.linspace(0, t_final, 2000)
+        t_grid = np.linspace(0, t_final, 5000)
 
         f_initial = np.exp(-((r_grid - r_initial) ** 2) / (2 * sigma**2))
         peak_initial = np.max(f_initial)
