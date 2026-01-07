@@ -1,0 +1,293 @@
+import os
+import sys
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Use LaTeX for matplotlib text rendering when available
+plt.rcParams.update(
+    {
+        "text.usetex": True,
+        "font.family": "serif",
+        "text.latex.preamble": r"\usepackage{amsmath}",
+        # increased font sizes for publication-quality figures
+        "font.size": 12,
+        "axes.titlesize": 14,
+        "axes.labelsize": 14,
+        "xtick.labelsize": 11,
+        "ytick.labelsize": 11,
+        "legend.fontsize": 12,
+        "lines.linewidth": 1.5,
+    }
+)
+
+from saetass import State, Grid, Solver
+
+
+def run_advection_simulation(
+    r_grid, t_grid, f_initial, solver_params, source_params=None, sample_count=0
+):
+    """
+    Create and run an advectionFV (+ optional source) Solver for the provided grids and params.
+    Collect snapshots by advancing the solver in chunks to a set of sampled timesteps
+    (same approach used in `multiEnergyGiovanniTest.py`).
+
+    Returns the final distribution (numpy array), a list of snapshots and their times.
+    """
+    grid = Grid(r_centers=r_grid, t_grid=t_grid, p_centers=None)
+    state = State(f_initial)
+
+    operator_params = {"advectionFV": solver_params}
+    if source_params is not None:
+        operator_params["source"] = source_params
+        problem_type = "advectionFV-source"
+    else:
+        problem_type = "advectionFV"
+
+    solver = Solver(
+        grid=grid,
+        state=state,
+        problem_type=problem_type,
+        operator_params=operator_params,
+        substeps={"advectionFV": 1},
+        splitting_scheme="strang",
+    )
+
+    num_timesteps = len(t_grid) - 1
+
+    # Prepare snapshots: always include initial state at index 0
+    snapshots = [np.copy(state.f.flatten())]
+    times = [t_grid[0]]
+
+    # Determine which timestep indices to sample (include 0 and final)
+    if sample_count > 0 and num_timesteps > 0:
+        sample_indices = np.linspace(0, num_timesteps, sample_count, dtype=int)
+        sample_indices = np.unique(np.append(sample_indices, [0, num_timesteps]))
+    else:
+        sample_indices = np.array([0, num_timesteps], dtype=int)
+
+    # Advance solver in chunks to reach each sampled timestep (efficient stepping)
+    current_step = 0
+    for next_step in sample_indices[1:]:
+        steps_to_advance = int(next_step - current_step)
+        if steps_to_advance > 0:
+            solver.step(steps_to_advance)
+            current_step = next_step
+        snapshots.append(np.copy(solver.state.f.flatten()))
+        times.append(t_grid[current_step])
+
+    # Return final flattened array plus snapshots and times
+    return solver.state.f.flatten(), snapshots, times
+
+
+def compute_plume_slope(r_grid, f_values, source_r_max, min_points=10):
+    """
+    Compute slope of log(f) vs log(r) in the plume region (r > source_r_max).
+    Returns slope and the mask used.
+    """
+    # Select only points between source_r_max and r_grid = 6
+    mask = (r_grid > source_r_max) & (r_grid < 6)
+    x = np.log(r_grid[mask])
+    y = np.log(f_values[mask])
+    slope, intercept = np.polyfit(x, y, 1)
+    return slope, mask
+
+
+def validation_pointlike_source(
+    resolutions,
+    r_end=40.0,
+    t_final=2.0,
+    v_const=10.0,
+    source_r_min=0.9,
+    source_r_max=1.1,
+    source_strength=40.0,
+    plot_results=True,
+):
+    """
+    Validation of point-like source advected with constant speed. The steady
+    downstream profile should follow ~1/r^2. We run a sweep over spatial
+    resolutions and measure the fitted slope of log(f) vs log(r) in the plume.
+    """
+    slopes = []
+    dxs = []
+    all_results = []
+
+    for N in resolutions:
+        print(f"Running N={N}")
+        r_grid = np.linspace(0.0, r_end, N)
+        dr = r_grid[1] - r_grid[0]
+
+        # Choose a sufficiently fine time sampling (many small steps)
+        t_grid = np.linspace(0.0, t_final, 10000)
+
+        # initial condition: zero everywhere
+        f_initial = np.zeros(N)
+
+        # Source: spike between source_r_min and source_r_max
+        Q_values = np.zeros(N)
+        source_mask = (r_grid >= source_r_min) & (r_grid <= source_r_max)
+        Q_values[source_mask] = source_strength
+
+        # solver params
+        v_field = np.full(N, v_const)
+        solver_params = {
+            "v_centers": v_field,
+            "order": 2,
+            "limiter": "minmod",
+            "cfl": 0.8,
+            "inflow_value_U": 0.0,
+        }
+
+        # capture intermediate snapshots for time evolution (include initial and final)
+        f_num, snapshots, snap_times = run_advection_simulation(
+            r_grid,
+            t_grid,
+            f_initial,
+            solver_params,
+            source_params={"source": Q_values},
+            sample_count=5,
+        )
+
+        # compute slope in plume region
+        slope, mask = compute_plume_slope(r_grid, f_num, source_r_max)
+        slopes.append(slope)
+        dxs.append(dr)
+
+        print(f"  dx={dr:.4e}, slope={slope:.4e}")
+
+        # store results and snapshots for plotting later so we can use same y-limits across runs
+        all_results.append(
+            {
+                "N": N,
+                "r_grid": r_grid,
+                "f_initial": f_initial,
+                "f_num": f_num,
+                "slope": slope,
+                "snapshots": snapshots,
+                "snap_times": snap_times,
+            }
+        )
+
+    # convergence plot and per-resolution plots with common y-limits
+    if plot_results:
+        slopes = np.array(slopes)
+        dxs = np.array(dxs)
+        res = np.array(resolutions)
+
+        # plot each simulation with same y-limits
+        last_fig = None
+        last_N = None
+        for rec in all_results:
+            N = rec["N"]
+            r_grid = rec["r_grid"]
+            snapshots = rec["snapshots"]
+            snap_times = rec["snap_times"]
+            slope = rec["slope"]
+
+            # Only produce log-log plots showing time evolution of the profile
+            mask_pos_all = [(r_grid > 0) & (s > 0) for s in snapshots]
+            fig_log = plt.figure(figsize=(8, 4))
+            colors = plt.cm.viridis(np.linspace(0, 1, len(snapshots)))
+            for idx, (s, t, mask_pos) in enumerate(
+                zip(snapshots, snap_times, mask_pos_all)
+            ):
+                if np.any(mask_pos):
+                    plt.loglog(
+                        r_grid[mask_pos],
+                        s[mask_pos],
+                        color=colors[idx],
+                        label=f"$t = {t:.2f}$",
+                    )
+
+            # add reference r^-2 scaled to the mid-plume of the final snapshot if available
+            final = snapshots[-1]
+            plume_idx = np.where((r_grid > source_r_max) & (final > 0))[0]
+            if len(plume_idx) > 0:
+                mid = plume_idx[len(plume_idx) // 3]
+                scale = final[mid] * r_grid[mid] ** 2
+                ref = scale * r_grid ** (-2)
+                plt.loglog(
+                    r_grid[r_grid > 0],
+                    ref[r_grid > 0],
+                    "k--",
+                    label=r"$\propto r^{-2}$",
+                )
+
+            plt.xlim(left=max(r_grid[1], 1e-6), right=r_end)
+            # common y-limits computed earlier; use them in log space if positive
+            # find positive y-bounds from all snapshots
+            pos_vals = np.concatenate([s[s > 0] for s in snapshots])
+            if pos_vals.size:
+                y_min_log = pos_vals.min()
+                y_max_log = pos_vals.max()
+                plt.ylim(y_min_log * 0.8, y_max_log * 1.2)
+
+            plt.xlabel(r"Radial coordinate: $r$")
+            plt.ylabel(r"Solution at time $t$: $f(r,t)$")
+            plt.legend()
+            plt.ylim([1e-3, 1e1])
+            plt.xlim([source_r_min, r_end])
+            plt.grid(alpha=0.4, which="both")
+            plt.show()
+            last_log_fig = fig_log
+            last_fig = None
+            last_N = N
+
+        # convergence plot: slope vs N
+        plt.figure(figsize=(6, 4))
+        plt.semilogx(res, slopes, "o-", label="fitted slope")
+        plt.axhline(-2, color="k", ls="--", label=r"expected $-2$")
+        plt.xlabel("Number of radial cells: $N$")
+        plt.ylabel(r"Slope: $\alpha$")
+        plt.ylim([-2.001, -1.999])
+
+        plt.grid(alpha=0.3, which="both")
+        conv_fig = plt.gcf()
+        plt.show()
+
+        # save figures: last simulation and convergence (PDF)
+        try:
+            # Save figures to the parent `validation/figures/` directory
+            out_dir = os.path.normpath(
+                os.path.join(os.path.dirname(__file__), "..", "figures")
+            )
+            os.makedirs(out_dir, exist_ok=True)
+            if last_fig is not None:
+                last_path_pdf = os.path.join(
+                    out_dir, f"advection_pointlike_source_last_N{last_N}.pdf"
+                )
+                last_fig.savefig(last_path_pdf, dpi=200, bbox_inches="tight")
+                print(f"Saved last simulation figure to: {last_path_pdf}")
+
+            # save last log-log figure if present
+            if "last_log_fig" in locals():
+                last_log_path = os.path.join(
+                    out_dir, f"advection_pointlike_source_last_N{last_N}_loglog.pdf"
+                )
+                try:
+                    last_log_fig.savefig(last_log_path, dpi=200, bbox_inches="tight")
+                    print(f"Saved last log-log figure to: {last_log_path}")
+                except Exception:
+                    pass
+
+            conv_path_pdf = os.path.join(
+                out_dir, "advection_pointlike_source_convergence.pdf"
+            )
+            conv_fig.savefig(conv_path_pdf, dpi=200, bbox_inches="tight")
+            print(f"Saved convergence figure to: {conv_path_pdf}")
+
+        except Exception as e:
+            print(f"Warning: could not save figures: {e}")
+
+
+if __name__ == "__main__":
+    resolutions = [128, 256, 512, 1024, 2048, 4096]
+    validation_pointlike_source(
+        resolutions,
+        r_end=40.0,
+        t_final=2.0,
+        v_const=10.0,
+        source_r_min=0.9,
+        source_r_max=1.1,
+        source_strength=400.0,
+        plot_results=True,
+    )
