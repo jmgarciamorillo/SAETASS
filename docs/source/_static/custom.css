@@ -1,0 +1,64 @@
+.wy-side-nav-search>a img.logo {
+    display: block;
+    margin: 0 auto;
+    height: auto;
+    width: 100%;
+    border-radius: 0;
+    max-width: 100%;
+    background: transparent;
+}
+
+/* Barra superior
+.wy-nav-top {
+    background-color: #f7f7f7;
+    /* azul 
+}
+
+/* F3AC4B, F3664B
+.wy-side-nav-search {
+    background-color: #f7f7f7;
+}
+
+.wy-nav-side {
+    background-color: #F3664B;
+}
+
+.wy-menu-vertical p.caption {
+    color: #F3AC4B;
+}
+.wy-menu-vertical 
+
+/* Fondo del contenido 
+.wy-nav-content {
+    background-color: #f7f7f7;
+    /* gris claro 
+}
+
+/* Enlaces 
+.wy-nav-content a {
+    color: #d32f2f;
+    /* rojo 
+}
+
+/* Enlaces al pasar el ratón 
+.wy-nav-content a:hover {
+    color: #b71c1c;
+}
+
+/* Botones prev/next 
+.wy-nav-side .rst-other {
+    background-color: #e0e0e0;
+    color: #333;
+}
+
+body {
+    font-family: "Inter", system-ui, sans-serif;
+    line-height: 1.6;
+    color: #222;
+}
+
+.wy-nav-content h1,
+.wy-nav-content h2,
+.wy-nav-content h3 {
+    color: #0d47a1;
+}*/
