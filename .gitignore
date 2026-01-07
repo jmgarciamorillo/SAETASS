@@ -12,3 +12,5 @@ outputs/
 untitled*
 testing_scripts/
 .venv/
+_private/
+*DS_Store
