@@ -27,7 +27,6 @@ extensions = [
     "myst_parser",
 ]
 
-
 templates_path = ["_templates"]
 exclude_patterns = []
 
@@ -42,6 +41,9 @@ html_static_path = ["_static"]
 html_theme_options = {
     "logo_only": True,
 }
+
+autodoc_member_order = "bysource"
+autodoc_typehints = "description"
 
 
 def setup(app):
