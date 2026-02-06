@@ -48,6 +48,12 @@ class EnergyLossCalculator:
         self._E_dot_total = None
         self._P_dot_total = None
 
+        # Constant not avaliable in astropy:
+        # Classical electron radius
+        self.r_e = (
+            const.e.si**2 / (4 * np.pi * const.eps0 * const.m_e * const.c**2)
+        ).to(u.cm)
+
     def _compute_kinematics(self):
         """Precompute kinematic quantities for the energy grid."""
         # Lorentz factor and velocity
@@ -61,6 +67,9 @@ class EnergyLossCalculator:
             )
             / const.c
         )
+
+        # Total energy
+        self.E_tot = self.E_grid + self.particle_mass * const.c**2
 
         # Conversion factor from dE/dt to dP/dt
         self.dp_dE = (self.E_grid + self.particle_mass * const.c**2) / (
@@ -112,24 +121,14 @@ class EnergyLossCalculator:
             IH = 13.6 * u.eV
 
             # Bethe-Bloch formula coefficient
-            v = self.beta * const.c
-            E_max = self.gamma**2 * const.m_e * v**2 / (1 + self.gamma)
             A = (
-                np.log(
-                    self.gamma
-                    * const.m_e
-                    * v**2
-                    * E_max
-                    / (2 * IH**2 * (1 + self.gamma))
-                )
-                - (2 / self.gamma - 1 / self.gamma**2) * np.log(2)
-                + 1 / self.gamma**2
-                + 1 / 8 * (1 - 1 / self.gamma) ** 2
+                np.log((self.gamma - 1) * self.beta**2 * self.E_grid**2 / (2 * IH**2))
+                + 1 / 8
             )
 
-        # Energy loss rate: -7.64e-18 * n * A
-        n_gas_norm = self.n_gas.to("cm**-3").value
-        E_dot_ion = -7.64e-18 * np.outer(A, n_gas_norm) * u.GeV / u.s
+        prefactor = -2 * np.pi * self.r_e**2 * const.c * const.m_e * const.c**2
+
+        E_dot_ion = prefactor * A[:, None] * self.n_gas[None, :] / self.beta[:, None]
 
         self._E_dot_components["ionization"] = E_dot_ion
         logger.debug("Ionization losses computed")
@@ -149,14 +148,17 @@ class EnergyLossCalculator:
         E_grid_norm = self.E_grid.to("GeV").value
         n_gas_norm = self.n_gas.to("cm**-3").value
 
+        E_thr = 0.3  # GeV
+        k = 6  # cutoff sharpness parameter
+
+        E_eff_norm = E_grid_norm * np.exp(-((E_thr / E_grid_norm) ** k))
+
         # Pion production loss rate from pp collisions
         # Formula: -3.85e-16 * n * E^1.28 * (E + 200)^-0.2 [GeV/s]
         E_dot_pion = (
             (
                 -3.85e-16
-                * np.outer(
-                    n_gas_norm, E_grid_norm**1.28 * (E_grid_norm + 200) ** -0.2
-                ).T
+                * np.outer(n_gas_norm, E_eff_norm**1.28 * (E_eff_norm + 200) ** -0.2).T
             )
             * u.GeV
             / u.s
@@ -211,6 +213,7 @@ class EnergyLossCalculator:
 
         n_gas_norm = n_gas.to(u.cm**-3).value
         E_grid_norm = self.E_grid.to(u.GeV).value
+        E_tot_norm = self.E_tot.to(u.GeV).value
 
         numE, numR = len(E_grid_norm), len(n_gas_norm)
         E_dot = np.zeros((numE, numR)) * (u.GeV / u.s)
@@ -220,7 +223,11 @@ class EnergyLossCalculator:
 
         # make WS_term shape (num_E, num_R)
         WS_term = (
-            -3.55e-20 * np.outer(ln_term * E_grid_norm, 2.0 * n_gas_norm) * u.GeV / u.s
+            # Ginzburg 1979 formula for bremsstrahlung losses in ionised gas
+            -1.37e-16
+            * np.outer((np.log(self.gamma) + 0.36) * E_tot_norm, n_gas_norm)
+            * u.GeV
+            / u.s
         )
 
         # --- 2. Strong-shielded (SS) ---
@@ -256,7 +263,10 @@ class EnergyLossCalculator:
         return E_dot
 
     def compute_coulomb_losses(
-        self, T_gas: u.Quantity | np.ndarray, species: str = "hadronic"
+        self,
+        T_gas: u.Quantity | np.ndarray,
+        n_e: u.Quantity | np.ndarray = None,
+        species: str = "hadronic",
     ) -> u.Quantity:
         """
         Compute Coulomb scattering energy loss rate.
@@ -264,39 +274,71 @@ class EnergyLossCalculator:
         Relevant at lower energies where elastic collisions dominate.
         """
 
-        n_gas_norm = self.n_gas.to(u.cm**-3).value
-
         if species == "hadronic":
-            num_E = len(self.E_grid)
-            num_r = len(self.n_gas)
-            E_dot_coulomb = np.zeros((num_E, num_r)) * u.GeV / u.s
-            x_m = 0.0286 * (T_gas.to(u.K).value / 2e6) ** 0.5
-            for i in range(num_E):
-                E_dot_coulomb[i, :] = (
-                    (
-                        -3.1e-16
-                        * n_gas_norm
-                        * (self.beta[i] ** 2)
-                        / (self.beta[i] ** 3 + x_m**3)
+
+            if n_e is None:
+                n_e = self.n_gas.to(u.cm**-3)
+
+            x_m = (3 * np.sqrt(np.pi) / 4) ** (1 / 3) * np.sqrt(
+                2 * const.k_B * T_gas / (const.m_e * const.c**2)
+            ).decompose().value
+
+            ln_Lambda = (
+                1
+                / 2
+                * np.log(
+                    const.m_e**2
+                    * const.c**4
+                    * self.gamma[:, None] ** 2
+                    * self.beta[:, None] ** 4
+                    * self.particle_mass
+                    / (
+                        np.pi
+                        * self.r_e
+                        * const.hbar**2
+                        * const.c**2
+                        * n_e[None, :]
+                        * (self.particle_mass + 2 * self.gamma[:, None] * const.m_e)
                     )
-                    * u.GeV
-                    / u.s
                 )
+            )
+
+            prefactor = -4 * np.pi * self.r_e**2 * const.c * const.m_e * const.c**2
+
+            E_dot_coulomb = (
+                prefactor
+                * n_e[None, :]
+                * ln_Lambda
+                * (self.beta[:, None] ** 2 / (self.beta[:, None] ** 3 + x_m**3))
+            )
+
         elif species == "leptonic":
-            E_grid_norm = (self.E_grid / (const.m_e * const.c**2)).value
-            num_E = len(self.E_grid)
-            num_r = len(self.n_gas)
-            E_dot_coulomb = np.zeros((num_E, num_r)) * u.GeV / u.s
-            for i in range(num_E):
-                E_dot_coulomb[i, :] = (
+            # Logarithmic term
+            ln_term = (
+                np.log(
                     (
-                        -7.64e-18
-                        * n_gas_norm
-                        * (np.log(E_grid_norm[i]) - np.log(n_gas_norm) + 73.57)
-                    )
-                    * u.GeV
-                    / u.s
+                        self.E_grid[:, None]
+                        * const.m_e
+                        * const.c**2
+                        / (
+                            4
+                            * np.pi
+                            * self.r_e
+                            * const.hbar**2
+                            * const.c**2
+                            * self.n_gas[None, :]
+                        )
+                    ).decompose()
                 )
+                - 3 / 4
+            )
+
+            # Prefactor
+            prefactor = -2 * np.pi * self.r_e**2 * const.c * const.m_e * const.c**2
+
+            E_dot_coulomb = (
+                prefactor * (self.n_gas[None, :] / self.beta[:, None]) * ln_term
+            ).to(u.GeV / u.s)
         else:
             raise ValueError("species must be 'hadronic' or 'leptonic'")
 
@@ -304,168 +346,6 @@ class EnergyLossCalculator:
         logger.debug("Coulomb losses computed")
 
         return E_dot_coulomb
-
-    # def compute_coulomb_losses_v2(
-    #     self,
-    #     T_gas: u.Quantity,
-    #     A: float = 1.0,
-    #     Z: float = 1.0,
-    #     species: str = "hadronic",
-    # ) -> u.Quantity:
-    #     """
-    #     Python reimplementation of the C++ TCoulombLoss constructor.
-
-    #     Fully unit-safe version using Astropy.
-    #     Reproduces the complete Coulomb loss physics including:
-    #     - Coulomb logarithms,
-    #     - relativistic beta & gamma,
-    #     - spatial dependence,
-    #     - nuclear mass A and charge Z,
-    #     - Ginzburg electron limit (A = 0).
-    #     """
-
-    #     # -----------------------------
-    #     # Constants with correct units
-    #     # -----------------------------
-    #     r0 = 2.817e-15 * u.m
-    #     m_e_c2 = (const.m_e * const.c**2).to(u.MeV)  # electron mass energy, MeV
-    #     m_p_c2 = (const.m_p * const.c**2).to(u.MeV)  # proton mass energy, MeV
-
-    #     # factor = 1e-9 * Myr (C++ convention)
-    #     factor = (1e-9 * u.Myr).to(u.s)
-
-    #     # ħ c in MeV·cm
-    #     hbar_c = (const.hbar * const.c).to(u.MeV * u.cm)
-
-    #     # -----------------------------
-    #     # Grid sizes
-    #     # -----------------------------
-    #     num_E = len(self.E_grid)
-    #     num_r = len(self.n_gas)
-
-    #     # Output
-    #     dEdt = np.zeros((num_E, num_r)) * (u.MeV / u.s)
-
-    #     # Local gas density
-    #     n_g = self.n_gas.to(u.cm**-3)
-
-    #     # relativistic factors (assumed dimensionless)
-    #     beta = self.beta
-    #     gamma = 1.0 / np.sqrt(1.0 - beta**2)
-
-    #     # -----------------------------
-    #     # Compute x_m (same formula.
-    #     # dimensionless quantity)
-    #     # -----------------------------
-    #     x_m = 0.0286 * np.sqrt((T_gas.to(u.K) / (2e6 * u.K)))
-
-    #     # -----------------------------
-    #     # CASE 1: HADRONS (A != 0)
-    #     # -----------------------------
-    #     if species == "hadronic" and A != 0:
-
-    #         # Nuclear mass M_A in MeV
-    #         M_A = A * m_p_c2
-
-    #         for k in range(num_E):
-    #             bet = beta[k]
-    #             gam = gamma[k]
-
-    #             bet3 = bet**3
-    #             w_e = bet3 / (x_m + bet3)
-
-    #             for j in range(num_r):
-
-    #                 n = n_g[j]
-
-    #                 # ---- Coulomb logarithm ----
-    #                 # numerator / denominator must be dimensionless.
-    #                 numerator = 4 * np.pi * r0**2 * n * (M_A + 2 * gam * m_e_c2)
-    #                 denominator = 4 * (gam**2) * bet**4 * (m_e_c2**2) * M_A
-
-    #                 ratio = (numerator / denominator).decompose()  # make dimensionless
-    #                 coullog = -0.5 * np.log(ratio.value)
-
-    #                 # ---- dp/dt (MeV/s) ----
-    #                 prefactor = 4 * np.pi * r0**2 * m_e_c2
-
-    #                 dpdt = (
-    #                     prefactor
-    #                     * (abs(Z) ** 2)
-    #                     * n
-    #                     / bet
-    #                     * coullog
-    #                     * w_e
-    #                     * (factor / bet)
-    #                 )
-
-    #                 # dEdt[k, j] = dpdt
-
-    #         beta_e = np.sqrt(2 * const.k_B * T_gas / (const.m_e * const.c**2))
-
-    #         dEdt = (
-    #             -3
-    #             / 2
-    #             * const.sigma_T
-    #             * const.c**2
-    #             * self.n_gas
-    #             * (
-    #                 1
-    #                 / 2
-    #                 * np.log(
-    #                     const.m_e**2
-    #                     * const.c**2
-    #                     / (np.pi * r0 * const.hbar**2 * self.n_gas)
-    #                     * const.m_p
-    #                     * self.gamma**2
-    #                     * self.beta**4
-    #                     / (const.m_p + 2 * self.gamma * const.m_e * const.c**2)
-    #                 )
-    #             )
-    #             / self.beta
-    #             * (
-    #                 np.erf(beta / beta_e)
-    #                 - (2 / np.sqrt(np.pi))
-    #                 * (1 + const.m_e / const.m_p)
-    #                 * (beta / beta_e)
-    #                 * np.exp(-(beta**2) / (beta_e**2))
-    #             )
-    #         )
-
-    #     # -----------------------------
-    #     # CASE 2: ELECTRONS (A = 0)
-    #     # -----------------------------
-    #     elif species == "leptonic" or A == 0:
-
-    #         for k in range(num_E):
-    #             bet = beta[k]
-    #             gam = gamma[k]
-
-    #             for j in range(num_r):
-    #                 n = n_g[j]
-
-    #                 if n > 0 * u.cm**-3:
-    #                     # Coulomb log must be dimensionless:
-    #                     # argument = (γ m_e c²) / ( n m_e c² (4π r_e ħ c)² )
-    #                     denom = n * (m_e_c2 * (4 * np.pi * r0 * hbar_c) ** 2)
-    #                     arg = (gam * m_e_c2 / denom).decompose()  # dimensionless
-    #                     coullog2 = np.log(arg.value) - 0.75
-    #                 else:
-    #                     coullog2 = 0.0
-
-    #                 prefactor = 2 * np.pi * r0**2 * m_e_c2
-
-    #                 dpdt = (prefactor * n / bet * coullog2 * (factor / bet)).to(
-    #                     u.MeV / u.s
-    #                 )
-
-    #                 dEdt[k, j] = dpdt
-
-    #     else:
-    #         raise ValueError("species must be 'hadronic' or 'leptonic'.")
-
-    #     # return in GeV/s like original python code
-    #     return dEdt.to(u.GeV / u.s)
 
     def compute_inverse_compton_losses(
         self,
