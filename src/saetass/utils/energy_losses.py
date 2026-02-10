@@ -24,6 +24,7 @@ or user-defined loss processes. Other features included are:
 ________________
 """
 
+from __future__ import annotations
 import numpy as np
 import astropy.units as u
 import astropy.constants as const
@@ -31,7 +32,6 @@ import logging
 from typing import Optional, List, Dict, Callable
 from enum import StrEnum
 import numpy.typing as npt
-from __future__ import annotations
 
 logger = logging.getLogger(__name__)
 
