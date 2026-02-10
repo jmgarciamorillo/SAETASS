@@ -31,6 +31,7 @@ import logging
 from typing import Optional, List, Dict, Callable
 from enum import StrEnum
 import numpy.typing as npt
+from __future__ import annotations
 
 logger = logging.getLogger(__name__)
 
@@ -447,7 +448,7 @@ class EnergyLossCalculator:
         num_q: int = 120,
     ) -> u.Quantity:
         """
-        Compute inverse Compton energy loss rate using full Klein-Nishina eq.
+        Work in progres...
         """
 
         num_E = len(self.E_grid)
@@ -627,64 +628,6 @@ class EnergyLossCalculator:
             timescales["total"] = tau_total.to(u.yr)
 
         return timescales
-
-    # def plot_loss_timescales(
-    #     self,
-    #     r_index: int,
-    #     save_path: Optional[str] = None,
-    # ):
-    #     """
-    #     Plot loss timescales vs energy at a specific radius.
-
-    #     Parameters:
-    #         r_index: Index of radius to plot
-    #         save_path: Path to save figure (if None, just displays)
-    #     """
-    #     import matplotlib.pyplot as plt
-
-    #     timescales = self.get_loss_timescales(r_index=r_index)
-
-    #     plt.figure(figsize=(10, 7))
-
-    #     colors = {
-    #         "ionization": "red",
-    #         "pion": "orange",
-    #         "synchrotron": "yellow",
-    #         "bremsstrahlung": "green",
-    #         "coulomb": "blue",
-    #         "inverse_compton": "purple",
-    #         "total": "black",
-    #     }
-
-    #     for mechanism, tau in timescales.items():
-    #         label = mechanism.capitalize()
-    #         color = colors.get(mechanism, "gray")
-    #         lw = 2.5 if mechanism == "total" else 1.5
-    #         ls = "-" if mechanism == "total" else "--"
-
-    #         plt.loglog(
-    #             self.E_grid.to("GeV").value,
-    #             tau.to("Myr").value,
-    #             label=label,
-    #             color=color,
-    #             linewidth=lw,
-    #             linestyle=ls,
-    #         )
-
-    #     plt.xlabel("Energy (GeV)", fontsize=12)
-    #     plt.ylabel("Loss Timescale (Myr)", fontsize=12)
-    #     plt.title(
-    #         f"Energy Loss Timescales at r = {self.r_grid[r_index]:.1f} pc", fontsize=13
-    #     )
-    #     plt.legend(fontsize=10)
-    #     plt.grid(True, alpha=0.3)
-    #     plt.tight_layout()
-
-    #     if save_path:
-    #         plt.savefig(save_path, dpi=150)
-    #         logger.info(f"Saved loss timescales plot to {save_path}")
-
-    #     plt.show()
 
 
 class Particle(StrEnum):
