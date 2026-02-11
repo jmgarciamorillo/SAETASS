@@ -381,32 +381,18 @@ class HyperbolicSolver(ABC):
         Compute first-order upwind fluxes at faces given conservative variable U and face generalized velocities for 2D case.
         Returns flux matrix with length N+1 on axis and M on other_axis.
         """
-        U_left = np.take(U, indices=range(self.N - 1), axis=self.axis)
-        U_right = np.take(U, indices=range(1, self.N), axis=self.axis)
+        U_left = U[..., :-1]
+        U_right = U[..., 1:]
         flux_int = np.where(V_faces >= 0.0, V_faces * U_left, V_faces * U_right)
 
-        if self.axis == 1:
-            shape = (U.shape[0], self.N)
-            F = np.empty(shape, dtype=float)
-            F[:, 0] = 0.0
-            F[:, 1:-1] = flux_int
-            F[:, -1] = V_centers[:, -1] * (
-                U[:, -1] if V_centers[:, -1] >= 0.0 else self.inflow_value_U
-            )
-            return F
-        elif self.axis == 0:
-            shape = (self.N, U.shape[1])
-            F = np.empty(shape, dtype=float)
-            F[0, :] = V_centers[0, :] * (
-                self.inflow_value_U if V_centers[0, :] >= 0.0 else U[0, :]
-            )  # assuming zero inflow for 2D
-            F[1:-1, :] = flux_int
-            F[-1, :] = V_centers[-1, :] * (
-                U[:, -1] if V_centers[-1, :] >= 0.0 else self.inflow_value_U
-            )  # assuming zero inflow for 2D
-            return F
-        else:
-            raise ValueError("Invalid axis for main axis.")
+        F = np.empty((*U.shape[:-1], U.shape[-1] + 1), dtype=float)
+        F[:, 0] = 0.0
+        F[:, 1:-1] = flux_int
+        F[:, -1] = U[:, -1] * np.where(
+            V_centers[:, -1] >= 0.0, V_centers[:, -1], self.inflow_value_U
+        )
+
+        return F
 
     def _compute_second_order_fluxes(
         self,
