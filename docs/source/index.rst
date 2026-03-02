@@ -9,8 +9,8 @@ SAETASS Documentation
    introduction
    foundations
    users_guide
-   api
-   tutorials
+   api/index
+   tutorials/index
    terms
 
 Welcome
