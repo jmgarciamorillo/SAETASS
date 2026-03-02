@@ -64,29 +64,29 @@ class TestAdvectionDiffusion:
         # --- Run 1: Advection + Diffusion ---
         grid_params = {"r_grid": r_grid, "t_grid": t_grid}
         op_params_both = {
-            "advectionFV": {
+            "advection": {
                 "v_centers": np.full(num_r, v_const),
                 "limiter": "minmod",
                 "order": 2,
                 "cfl": 0.8,
                 "inflow_value_U": 1,
             },
-            "diffusionFV": {"D_values": np.full(num_r, D_const), "f_end": 0.0},
+            "diffusion": {"D_values": np.full(num_r, D_const), "f_end": 0.0},
         }
         f_final_both = run_solver_test(
-            grid_params, op_params_both, "advectionFV-diffusionFV", f_initial
+            grid_params, op_params_both, "advection-diffusion", f_initial
         ).flatten()
 
         # --- Run 2: Advection Only ---
-        op_params_adv = {"advectionFV": op_params_both["advectionFV"]}
+        op_params_adv = {"advection": op_params_both["advection"]}
         f_final_adv_only = run_solver_test(
-            grid_params, op_params_adv, "advectionFV", f_initial
+            grid_params, op_params_adv, "advection", f_initial
         ).flatten()
 
         # --- Run 3: Diffusion Only ---
-        op_params_diff = {"diffusionFV": op_params_both["diffusionFV"]}
+        op_params_diff = {"diffusion": op_params_both["diffusion"]}
         f_final_diff_only = run_solver_test(
-            grid_params, op_params_diff, "diffusionFV", f_initial
+            grid_params, op_params_diff, "diffusion", f_initial
         ).flatten()
 
         # --- Analysis ---
@@ -166,7 +166,7 @@ class TestAdvectionSource:
         # Operator parameters
         grid_params = {"r_grid": r_grid, "t_grid": t_grid}
         op_params = {
-            "advectionFV": {
+            "advection": {
                 "v_centers": np.full(num_r, v_const),
                 "order": 2,
                 "limiter": "minmod",
@@ -178,7 +178,7 @@ class TestAdvectionSource:
 
         # Run simulation
         f_final = run_solver_test(
-            grid_params, op_params, "advectionFV-source", f_initial
+            grid_params, op_params, "advection-source", f_initial
         ).flatten()
 
         # Plotting
@@ -266,7 +266,7 @@ class TestAdvectionSource:
         # Operator parameters
         grid_params = {"r_grid": r_grid, "t_grid": t_grid}
         op_params = {
-            "advectionFV": {
+            "advection": {
                 "v_centers": v_field,
                 "order": 2,
                 "limiter": "minmod",
@@ -278,7 +278,7 @@ class TestAdvectionSource:
 
         # Run simulation
         f_final = run_solver_test(
-            grid_params, op_params, "advectionFV-source", f_initial
+            grid_params, op_params, "advection-source", f_initial
         ).flatten()
 
         # Plotting
@@ -359,13 +359,13 @@ class TestDiffusionSource:
         # Operator parameters
         grid_params = {"r_grid": r_grid, "t_grid": t_grid}
         op_params = {
-            "diffusionFV": {"D_values": D_values, "f_end": 0.0},
+            "diffusion": {"D_values": D_values, "f_end": 0.0},
             "source": {"source": Q_values},
         }
 
         # Run simulation
         f_final = run_solver_test(
-            grid_params, op_params, "diffusionFV-source", f_initial
+            grid_params, op_params, "diffusion-source", f_initial
         ).flatten()
 
         # Analytical steady-state solution from DiffValidation4.py

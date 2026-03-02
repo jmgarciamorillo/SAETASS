@@ -33,9 +33,9 @@ def run_diffusion_test(grid_params, solver_params, initial_f):
     solver = Solver(
         grid=grid,
         state=state,
-        problem_type="diffusionFV",
-        operator_params={"diffusionFV": solver_params},
-        substeps={"diffusionFV": 1},
+        problem_type="diffusion",
+        operator_params={"diffusion": solver_params},
+        substeps={"diffusion": 1},
         splitting_scheme="strang",
     )
 

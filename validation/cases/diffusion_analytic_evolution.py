@@ -25,7 +25,7 @@ from saetass import State, Grid, Solver
 
 def run_diffusion_simulation(r_grid, t_grid, f_initial, solver_params, sample_count=0):
     """
-    Create and run a diffusionFV Solver for the provided grids and params.
+    Create and run a diffusion Solver for the provided grids and params.
     Collect sampled snapshots by advancing the solver in chunks to sampled
     timestep indices (mirrors the approach used in other validation scripts).
 
@@ -38,9 +38,9 @@ def run_diffusion_simulation(r_grid, t_grid, f_initial, solver_params, sample_co
     solver = Solver(
         grid=grid,
         state=state,
-        problem_type="diffusionFV",
-        operator_params={"diffusionFV": solver_params},
-        substeps={"diffusionFV": 1},
+        problem_type="diffusion",
+        operator_params={"diffusion": solver_params},
+        substeps={"diffusion": 1},
         splitting_scheme="strang",
     )
 

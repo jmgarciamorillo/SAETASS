@@ -33,16 +33,16 @@ def run_loss_simulation(p_grid, t_grid, f_initial, operator_params, sample_count
 
     # decide problem type
     if "source" in operator_params:
-        problem_type = "lossFV-source"
+        problem_type = "loss-source"
     else:
-        problem_type = "lossFV"
+        problem_type = "loss"
 
     solver = Solver(
         grid=grid,
         state=state,
         problem_type=problem_type,
         operator_params=operator_params,
-        substeps={"lossFV": 1},
+        substeps={"loss": 1},
         splitting_scheme="strang",
     )
 
@@ -131,7 +131,7 @@ def validation_loss_source_steady_state(
         "inflow_value_U": 0.0,
         "adiabatic_losses": False,
     }
-    operator_params = {"lossFV": loss_params, "source": {"source": Q_values}}
+    operator_params = {"loss": loss_params, "source": {"source": Q_values}}
 
     # analytical steady state (same for all times)
     ana = analytical_steady_state_loss(p_grid, Q0, b0, alpha, beta, p0, p_max)

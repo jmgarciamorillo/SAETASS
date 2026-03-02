@@ -154,21 +154,21 @@ def validation_diffusion_advection(
 
         # combined advection + diffusion
         op_both = {
-            "advectionFV": {
+            "advection": {
                 "v_centers": np.full(N, v_const),
                 "order": 2,
                 "limiter": "minmod",
                 "cfl": 0.8,
                 "inflow_value_U": 0.0,
             },
-            "diffusionFV": {"D_values": np.full(N, D_const), "f_end": 0.0},
+            "diffusion": {"D_values": np.full(N, D_const), "f_end": 0.0},
         }
         f_both, snaps_both, times_both, _ = run_operator_simulation(
             r_grid,
             t_grid,
             f_initial,
             op_both,
-            "advectionFV-diffusionFV",
+            "advection-diffusion",
             sample_count=sample_count,
         )
         # diagnostics (combined only)
@@ -317,7 +317,7 @@ def validation_diffusion_advection(
                 t_grid_test = np.linspace(0.0, t_target, t_steps)
 
                 op_adv_test = {
-                    "advectionFV": {
+                    "advection": {
                         "v_centers": np.full(Ntest, v_const),
                         "order": 2,
                         "limiter": "minmod",
@@ -326,7 +326,7 @@ def validation_diffusion_advection(
                     }
                 }
                 op_diff_test = {
-                    "diffusionFV": {"D_values": np.full(Ntest, D_const), "f_end": 0.0}
+                    "diffusion": {"D_values": np.full(Ntest, D_const), "f_end": 0.0}
                 }
                 op_both_test = {**op_adv_test, **op_diff_test}
 
@@ -335,7 +335,7 @@ def validation_diffusion_advection(
                     t_grid_test,
                     f_init_test,
                     op_both_test,
-                    "advectionFV-diffusionFV",
+                    "advection-diffusion",
                     sample_count=1,
                 )
 

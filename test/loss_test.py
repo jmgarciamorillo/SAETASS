@@ -97,7 +97,7 @@ def run_loss_source_test():
     Q_values = Q0 * (p_centers / p0) ** (-alpha)
 
     # Configure loss operator parameters
-    lossFV_params = {
+    loss_params = {
         "P_dot": P_dot,
         "limiter": "minmod",
         "cfl": 0.8,
@@ -112,7 +112,7 @@ def run_loss_source_test():
 
     # Set up the combined operator parameters
     operator_params = {
-        "lossFV": lossFV_params,
+        "loss": loss_params,
         "source": source_params,
     }
 
@@ -120,7 +120,7 @@ def run_loss_source_test():
     solver = Solver(
         grid=grid,
         state=state,
-        problem_type="lossFV-source",
+        problem_type="loss-source",
         operator_params=operator_params,
     )
 

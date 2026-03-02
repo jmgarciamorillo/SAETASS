@@ -25,7 +25,7 @@ from saetass import State, Grid, Solver
 
 def run_advection_simulation(r_grid, t_grid, f_initial, solver_params):
     """
-    Create and run an advectionFV Solver for the provided grids and params.
+    Create and run an advection Solver for the provided grids and params.
     Returns the final distribution (numpy array) and the solver object.
     """
     grid = Grid(r_centers=r_grid, t_grid=t_grid, p_centers=None)
@@ -34,9 +34,9 @@ def run_advection_simulation(r_grid, t_grid, f_initial, solver_params):
     solver = Solver(
         grid=grid,
         state=state,
-        problem_type="advectionFV",
-        operator_params={"advectionFV": solver_params},
-        substeps={"advectionFV": 1},
+        problem_type="advection",
+        operator_params={"advection": solver_params},
+        substeps={"advection": 1},
         splitting_scheme="strang",
     )
 

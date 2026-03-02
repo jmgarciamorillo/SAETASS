@@ -27,7 +27,7 @@ def run_advection_simulation(
     r_grid, t_grid, f_initial, solver_params, source_params=None, sample_count=0
 ):
     """
-    Create and run an advectionFV (+ optional source) Solver for the provided grids and params.
+    Create and run an advection (+ optional source) Solver for the provided grids and params.
     Collect snapshots by advancing the solver in chunks to a set of sampled timesteps
     (same approach used in `multiEnergyGiovanniTest.py`).
 
@@ -36,19 +36,19 @@ def run_advection_simulation(
     grid = Grid(r_centers=r_grid, t_grid=t_grid, p_centers=None)
     state = State(f_initial)
 
-    operator_params = {"advectionFV": solver_params}
+    operator_params = {"advection": solver_params}
     if source_params is not None:
         operator_params["source"] = source_params
-        problem_type = "advectionFV-source"
+        problem_type = "advection-source"
     else:
-        problem_type = "advectionFV"
+        problem_type = "advection"
 
     solver = Solver(
         grid=grid,
         state=state,
         problem_type=problem_type,
         operator_params=operator_params,
-        substeps={"advectionFV": 1},
+        substeps={"advection": 1},
         splitting_scheme="strang",
     )
 

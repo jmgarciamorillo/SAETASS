@@ -31,16 +31,16 @@ def run_diffusion_simulation(
 
     # Decide problem_type depending on whether a source operator is present
     if "source" in operator_params:
-        problem_type = "diffusionFV-source"
+        problem_type = "diffusion-source"
     else:
-        problem_type = "diffusionFV"
+        problem_type = "diffusion"
 
     solver = Solver(
         grid=grid,
         state=state,
         problem_type=problem_type,
         operator_params=operator_params,
-        substeps={"diffusionFV": 1},
+        substeps={"diffusion": 1},
         splitting_scheme="strang",
     )
 
@@ -129,7 +129,7 @@ def validation_diffusion_source_steady_state(
     Q_values = Q_0 * r_grid
 
     solver_params = {"D_values": D_values, "f_end": 0.0}
-    operator_params = {"diffusionFV": solver_params, "source": {"source": Q_values}}
+    operator_params = {"diffusion": solver_params, "source": {"source": Q_values}}
 
     ana = analytical_steady_state(r_grid, D_0, Q_0, eps)
 

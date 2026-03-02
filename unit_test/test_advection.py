@@ -30,9 +30,9 @@ def run_advection_test(grid_params, solver_params, initial_f):
     solver = Solver(
         grid=grid,
         state=state,
-        problem_type="advectionFV",
-        operator_params={"advectionFV": solver_params},
-        substeps={"advectionFV": 1},
+        problem_type="advection",
+        operator_params={"advection": solver_params},
+        substeps={"advection": 1},
         splitting_scheme="strang",
     )
 
