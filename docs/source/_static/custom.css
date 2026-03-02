@@ -8,13 +8,23 @@
     background: transparent;
 }
 
-/* Barra superior
-.wy-nav-top {
+/* .wy-side-nav-search>a img.logo {
+    display: block;
+    margin: 0 auto;
+    height: 100%;
+    width: auto;
+    border-radius: 0;
+    max-height: 100%;
+    background: transparent;
+} */
+
+/* Barra superior */
+/* .wy-nav-top {
     background-color: #f7f7f7;
     /* azul 
 }
 
-/* F3AC4B, F3664B
+/* F3AC4B, F3664B 
 .wy-side-nav-search {
     background-color: #f7f7f7;
 }
@@ -26,16 +36,13 @@
 .wy-menu-vertical p.caption {
     color: #F3AC4B;
 }
-.wy-menu-vertical 
 
-/* Fondo del contenido 
-.wy-nav-content {
+.wy-menu-vertical Fondo del contenido .wy-nav-content {
     background-color: #f7f7f7;
     /* gris claro 
 }
 
-/* Enlaces 
-.wy-nav-content a {
+Enlaces .wy-nav-content a {
     color: #d32f2f;
     /* rojo 
 }
@@ -43,7 +50,7 @@
 /* Enlaces al pasar el ratón 
 .wy-nav-content a:hover {
     color: #b71c1c;
-}
+} */
 
 /* Botones prev/next 
 .wy-nav-side .rst-other {

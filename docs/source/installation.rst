@@ -59,13 +59,13 @@ Select the installation method that aligns with your intended usage.
       .. code-block:: bash
 
          # Standard install
-         pip install saetass
+         python -m pip install saetass
 
          # High-speed install with uv
          uv pip install saetass
 
       .. tip::
-         SAETASS follows standard PEP 517 conventions and can be distributed as a pure-Python wheel. This makes the package itself compatible with offline installation workflows using :code:`pip install --no-index`.
+         SAETASS follows standard PEP 517 conventions and can be distributed as a pure-Python wheel. This makes the package itself compatible with offline installation workflows using :code:`python -m pip install --no-index`.
          
          In restricted environments without internet access, offline installation is possible provided that SAETASS and all its runtime dependencies are available locally as pre-built wheels.
 
@@ -94,7 +94,7 @@ Select the installation method that aligns with your intended usage.
          source .venv/bin/activate
 
          # Perform the editable install with 'dev' extras and optionally with standard PyData plotting tools
-         pip install -e ".[dev,plotting]"
+         python -m pip install -e ".[dev,plotting]"
 
       .. warning::
          The `-e` flag (short for `--editable`) creates a link to your current directory. If you move or rename the `SAETASS` folder, the Python interpreter will no longer be able to find the package, and you will encounter an ``ImportError``.
@@ -109,6 +109,9 @@ Select the installation method that aligns with your intended usage.
 
       The output should point to your local git directory.
 
+.. note::
+   Throughout this documentation we invoke pip via ``python -m pip`` instead of the standalone ``pip`` executable.
+   This guarantees that the package manager is bound to the currently active interpreter and avoids edge cases in environments where multiple Python installations coexist.
 
 Post-Installation Verification
 ------------------------------
@@ -162,7 +165,7 @@ Scientific software evolves to incorporate more efficient algorithms and stabili
       .. code-block:: bash
 
          # Using standard pip
-         pip install --upgrade saetass
+         python -m pip install --upgrade saetass
 
          # Using uv (High-speed resolution)
          uv pip install --upgrade saetass
@@ -189,7 +192,7 @@ Scientific software evolves to incorporate more efficient algorithms and stabili
 
       .. code-block:: bash
 
-         pip install -e ".[dev,plotting]"
+         python -m pip install -e ".[dev,plotting]"
 
 .. warning::
    If you have active simulations running in a persistent environment—such as a **Jupyter kernel** or a long-running **Screen** session—they will continue to execute the *old* code loaded in memory until the interpreter is restarted. 
