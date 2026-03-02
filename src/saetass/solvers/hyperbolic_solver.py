@@ -1,3 +1,19 @@
+"""
+The :class:`HyperbolicSolver` class implements a finite volume method for solving hyperbolic PDEs of the general form
+
+.. math::
+
+    \\frac{\\partial U}{\\partial t} + \\frac{\\partial}{\\partial y}\\big(V(y)\\, U\\big) = 0,
+
+where :math:`V(y)` is a generalized velocity that can depend on the variable :math:`y`.
+It supports both first-order upwind and second-order MUSCL-Hancock schemes with various slope limiters (minmod, van Leer, MC) to ensure stability and non-oscillatory behavior.
+The solver can handle both 1D and 2D problems by treating the secondary axis as independent slices.
+It automatically computes stable time steps based on the CFL condition and updates the state accordingly.
+
+This class serves as a flexible base for specific hyperbolic problems, such as advection or loss terms, by defining the appropriate generalized variable transformations and velocity fields.
+Thus, :class:`AdvectionSolver` and :class:`LossSolver` inherit from this base class and implement the problem-specific logic while reusing the core finite volume update mechanism.
+"""
+
 import numpy as np
 from typing import Literal
 from ..state import State, SliceState
@@ -40,6 +56,25 @@ def minmod_multi(a, b, c):
 
 
 class HyperbolicSolver(ABC):
+    """
+    Base class for hyperbolic PDE solvers using finite volume methods.
+    It exposes a public API for advancing the solution in time and relies on subclasses to define problem-specific transformations and velocity fields.
+
+    Parameters
+    ----------
+    grid : Grid
+        Grid object containing spatial and momentum grids.
+    t_grid : np.ndarray
+        Time grid for integration. In the normal SAETASS workflow, the time grid is already subrefined during the :class:`Solver` initialization.
+    params : dict
+        Dictionary containing solver parameters:
+        - V_centers: Generalized velocities at cell centers (shape must match grid dimensions)
+        - limiter: Slope limiter for second-order scheme ('minmod', 'vanleer', or 'mc')
+        - cfl: CFL number for stable time step calculation
+        - inflow_value_U: Value of the conservative variable U at the outer boundary for inflow conditions
+        - order: Order of the scheme (1 for first-order upwind, 2 for second-order MUSCL-Hancock)
+        - axis: Integer (0 or 1) indicating the main axis of the problem (0 for momentum, 1 for spatial)
+    """
 
     def __init__(
         self,

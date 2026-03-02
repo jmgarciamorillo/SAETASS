@@ -1,3 +1,19 @@
+"""
+This module provides a class and auxiliary methods to track the state of a solution
+in a finite-volume method with operator splitting solver such as SAETASS. The :class:`State`
+class is designed to support the following features:
+
+- Hold the conserved variables (e.g., particle distribution function) as a ``Numpy`` array.
+- Encapsulate the update and retrieval of the solution state as an API used by finite-volume
+method routines.
+- Track the current time of the solution.
+- Record and restore snapshots of the solution at different stages of the operator splitting,
+allowing for detailed analysis and debugging.
+
+________________
+"""
+
+from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Union
 import numpy as np
@@ -5,32 +21,33 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-"""
-/Users/jmorillo/SolverAlpha/SolverAlpha/State.py
-
-A lightweight State class to track solution and substep history for
-a finite-volume method (FVM) with operator splitting.
-
-Design goals:
-- Hold conserved variables U as a numpy array (shape: (n_p, n_r))
-- Track time, current timestep, and stage index/name
-- Record and restore substep snapshots (history) for operator-split stages
-- Small, well-documented API for typical FVM routines
-"""
-
 
 @dataclass
 class State:
     """
-    Container for the solution state used in FVM operator splitting.
+    Main class to serve as a container and tracker of solution state.
 
-    Attributes:
-        U (np.ndarray): Conserved variables array, shape (n_p, n_r).
-        t (float): Current physical time.
-        dt (float): Current timestep size (most recent).
-        stage (int): Current operator-splitting stage index.
-        stage_name (str): Optional name/label for the current stage.
-        history (List[Dict[str, Any]]): Saved snapshots for substeps.
+    A :class:`State` instance is initialized for specific domain parameters, which are implicit in the shape of the
+    distribution function array f. The array is expected to match the size and shape of the :class:`Grid` object
+    used in the :class:`Solver`. The class provides methods to update, advance time and record snapshots of the state
+    during the operator splitting steps.
+
+    Parameters
+    ----------
+    f : np.ndarray
+        The initial distribution function, expected to be a 1D or 2D array.
+    t : float, optional
+        The initial time of the solution (default is 0.0).
+    dt : float, optional
+        The time step used in the last update (default is 0.0).
+    stage : int, optional
+        The current stage index in the simulation (default is 0).
+    stage_name : str, optional
+        A descriptive name for the current stage (default is an empty string).
+    history : List[Dict[str, Any]], optional
+        A list to store snapshots of the state at different stages, where each snapshot is a dictionary
+        containing the time, dt, stage index, stage name and a copy of the distribution function at that point
+        (default is an empty list).
     """
 
     f: np.ndarray
@@ -58,18 +75,46 @@ class State:
 
     @property
     def n_p(self) -> int:
+        """Number of momentum bins.
+
+        Returns
+        -------
+            int: Number of momentum bins.
+        """
         return self.f.shape[0]
 
     @property
     def n_r(self) -> int:
+        """Number of spatial bins.
+
+        Returns
+        -------
+            int: Number of spatial bins.
+        """
         return self.f.shape[1]
 
     @property
     def grid_shape(self) -> tuple:
+        """Shape of the grid (n_p, n_r) as defined by the shape of f.
+
+        Returns
+        -------
+            tuple: Shape of the grid (n_p, n_r).
+        """
         return self.f.shape
 
-    def clone(self, copy_history: bool = False) -> "State":
-        """Return a deep copy of this State. By default history is not copied."""
+    def clone(self, copy_history: bool = False) -> State:
+        """Creates a deep copy of the current state, including f and metadata. Optionally includes history.
+
+        Parameters
+        ----------
+        copy_history : bool, optional
+            If True, also deep-copy the history of snapshots (default is False).
+
+        Returns
+        -------
+            State: A new State instance with copied data.
+        """
         new_state = State(
             f=self.f.copy(),
             t=float(self.t),
@@ -92,24 +137,24 @@ class State:
         return new_state
 
     def get_f(self) -> np.ndarray:
-        """Return a proper np.array for computation."""
+        """Returns f as a numpy array with appropriate dimensions for computation.
+
+        Returns
+        -------
+            np.ndarray: The distribution function array,.
+        """
         if self.ndim == 1:
             return self.f[0]  # return 1D array
         return self.f
 
-    # def to_vector(self, order: str = "C") -> np.ndarray:
-    #     """Flatten f to a 1D vector (useful for linear algebra ops)."""
-    #     return self.f.ravel(order=order)
-
-    # def from_vector(self, vec: Sequence[float], order: str = "C"):
-    #     """Load flattened data into f (must match size)."""
-    #     arr = np.asarray(vec, dtype=float)
-    #     if arr.size != self.f.size:
-    #         raise ValueError("Vector size does not match f.size")
-    #     self.f = arr.reshape(self.f.shape, order=order)
-
     def update_f(self, new_f: np.ndarray):
-        """Replace f with new_f (must have same shape)."""
+        """Replaces the current f with new_f, ensuring it has the correct shape and type.
+
+        Parameters
+        ----------
+        new_f : np.ndarray
+            The new distribution function array to replace the current f. Must have the same shape as the current f.
+        """
         new_f_arr = np.asarray(new_f, dtype=float)
         if new_f_arr.shape != self.f.shape:
             # Handle the case of reshaping 1D to 2D if needed
@@ -122,14 +167,23 @@ class State:
         self.f = new_f_arr
 
     def advance_time(self, dt: float):
-        """Advance time by dt and store the last dt."""
+        """Advances the current time by dt and updates the dt attribute.
+
+        Parameters
+        ----------
+        dt : float
+            The time step to advance the current time by.
+        """
         self.t += float(dt)
         self.dt = float(dt)
 
     def record_substep(self, stage_name: Optional[str] = None):
-        """
-        Save a snapshot of the current state for later restore/inspection.
-        Each snapshot contains a copy of f and metadata: t, dt, stage, stage_name.
+        """Records a snapshot of the current state, including time, dt, stage index, optional stage_name and a copy of f.
+
+        Parameters
+        ----------
+        stage_name : str, optional
+            An optional descriptive name for the current stage to include in the snapshot (default is None).
         """
         entry = {
             "t": float(self.t),
@@ -143,11 +197,12 @@ class State:
         self.history.append(entry)
 
     def restore_substep(self, identifier: Union[int, str]):
-        """
-        Restore a saved snapshot. identifier may be:
-          - int: index into history (0-based)
-          - str: stage_name to search for (first match)
-        Raises IndexError/ValueError if not found.
+        """Restores the state to a previously recorded snapshot identified by either its index in the history list or its stage_name.
+
+        Parameters
+        ----------
+        identifier : int or str
+            The index of the snapshot in the history list or the stage_name of the snapshot to restore.
         """
         if isinstance(identifier, int):
             snap = self.history[identifier]
@@ -166,7 +221,17 @@ class State:
         return self
 
     def get_substep(self, index: int) -> Dict[str, Any]:
-        """Return a copy of the snapshot at index (does not modify current state)."""
+        """Returns a copy of the snapshot at the given index without modifying the current state.
+
+        Parameters
+        ----------
+        index : int
+            The index of the snapshot in the history list to retrieve.
+
+        Returns
+        -------
+            dict: A dictionary containing the snapshot data (t, dt, stage, stage_name, f).
+        """
         snap = self.history[index]
         return {
             "t": float(snap["t"]),
@@ -177,19 +242,27 @@ class State:
         }
 
     def clear_history(self):
-        """Remove all saved substeps."""
+        """Clears all recorded snapshots from the history list, leaving the current state intact."""
         self.history.clear()
 
     def step_stage(self, stage_name: Optional[str] = None):
-        """Increment stage index and optionally set a new stage_name."""
+        """Increments the stage index by 1 and optionally updates the stage_name.
+
+        Parameters
+        ----------
+        stage_name : str, optional
+            An optional descriptive name for the new stage to set (default is None, which resets the stage_name to an empty string).
+        """
         self.stage += 1
         if stage_name is not None:
             self.stage_name = stage_name
+        else:
+            self.stage_name = ""
 
     def __repr__(self) -> str:
         return (
-            f"State(n_r={self.n_r}, n_p={self.n_p}, t={self.t:.6g}, "
-            f"dt={self.dt:.6g}, stage={self.stage}, snapshots={len(self.history)})"
+            f"State(t={self.t:.3f}, dt={self.dt:.3f}, stage={self.stage}, "
+            f"stage_name={self.stage_name!r}, f_shape={self.f.shape}, history_len={len(self.history)})"
         )
 
 

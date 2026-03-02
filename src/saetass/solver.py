@@ -1,3 +1,17 @@
+"""
+The Solver class is the main interface for running simulations.
+It manages the overall time loop and coordinates the advancement of the solution according to the specified problem type and parameters.
+Hence, it serves as the central orchestrator of the simulation workflow, while delegating the actual numerical updates to specialized subsolvers for each operator (advection, diffusion, loss, source).
+
+In the initialization phase, the Solver class takes in the grid, initial state, problem type, operator parameters, substep counts and splitting scheme.
+It parses the problem type to determine which operators are involved and initializes the corresponding subsolvers with their own refined time grids based on the specified splitting scheme.
+
+Any object of the Solver class exposes two main methods: one for advancing the solution by a single time step and another for running the entire simulation.
+After each advancement, the Solver updates the State object associated with the solution.
+
+--------------
+"""
+
 import numpy as np
 
 from .solvers.diffusion_solver import DiffusionSolver
@@ -13,14 +27,36 @@ logger = logging.getLogger(__name__)
 
 # Map operator names to their solver classes
 SUBSOLVER_MAP = {
-    "advectionFV": AdvectionSolver,
-    "diffusionFV": DiffusionSolver,
-    "lossFV": LossSolver,
+    "advection": AdvectionSolver,
+    "diffusion": DiffusionSolver,
+    "loss": LossSolver,
     "source": SourceSolver,
 }
 
 
 class Solver:
+    """
+    Main class to manage the simulation workflow. It initializes subsolvers based on the specified problem type and coordinates the time advancement of the solution.
+
+    Parameters
+    ----------
+    grid : Grid
+        Grid object containing spatial and momentum grids and time grid.
+    state : State
+        State object containing the initial distribution f.
+    problem_type : str
+        String specifying the type of problem and which operators to include (e.g., "advection-diffusion-loss-source").
+    operator_params : dict, optional
+        Dictionary mapping operator names to their specific parameters (e.g., {"advection": {...}, "diffusion": {...}}).
+        These parameters will be passed to the corresponding subsolvers during initialization and should be structured accordingly.
+        For further details on expected parameters for each operator, refer to the documentation of the respective subsolver classes.
+    substeps : dict, optional
+        Dictionary specifying the number of substeps for each operator (e.g., {"advection": 2, "diffusion": 1}).
+        Default is no subrefinement, this is, 1 substep per operator.
+    splitting_scheme : str, optional
+        String specifying the operator splitting scheme to use (e.g., "strang", "lie"). Default is "strang".
+    """
+
     def __init__(
         self,
         grid: Grid,
@@ -28,17 +64,9 @@ class Solver:
         problem_type: str,
         operator_params: dict = None,
         substeps: dict = None,
-        splitting_scheme=None,
+        splitting_scheme: str = None,
         **kwargs,
     ):
-        """
-        Initializes the main Solver with operator splitting.
-        problem_type: str, e.g. 'advection-diffusion', 'loss', etc.
-        substeps: dict, e.g. {'advection': 1, 'diffusion': 1, 'loss': 1}
-        operator_params: dict, e.g. {
-            'advection': {...}, 'diffusion': {...}, 'loss': {...}, 'advectionFV': {...}
-        }
-        """
         self.grid = grid
         self.state = state
         self.problem_type = problem_type.lower()
@@ -126,8 +154,8 @@ class Solver:
 
         for _ in range(n_steps):
             self.global_step += 1
-            if self.global_step == 505:
-                logger.debug("Reached global step 505.")
+            if self.global_step == 371:
+                logger.debug("Reached global step 371.")
             logger.info(
                 f"Global step {self.global_step}/{self.total_steps} | max(f)={np.max(self.state.f):.4g} min(f)={np.min(self.state.f):.4g}"
             )
@@ -141,11 +169,25 @@ class Solver:
             f"Advance finished | max(f)={np.max(self.state.f):.4g} min(f)={np.min(self.state.f):.4g}"
         )
 
-    def run(self):
+    def run(self) -> State:
+        """Advances the solution to the final time, updating and returning the final :class:`State` object.
+
+        Returns
+        -------
+        State
+            The final state of the solution after advancing to the final time.
+        """
         num_timesteps = len(self.t_grid) - 1
         self._advance(num_timesteps)
         return self.state
 
     def step(self, n_steps=1):
+        """Advances the solution by n_steps global time steps, updating and returning the current :class:`State` object.
+
+        Parameters
+        ----------
+        n_steps : int, optional
+            The number of global time steps to advance. Default is 1.
+        """
         self._advance(n_steps)
         return self.state
