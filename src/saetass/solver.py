@@ -21,6 +21,8 @@ from .solvers.source_solver import SourceSolver
 from .state import State
 from .grid import Grid
 from .splitting import StrangSplitting, LieSplitting, create_splitting_scheme
+from .cli.progress import create_progress_bar
+from .cli.banner import print_banner
 import logging
 
 logger = logging.getLogger(__name__)
@@ -67,6 +69,9 @@ class Solver:
         splitting_scheme: str = None,
         **kwargs,
     ):
+        # Print the banner on initialization
+        print_banner()
+
         self.grid = grid
         self.state = state
         self.problem_type = problem_type.lower()
@@ -152,22 +157,46 @@ class Solver:
     def _advance(self, n_steps):
         """Advance the solution by n_steps using operator splitting."""
 
+        manage_progress = False
+        if getattr(self, "_progress", None) is None:
+            self._progress = create_progress_bar()
+            self._progress.start()
+            self._task_id = self._progress.add_task(
+                "[bold cyan]Solving...",
+                total=self.total_steps,
+                completed=self.global_step,
+                metrics="max=0.0 min=0.0",
+            )
+            manage_progress = True
+
         for _ in range(n_steps):
             self.global_step += 1
             if self.global_step == 371:
                 logger.debug("Reached global step 371.")
-            logger.info(
-                f"Global step {self.global_step}/{self.total_steps} | max(f)={np.max(self.state.f):.4g} min(f)={np.min(self.state.f):.4g}"
+
+            f_max = np.max(self.state.f)
+            f_min = np.min(self.state.f)
+
+            self._progress.update(
+                self._task_id,
+                completed=self.global_step,
+                metrics=f"max={f_max:.4g} min={f_min:.4g}",
             )
+
             self.splitting_scheme.apply(
                 self.operator_list,
                 self.operator_subsolvers,
                 self.substeps_per_op,
                 self.state,
             )
+
         logger.debug(
             f"Advance finished | max(f)={np.max(self.state.f):.4g} min(f)={np.min(self.state.f):.4g}"
         )
+
+        if manage_progress and self.global_step >= self.total_steps:
+            self._progress.stop()
+            self._progress = None
 
     def run(self) -> State:
         """Advances the solution to the final time, updating and returning the final :class:`State` object.
@@ -177,7 +206,7 @@ class Solver:
         State
             The final state of the solution after advancing to the final time.
         """
-        num_timesteps = len(self.t_grid) - 1
+        num_timesteps = self.grid.num_timesteps
         self._advance(num_timesteps)
         return self.state
 
