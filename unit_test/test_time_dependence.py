@@ -570,6 +570,9 @@ def test_manufactured_diffusion_source(plot_results):
     def D_callable(t):
         return np.full_like(grid.r_centers, D0 * (1.0 + t))
 
+    def f_end_callable(t):
+        return (2.0 + np.cos(t)) * np.exp(-r_end)
+
     def Q_src(r, p, t):
         term1 = -np.sin(t)
         r_safe = np.where(r == 0, 1e-10, r)
@@ -590,8 +593,9 @@ def test_manufactured_diffusion_source(plot_results):
         problem_type="diffusion-source",
         operator_params={
             "diffusion": {
+                "boundary_condition": "dirichlet",
                 "D_values": D_callable,
-                "f_end": 0.0,
+                "f_end": f_end_callable,
             },
             "source": {
                 "source": Q_src,
@@ -642,14 +646,12 @@ def test_manufactured_diffusion_source(plot_results):
 
         if i > 0:
             # Validate using relative L2 norm over the full domain.
-            # The Q(r,t) source term has an inherent (2/r-1) singularity in spherical coordinates
-            # which causes a large absolute error near r=0 but modest global error.
             rel_l2 = np.sqrt(np.mean((num_f - ana_f) ** 2)) / (
                 np.sqrt(np.mean(ana_f**2)) + 1e-300
             )
-            assert rel_l2 < 0.30, (
+            assert rel_l2 < 0.05, (
                 f"Diffusion manufactured test failed at t={t:.3f}: "
-                f"relative_L2={rel_l2:.4f} > 0.30"
+                f"relative_L2={rel_l2:.4f} > 0.05"
             )
 
     if plot_results:
