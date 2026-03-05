@@ -44,11 +44,14 @@ class DiffusionSolver:
         self.n_p = 1 if self.p_centers is None else len(self.p_centers)
 
     def _unpack_params(self):
-        expected = {"D_values", "f_end"}
+        expected = {"D_values"}
         if not expected.issubset(self.params):
             raise ValueError(f"Missing params: {expected - set(self.params.keys())}")
 
         D_input = self.params["D_values"]
+        self.boundary_condition = self.params.get(
+            "boundary_condition", "dirichlet"
+        ).lower()
 
         if callable(D_input):
             self.is_D_dynamic = True
@@ -89,7 +92,19 @@ class DiffusionSolver:
 
             self.D_values = self.D_values_static
 
-        self.f_end = float(self.params["f_end"])
+        f_end_input = self.params.get("f_end", 0.0)
+        if callable(f_end_input):
+            self.is_f_end_dynamic = True
+
+            def _get_f_end_dynamic(t):
+                f_e = f_end_input(t)
+                return float(f_e) if np.isscalar(f_e) else np.asarray(f_e, dtype=float)
+
+            self._get_f_end = _get_f_end_dynamic
+            self.f_end = self._get_f_end(self.t_grid[0])
+        else:
+            self.is_f_end_dynamic = False
+            self.f_end = float(f_end_input)
 
     def _init_buffers(self):
         # Buffers for batched Thomas solver
@@ -147,6 +162,9 @@ class DiffusionSolver:
             D_values = self._get_D(state.t)
             self._update_conductances(D_values)
 
+        if getattr(self, "is_f_end_dynamic", False):
+            self.f_end = self._get_f_end(state.t)
+
         # Vectorized batched solve for all slices
         f_new_all = self._advance_all_slices_batched(dt, f_all)
 
@@ -179,11 +197,21 @@ class DiffusionSolver:
         self._G[:, 1:-1] = (rf2 * self._D_face[:, 1:-1]) / self.d_centers[None, :]
         self._G[:, 0] = 0.0
 
-        if self.N >= 2:
-            denom_last = self.r_centers[-1] - self.r_centers[-2]
+        if self.boundary_condition == "dirichlet":
+            if self.N >= 2:
+                denom_last = self.r_centers[-1] - self.r_centers[-2]
+            else:
+                denom_last = self.h[0] / 2.0
+            self._G[:, -1] = (self.r_faces[-1] ** 2) * self._D_face[:, -1] / denom_last
+        elif self.boundary_condition == "outflow":
+            # Assume asymptotic behaviour f ~ 1/r -> df/dr = -f/r
+            # At boundary, flux is roughly proportional to f itself
+            # We fold the outflow into G[:, -1] multiplying f_N
+            self._G[:, -1] = self.r_faces[-1] * self._D_face[:, -1]
+        elif self.boundary_condition == "neumann":
+            self._G[:, -1] = 0.0
         else:
-            denom_last = self.h[0] / 2.0
-        self._G[:, -1] = (self.r_faces[-1] ** 2) * self._D_face[:, -1] / denom_last
+            raise ValueError(f"Unknown boundary_condition: {self.boundary_condition}")
 
     def _build_matrices(self, dt: float) -> None:
         """
@@ -204,12 +232,15 @@ class DiffusionSolver:
         self._A_upper[:, :-1] = -a_right[:, :-1]
         self._B_upper[:, :-1] = a_right[:, :-1]
 
-        self._A_diag[:, -1] = 1.0
-        self._A_lower[:, -1] = 0.0
-        self._A_upper[:, -1] = 0.0
-        self._B_diag[:, -1] = 0.0
-        self._B_lower[:, -1] = 0.0
-        self._B_upper[:, -1] = 0.0
+        if self.boundary_condition == "dirichlet":
+            self._A_diag[:, -1] = 1.0
+            self._A_lower[:, -1] = 0.0
+            self._A_upper[:, -1] = 0.0
+            self._B_diag[:, -1] = 0.0
+            self._B_lower[:, -1] = 0.0
+            self._B_upper[:, -1] = 0.0
+        # If boundary_condition is 'neumann' or 'outflow', the finite volume updates perfectly track the conservative fluxes,
+        # so keeping the standard diagonal works correctly without overwriting.
 
     def _advance_all_slices_batched(self, dt: float, f_all: np.ndarray) -> np.ndarray:
         """
@@ -225,7 +256,9 @@ class DiffusionSolver:
         self._rhs = self._B_diag * f
         self._rhs[:, 1:] += self._B_lower[:, 1:] * f[:, :-1]
         self._rhs[:, :-1] += self._B_upper[:, :-1] * f[:, 1:]
-        self._rhs[:, -1] = self.f_end
+
+        if self.boundary_condition == "dirichlet":
+            self._rhs[:, -1] = self.f_end
 
         # Solve batched tridiagonal systems A * f_new = rhs
         f_new = _thomas_batched_numba(
