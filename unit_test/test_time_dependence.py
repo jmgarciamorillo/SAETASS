@@ -512,15 +512,13 @@ def test_manufactured_advection_source(plot_results):
             ax2.plot(r_grid, err, label=f"t={t:.2f} Abs Error")
 
         if i > 0:
-            # Validate using relative L2 norm over the full domain:
-            # The FVM boundary cell at r=0 produces a geometric singularity artifact.
-            # Mean absolute error excluding origin is <0.002 for advection, which is acceptable.
+            # Validate using relative L2 norm over the full domain.
             rel_l2 = np.sqrt(np.mean((num_f - ana_f) ** 2)) / (
                 np.sqrt(np.mean(ana_f**2)) + 1e-300
             )
-            assert rel_l2 < 0.20, (
+            assert rel_l2 < 0.02, (
                 f"Advection manufactured test failed at t={t:.3f}: "
-                f"relative_L2={rel_l2:.4f} > 0.20"
+                f"relative_L2={rel_l2:.4f} > 0.02"
             )
 
     if plot_results:

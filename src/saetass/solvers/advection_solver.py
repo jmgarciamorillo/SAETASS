@@ -93,31 +93,58 @@ class AdvectionSolver(HyperbolicSolver):
         r = np.asarray(grid.r_centers)
         return f * r**2  # broadcasting automatically handles ND arrays
 
-    def _inverse_generalized_variable(self, U: np.ndarray, grid: Grid) -> np.ndarray:
+    def _inverse_generalized_variable(
+        self,
+        U: np.ndarray,
+        grid: Grid,
+    ) -> np.ndarray:
         """
-        Convert conservative variable U back to primitive variable f: f = U / r^2
-        Supports ND arrays. Last axis is radial axis. Safe division for r=0.
+        Convert conservative variable U back to primitive variable f = U / r².
+        Supports ND arrays. Last axis is radial axis.
+
+        At the origin cell (r[0] = 0), U[0] = 0 universally.
+        f[0] is reconstructed by a 2nd-order backward linear extrapolation
+        from the FVM-updated neighbours:
+            f[0] ≈ 2·f[1] − f[2]  +  O(Δr²)
         """
         self._check_grid_state_consistency(grid, U)
 
         r = np.asarray(grid.r_centers)
         r_squared = r**2
 
-        # Broadcast along all axes except last
+        # Broadcast r² along all axes except the last (radial) axis
         shape = (1,) * (U.ndim - 1) + r_squared.shape
-        r_squared_broadcast = r_squared.reshape(shape)
+        r_sq_b = r_squared.reshape(shape)
 
-        # Safe division
-        f = np.divide(
-            U, r_squared_broadcast, out=np.zeros_like(U), where=r_squared_broadcast != 0
-        )
+        # Safe inverse transform for all cells with r > 0
+        f = np.divide(U, r_sq_b, out=np.zeros_like(U), where=r_sq_b != 0)
 
-        # Handle singularity at r=0
+        # Handle the singular origin cell
         if r_squared[0] == 0:
-            nonzero_idx = np.argmax(r_squared != 0)
-            f[..., 0] = f[..., nonzero_idx]
+            # Reconstruct origin from FVM-updated neighbours
+            f[..., 0] = 2.0 * f[..., 1] - f[..., 2]
 
         return f
+
+    def _compute_slopes(self, U: np.ndarray) -> np.ndarray:
+        """
+        Overrides HyperbolicSolver's slope computation to correctly handle the
+        geometric U = r² f transformation. Evaluates slopes on primitive
+        variable f to avoid massive O(1) clipping from standard limiters on
+        the quadratic U=r² profile, mapping back via the Product Rule.
+        """
+        # 1. Recover mathematically exact primitive profile
+        f = self._inverse_generalized_variable(U, self.grid)
+
+        # 2. Compute well-behaved limited slopes on the flat/linear primitive f
+        slopes_f = super()._compute_slopes(f)
+
+        # 3. Map back to conservative variable slopes: dU/dr = 2rf + r^2(df/dr)
+        r = np.asarray(self.grid.r_centers)
+        shape = (1,) * (U.ndim - 1) + r.shape
+        r_b = r.reshape(shape)
+
+        return 2.0 * r_b * f + (r_b**2) * slopes_f
 
     def _check_grid_state_consistency(
         self, grid: Grid, state_array: np.ndarray
