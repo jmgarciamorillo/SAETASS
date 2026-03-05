@@ -42,7 +42,7 @@ class AdvectionSolver(HyperbolicSolver):
             Time grid for integration
         params : dict
             Dictionary containing solver parameters:
-            - v_centers: Velocities at cell centers
+            - v_centers: Velocities at cell centers (array or callable v_centers(t) -> array)
             - limiter: Slope limiter ('minmod', 'vanleer', or 'mc')
             - cfl: CFL number for timestep calculation
             - inflow_value_U: Value of U at the outer boundary for inflow
