@@ -3,22 +3,11 @@ import sys
 import numpy as np
 import matplotlib.pyplot as plt
 
-# Use LaTeX for matplotlib text rendering when available
-plt.rcParams.update(
-    {
-        "text.usetex": True,
-        "font.family": "serif",
-        "text.latex.preamble": r"\usepackage{amsmath}",
-        # increased font sizes for publication-quality figures
-        "font.size": 12,
-        "axes.titlesize": 14,
-        "axes.labelsize": 14,
-        "xtick.labelsize": 11,
-        "ytick.labelsize": 11,
-        "legend.fontsize": 12,
-        "lines.linewidth": 1.5,
-    }
-)
+# Apply unified plot style
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from plot_style import apply_plot_style
+
+apply_plot_style()
 
 from saetass import State, Grid, Solver
 
