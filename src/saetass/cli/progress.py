@@ -58,30 +58,70 @@ def setup_rich_logging(level=logging.INFO):
     )
 
 
+class ProgressBarSingleton:
+    """
+    Singleton wrapper around rich.progress.Progress to ensure only one Live display is active.
+    It tracks reference counts via start() and stop() to manage the lifecycle cleanly across multiple usages.
+    """
+
+    _instance = None
+
+    def __new__(cls, *args, **kwargs):
+        if not cls._instance:
+            cls._instance = super(ProgressBarSingleton, cls).__new__(cls)
+            cls._instance._ref_count = 0
+            cls._instance._progress = None
+        return cls._instance
+
+    def _ensure_progress(self):
+        if self._progress is None:
+            self._progress = Progress(
+                SpinnerColumn(spinner_name="dots", style=SAETASS_YELLOW),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(
+                    bar_width=None,
+                    complete_style=SAETASS_CYAN,
+                    finished_style=SAETASS_GREEN,
+                    pulse_style=SAETASS_YELLOW,
+                ),
+                MofNCompleteColumn(),
+                TextColumn("[dim]metrics:[/] {task.fields[metrics]}"),
+                TimeElapsedColumn(),
+                TextColumn("<"),
+                TimeRemainingColumn(),
+                console=console,
+                transient=False,
+            )
+
+    def start(self):
+        self._ensure_progress()
+        if self._ref_count == 0:
+            self._progress.start()
+        self._ref_count += 1
+
+    def stop(self):
+        if self._ref_count > 0:
+            self._ref_count -= 1
+        if self._ref_count == 0 and self._progress is not None:
+            self._progress.stop()
+            self._progress = None
+
+    def add_task(self, *args, **kwargs):
+        self._ensure_progress()
+        return self._progress.add_task(*args, **kwargs)
+
+    def update(self, *args, **kwargs):
+        self._ensure_progress()
+        return self._progress.update(*args, **kwargs)
+
+
 def create_progress_bar():
     """
-    Create a customized Rich Progress bar for the SAETASS solver.
-    This bar uses the built-in global `console` and specifies custom columns.
+    Returns the singleton instance of the Progress bar manager for SAETASS solvers.
 
     Returns
     -------
-    Progress
-        A rich.progress.Progress instance.
+    ProgressBarSingleton
+        A singleton acting as a rich.progress.Progress proxy.
     """
-    return Progress(
-        SpinnerColumn(spinner_name="dots", style=SAETASS_YELLOW),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(
-            bar_width=None,
-            complete_style=SAETASS_CYAN,
-            finished_style=SAETASS_GREEN,
-            pulse_style=SAETASS_YELLOW,
-        ),
-        MofNCompleteColumn(),
-        has_metrics_column := TextColumn("[dim]metrics:[/] {task.fields[metrics]}"),
-        TimeElapsedColumn(),
-        TextColumn("<"),
-        TimeRemainingColumn(),
-        console=console,
-        transient=False,  # We want it to stay at the bottom
-    )
+    return ProgressBarSingleton()
