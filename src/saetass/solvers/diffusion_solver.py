@@ -44,30 +44,67 @@ class DiffusionSolver:
         self.n_p = 1 if self.p_centers is None else len(self.p_centers)
 
     def _unpack_params(self):
-        expected = {"D_values", "f_end"}
+        expected = {"D_values"}
         if not expected.issubset(self.params):
             raise ValueError(f"Missing params: {expected - set(self.params.keys())}")
 
-        D = np.asarray(self.params["D_values"], dtype=float)
+        D_input = self.params["D_values"]
+        self.boundary_condition = self.params.get(
+            "boundary_condition", "dirichlet"
+        ).lower()
 
-        if D.shape != self.grid.shape:
-            raise ValueError(
-                f"D_values shape {D.shape} does not match grid shape {self.grid.shape}"
-            )
+        if callable(D_input):
+            self.is_D_dynamic = True
 
-        if D.ndim == 1:
-            # 1D -> promote to (1, N)
-            if D.size != len(self.r_centers):
-                raise ValueError(
-                    "1D D_values must have the same size than the number of radial cells"
-                )
-            self.D_values = D[None, :]  # shape = (1, N)
-        elif D.ndim == 2:
-            self.D_values = D  # shape = (n_p, N)
+            def _get_d_dynamic(t):
+                D = np.asarray(D_input(t), dtype=float)
+                if D.ndim == 1:
+                    if D.size != self.N:
+                        raise ValueError(
+                            "1D D_values must have the same size as r_cells"
+                        )
+                    return D[None, :]
+                elif D.ndim == 2:
+                    return D
+                else:
+                    raise ValueError("D_values must be 1D or 2D")
+
+            self._get_D = _get_d_dynamic
+
+            # Initial value for setup
+            self.D_values = self._get_D(self.t_grid[0])
+
         else:
-            raise ValueError("D_values must be 1D or 2D")
+            self.is_D_dynamic = False
+            D = np.asarray(D_input, dtype=float)
+            if D.shape != self.grid.shape:
+                raise ValueError(
+                    f"D_values shape {D.shape} does not match grid shape {self.grid.shape}"
+                )
+            if D.ndim == 1:
+                if D.size != self.N:
+                    raise ValueError("1D D_values must have size of r_cells")
+                self.D_values_static = D[None, :]
+            elif D.ndim == 2:
+                self.D_values_static = D
+            else:
+                raise ValueError("D_values must be 1D or 2D")
 
-        self.f_end = float(self.params["f_end"])
+            self.D_values = self.D_values_static
+
+        f_end_input = self.params.get("f_end", 0.0)
+        if callable(f_end_input):
+            self.is_f_end_dynamic = True
+
+            def _get_f_end_dynamic(t):
+                f_e = f_end_input(t)
+                return float(f_e) if np.isscalar(f_e) else np.asarray(f_e, dtype=float)
+
+            self._get_f_end = _get_f_end_dynamic
+            self.f_end = self._get_f_end(self.t_grid[0])
+        else:
+            self.is_f_end_dynamic = False
+            self.f_end = float(f_end_input)
 
     def _init_buffers(self):
         # Buffers for batched Thomas solver
@@ -89,6 +126,10 @@ class DiffusionSolver:
         self.h_right = self.h[1:].astype(float)
         self.hL_b = self.h_left[None, :]
         self.hR_b = self.h_right[None, :]
+
+        # Precompute static conductances if D is not dynamic
+        if getattr(self, "is_D_dynamic", False) is False:
+            self._update_conductances(self.D_values_static)
 
     # ------------------- Public advance -------------------
     def advance(self, n_steps: int, state: State) -> None:
@@ -116,6 +157,14 @@ class DiffusionSolver:
                 f"State f shape {f_all.shape} does not match expected {(self.n_p, self.N)}"
             )
 
+        # Dynamic update
+        if self.is_D_dynamic:
+            D_values = self._get_D(state.t)
+            self._update_conductances(D_values)
+
+        if getattr(self, "is_f_end_dynamic", False):
+            self.f_end = self._get_f_end(state.t)
+
         # Vectorized batched solve for all slices
         f_new_all = self._advance_all_slices_batched(dt, f_all)
 
@@ -129,82 +178,89 @@ class DiffusionSolver:
                 slice_state.update_f(f_new_all[i, :])
 
     # ------------------- Core batched advance -------------------
-    def _advance_all_slices_batched(self, dt: float, f_all: np.ndarray) -> np.ndarray:
+    def _update_conductances(self, D_values: np.ndarray) -> None:
         """
-        Vectorized Crank-Nicolson for all momentum slices at once.
-
-        f_all: shape (n_p, N)
-        D_values: shape (n_p, N)  (or (N,) for 1D)
-        Returns f_new_all shape (n_p, N)
+        Recompute face conductances when D_values change.
         """
-
         # 1) Compute D_face for all slices: shape (n_p, N+1)
-        # We'll compute interior faces j = 1..N-1 using harmonic mean with nonuniform h
-        # D_left and D_right per face (for each slice)
-        D_left = self.D_values[:, :-1]  # shape (n_p, N-1)
-        D_right = self.D_values[:, 1:]  # shape (n_p, N-1)
-        num = self.hL_b + self.hR_b  # shape (1, N-1)
-        den = self.hL_b / D_left + self.hR_b / D_right  # broadcasts to (n_p, N-1)
-        # prevent division by zero
+        D_left = D_values[:, :-1]
+        D_right = D_values[:, 1:]
+        num = self.hL_b + self.hR_b
+        den = self.hL_b / D_left + self.hR_b / D_right
         den = np.where(den == 0.0, np.finfo(float).tiny, den)
-        self._D_face[:, 1:-1] = num / den  # shape (n_p, N-1)
-        # Boundary faces: use cell-centered D as proxy
-        self._D_face[:, 0] = self.D_values[:, 0]
-        self._D_face[:, -1] = self.D_values[:, -1]
+        self._D_face[:, 1:-1] = num / den
+        self._D_face[:, 0] = D_values[:, 0]
+        self._D_face[:, -1] = D_values[:, -1]
 
-        # 2) Compute conductances G on faces: G = r_face^2 * D_face / dist_between_centers
-        # For interior faces j = 1..N-1 use self.d_centers[j-1], shape (N-1,)
-        rf2 = (self.r_faces[1:-1] ** 2)[None, :]  # shape (1, N-1)
-        # G shape (n_p, N+1)
+        # 2) Compute conductances G on faces
+        rf2 = (self.r_faces[1:-1] ** 2)[None, :]
         self._G[:, 1:-1] = (rf2 * self._D_face[:, 1:-1]) / self.d_centers[None, :]
-        # boundary G
         self._G[:, 0] = 0.0
-        # outmost face: use difference between last two centers
-        if self.N >= 2:
-            denom_last = self.r_centers[-1] - self.r_centers[-2]
-        else:
-            denom_last = self.h[0] / 2.0
-        self._G[:, -1] = (self.r_faces[-1] ** 2) * self._D_face[:, -1] / denom_last
 
-        # 3) Assemble A and B coefficients (batched)
-        # A_diag shape (n_p, N), A_lower (n_p, N) with zero in first col,
-        # A_upper (n_p, N) with zero in last col
-        a_left = self._G[:, :-1]  # conductance on left face of cell i  → shape (n_p, N)
-        a_right = self._G[:, 1:]  # right face for cell i           → shape (n_p, N)
+        if self.boundary_condition == "dirichlet":
+            if self.N >= 2:
+                denom_last = self.r_centers[-1] - self.r_centers[-2]
+            else:
+                denom_last = self.h[0] / 2.0
+            self._G[:, -1] = (self.r_faces[-1] ** 2) * self._D_face[:, -1] / denom_last
+        elif self.boundary_condition == "outflow":
+            # Assume asymptotic behaviour f ~ 1/r -> df/dr = -f/r
+            # At boundary, flux is roughly proportional to f itself
+            # We fold the outflow into G[:, -1] multiplying f_N
+            self._G[:, -1] = self.r_faces[-1] * self._D_face[:, -1]
+        elif self.boundary_condition == "neumann":
+            self._G[:, -1] = 0.0
+        else:
+            raise ValueError(f"Unknown boundary_condition: {self.boundary_condition}")
+
+    def _build_matrices(self, dt: float) -> None:
+        """
+        Assemble A and B matrices given the current conductances and timestep dt.
+        """
+        a_left = self._G[:, :-1]
+        a_right = self._G[:, 1:]
         self._A_diag[:] = 2.0 * self.V_b / dt + (a_left + a_right)
         self._B_diag[:] = 2.0 * self.V_b / dt - (a_left + a_right)
 
-        # A_lower at position i-1 corresponds to -a_left[i], so for i>=1 fill A_lower[:, i-1] = -a_left[:, i]
         self._A_lower.fill(0.0)
         self._B_lower.fill(0.0)
         self._A_upper.fill(0.0)
         self._B_upper.fill(0.0)
 
-        # For interior lower/upper (positions shifted)
         self._A_lower[:, 1:] = -a_left[:, 1:]
         self._B_lower[:, 1:] = a_left[:, 1:]
         self._A_upper[:, :-1] = -a_right[:, :-1]
         self._B_upper[:, :-1] = a_right[:, :-1]
 
-        # Boundary r=r_end: Dirichlet replacement (last row)
-        self._A_diag[:, -1] = 1.0
-        self._A_lower[:, -1] = 0.0
-        self._A_upper[:, -1] = 0.0
-        self._B_diag[:, -1] = 0.0
-        self._B_lower[:, -1] = 0.0
-        self._B_upper[:, -1] = 0.0
+        if self.boundary_condition == "dirichlet":
+            self._A_diag[:, -1] = 1.0
+            self._A_lower[:, -1] = 0.0
+            self._A_upper[:, -1] = 0.0
+            self._B_diag[:, -1] = 0.0
+            self._B_lower[:, -1] = 0.0
+            self._B_upper[:, -1] = 0.0
+        # If boundary_condition is 'neumann' or 'outflow', the finite volume updates perfectly track the conservative fluxes,
+        # so keeping the standard diagonal works correctly without overwriting.
 
-        # 4) Build RHS: rhs = B @ f_current
-        # Implement matrix-vector product for tridiagonal B batched
-        # B_diag * f + B_lower * f shifted left + B_upper * f shifted right
-        f = f_all  # shape (n_p, N)
+    def _advance_all_slices_batched(self, dt: float, f_all: np.ndarray) -> np.ndarray:
+        """
+        Vectorized Crank-Nicolson for all momentum slices at once.
+        f_all: shape (n_p, N)
+        Returns f_new_all shape (n_p, N)
+        """
+        # Matrices depend on dt and G. We rebuild them every step (dt could change).
+        self._build_matrices(dt)
+
+        # Build RHS: rhs = B @ f_current
+        f = f_all
         self._rhs = self._B_diag * f
         self._rhs[:, 1:] += self._B_lower[:, 1:] * f[:, :-1]
         self._rhs[:, :-1] += self._B_upper[:, :-1] * f[:, 1:]
-        # impose Dirichlet at last entry
-        self._rhs[:, -1] = self.f_end
 
-        # 5) Solve batched tridiagonal systems A * f_new = rhs
+        if self.boundary_condition == "dirichlet":
+            self._rhs[:, -1] = self.f_end
+
+        # Solve batched tridiagonal systems A * f_new = rhs
         f_new = _thomas_batched_numba(
             self._A_lower, self._A_diag, self._A_upper, self._rhs
         )

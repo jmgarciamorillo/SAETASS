@@ -177,6 +177,20 @@ class State:
         self.t += float(dt)
         self.dt = float(dt)
 
+    def set_time(self, t: float):
+        """Sets the current time to an exact value and records the elapsed dt.
+
+        Use this instead of :meth:`advance_time` when setting time to a known
+        canonical grid point to avoid floating-point accumulation drift.
+
+        Parameters
+        ----------
+        t : float
+            The exact time value to assign.
+        """
+        self.dt = float(t) - self.t
+        self.t = float(t)
+
     def record_substep(self, stage_name: Optional[str] = None):
         """Records a snapshot of the current state, including time, dt, stage index, optional stage_name and a copy of f.
 

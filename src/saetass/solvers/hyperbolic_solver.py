@@ -89,6 +89,36 @@ class HyperbolicSolver(ABC):
         self.t_grid = np.asarray(t_grid, dtype=float)
         self.params = params or {}
 
+        # Determine if V_centers is static or dynamic
+        V_input = params.get("V_centers")
+        if callable(V_input):
+            self.is_V_dynamic = True
+
+            # Helper to fetch and orient V_centers properly
+            def _get_V_centers_dynamic(t):
+                V = np.asarray(V_input(t), dtype=float)
+                if self.axis == 0:
+                    V = V.T
+                return V
+
+            self._get_V_centers = _get_V_centers_dynamic
+
+            # Provide an initial value just for shape/metrics purposes
+            self.V_centers = self._get_V_centers(self.t_grid[0])
+
+        else:
+            self.is_V_dynamic = False
+            self.V_centers = np.asarray(V_input, dtype=float)
+            if self.axis == 0:
+                self.V_centers = self.V_centers.T
+
+            # Caching strategy for static case
+            self.V_centers_static = self.V_centers
+            self.V_faces_static = self._face_generalized_velocity_interpolated(
+                self.V_centers
+            )
+            self._get_V_centers = lambda t: self.V_centers_static
+
     @property
     def _main_centers(self) -> np.ndarray:
         """Return the main axis centers based on axis."""
@@ -123,7 +153,9 @@ class HyperbolicSolver(ABC):
         other = self._other_axis
         return np.take(arr, indices=idx, axis=other)
 
-    def _face_generalized_velocity_interpolated(self) -> np.ndarray:
+    def _face_generalized_velocity_interpolated(
+        self, V_centers: np.ndarray
+    ) -> np.ndarray:
         """
         Linear interpolation of generalized velocities from cell centers to internal face positions x_{i+1/2}.
         Uses distance-weighted linear interpolation (works for non-uniform grids).
@@ -135,7 +167,7 @@ class HyperbolicSolver(ABC):
         if self.N <= 1:
             return np.zeros(0)
 
-        V = np.asarray(self.V_centers, dtype=float)
+        V = V_centers
 
         # Distances from face to neighboring centers
         dist_left = self.dx_L
@@ -234,28 +266,41 @@ class HyperbolicSolver(ABC):
 
         U = self._generalized_variable(f, self.grid)
 
-        V_centers = self.V_centers
-        V_faces = self._face_generalized_velocity_interpolated()
         dx = self.dx if self.M is None else self.dx[None, :]
 
-        dt_requested = float(n_steps) * np.diff(self.t_grid)[0]
+        dt_requested = np.diff(self.t_grid)[0]
         total_time = n_steps * dt_requested
-        dt_cfl = float(self.compute_dt(V_faces=V_faces))
-        dt_step = min(dt_requested, dt_cfl)
 
-        while total_time - dt_step > 0.0:
+        t_local = state.t
+
+        while total_time > 1e-40:
+
+            # Dispatch depending on static/dynamic logic
+            if self.is_V_dynamic:
+                self.V_centers = self._get_V_centers(t_local)
+                V_faces = self._face_generalized_velocity_interpolated(self.V_centers)
+            else:
+                self.V_centers = self.V_centers_static
+                V_faces = self.V_faces_static
+
+            dt_cfl = float(self.compute_dt(V_faces=V_faces))
+
+            dt_step = min(total_time, dt_cfl)
+
             if self.order == 1:
                 F = self._compute_first_order_fluxes(
                     U,
-                    V_centers,
+                    self.V_centers,
                     V_faces,
                 )
             elif self.order == 2:
-                F = self._compute_second_order_fluxes(U, V_centers, V_faces, total_time)
+                F = self._compute_second_order_fluxes(
+                    U, self.V_centers, V_faces, dt_step
+                )
                 # Use numba for performance test
                 # F = _numba_second_order_fluxes_core(
                 #     U,
-                #     V_centers,
+                #     self.V_centers,
                 #     V_faces,
                 #     self._main_centers,
                 #     self._main_faces,
@@ -267,22 +312,14 @@ class HyperbolicSolver(ABC):
 
             U = U - (dt_step / dx) * (F[..., 1:] - F[..., :-1])
             total_time -= dt_step
+            t_local += dt_step
 
-        if self.order == 1:
-            F = self._compute_first_order_fluxes(U, V_centers, V_faces)
-        elif self.order == 2:
-            F = self._compute_second_order_fluxes(U, V_centers, V_faces, total_time)
-            # Use numba for performance test
-            # F = _numba_second_order_fluxes_core(
-            #     U, V_centers, V_faces, self._main_centers, self._main_faces, dt_step, 0
-            # )
-        else:
-            raise NotImplementedError("order must be 1 or 2")
-
-        U_new = U - (total_time / dx) * (F[..., 1:] - F[..., :-1])
+        # The while loop has consumed all of total_time; no extra update needed.
+        U_new = U
         f_new = self._inverse_generalized_variable(U_new, self.grid)
-        # TODO?: self._postprocess_solution(f_new,centers)
-        # f_new[0] = f_new[1]
+        # Positivity floor: MUSCL-Hancock is TVD but not strictly positive-definite;
+        # clip machine-precision negatives that arise at steep gradient fronts.
+        f_new = np.maximum(f_new, 0.0)
         f_new = f_new.T if self.axis == 0 else f_new
         state.update_f(f_new)
 
@@ -322,10 +359,7 @@ class HyperbolicSolver(ABC):
                 "axis must be 0 (for momentum problems) or 1 (for spatial problems)"
             )
 
-        # --- V_centers ---
-        self.V_centers = np.asarray(params["V_centers"], dtype=float)
-        if self.axis == 0:
-            self.V_centers = self.V_centers.T
+        # Note: V_centers is handled locally in __init__ now due to static/callable checks
 
         # --- limiter ---
         limiter = params["limiter"]
@@ -421,11 +455,12 @@ class HyperbolicSolver(ABC):
         flux_int = np.where(V_faces >= 0.0, V_faces * U_left, V_faces * U_right)
 
         F = np.empty((*U.shape[:-1], U.shape[-1] + 1), dtype=float)
-        F[:, 0] = 0.0
-        F[:, 1:-1] = flux_int
-        F[:, -1] = U[:, -1] * np.where(
-            V_centers[:, -1] >= 0.0, V_centers[:, -1], self.inflow_value_U
-        )
+        F[..., 0] = 0.0
+        F[..., 1:-1] = flux_int
+        # Outflow/inflow at right boundary: upwind using last cell velocity
+        V_last = np.take(V_centers, -1, axis=-1)  # shape (...,) — works 1D and 2D
+        U_last = np.take(U, -1, axis=-1)
+        F[..., -1] = U_last * np.where(V_last >= 0.0, V_last, self.inflow_value_U)
 
         return F
 
@@ -444,11 +479,14 @@ class HyperbolicSolver(ABC):
             # For debugging breakpoints
             logger.debug("Computing 2D second-order fluxes along r-axis")
         # 1) compute slopes for W in non-uniform grid (minmod / vanleer)
-        slopes = self._compute_slopes(U)  # shape (N,M) or (M,N)
+        slopes_U = self._compute_slopes(U)  # shape (N,M) or (M,N)
         # 2) reconstruct left/right states at internal faces (t^n)
-        UL, UR = self._recontruct_face_states(U, slopes)
+        UL, UR = self._recontruct_face_states(U, slopes_U)
+        F_centers = V_centers * U  # flux at cell centers (for predictor step)
+        slopes_F = self._compute_slopes(F_centers)
         # 3) predictor to t^{n+1/2}
-        ULh, URh = self._predictor_states(UL, UR, V_centers, slopes, dt)
+        # ULh, URh = self._predictor_states(UL, UR, V_centers, slopes_U, dt)
+        ULh, URh = self._predictor_states_v2(UL, UR, slopes_F, dt)
         # 4) compute V at internal faces and fluxes by upwind using sign of V_face
         flux_int = np.where(
             V_faces >= 0.0, V_faces * ULh[..., 1:-1], V_faces * URh[..., 1:-1]
@@ -457,8 +495,10 @@ class HyperbolicSolver(ABC):
         F = np.empty((*U.shape[:-1], U.shape[-1] + 1), dtype=float)
         F[..., 1:-1] = flux_int
         F[..., 0], F[..., -1] = self._boundary_fluxes(
-            U, ULh, URh, V_centers, slopes, dt
+            U, ULh, URh, V_centers, slopes_U, dt
         )
+        # F[..., 0], F[..., -1] = self._boundary_fluxes_v2(ULh, URh, V_faces)
+
         return F
 
     def _compute_slopes(self, U: np.ndarray) -> np.ndarray:
@@ -585,6 +625,22 @@ class HyperbolicSolver(ABC):
 
         return ULh, URh
 
+    def _predictor_states_v2(
+        self,
+        UL,
+        UR,
+        slopes_F,
+        dt,
+    ):
+        ULh = UL.copy()
+        URh = UR.copy()
+
+        if self.N > 1:
+            ULh[..., 1:] -= 0.5 * dt * slopes_F
+            URh[..., :-1] -= 0.5 * dt * slopes_F
+
+        return ULh, URh
+
     def _boundary_fluxes(
         self,
         U: np.ndarray,
@@ -636,6 +692,16 @@ class HyperbolicSolver(ABC):
             self.inflow_value_U,
         )
 
+        return flux_L, flux_R
+
+    def _boundary_fluxes_v2(self, ULh, URh, V_faces):
+
+        flux_L = np.where(V_faces[..., 0] >= 0.0, 0.0, V_faces[..., 0] * URh[..., 0])
+        flux_R = np.where(
+            V_faces[..., -1] >= 0.0,
+            V_faces[..., -1] * ULh[..., -1],
+            self.inflow_value_U * V_faces[..., -1],
+        )
         return flux_L, flux_R
 
     @abstractmethod

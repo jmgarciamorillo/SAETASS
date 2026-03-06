@@ -43,7 +43,7 @@ class LossSolver(HyperbolicSolver):
             Time grid for integration
         params : dict
             Dictionary containing solver parameters:
-            - P_dot: Momentum loss rate at cell centers (dp/dt)
+            - P_dot: Momentum loss rate at cell centers (dp/dt) (array or callable P_dot(t) -> array)
             - limiter: Slope limiter ('minmod', 'vanleer', or 'mc')
             - cfl: CFL number for timestep calculation
             - inflow_value_f: Value of f at high-momentum boundary for inflow
@@ -67,9 +67,16 @@ class LossSolver(HyperbolicSolver):
 
         # Rename loss-specific parameters to match the base class
         if "P_dot" in loss_params:
-            loss_params["V_centers"] = self._generalized_velocity(
-                loss_params.pop("P_dot"), grid
-            )
+            P_dot_input = loss_params.pop("P_dot")
+            if callable(P_dot_input):
+
+                def dynamic_V_centers(t):
+                    P = P_dot_input(t)
+                    return self._generalized_velocity(P, grid)
+
+                loss_params["V_centers"] = dynamic_V_centers
+            else:
+                loss_params["V_centers"] = self._generalized_velocity(P_dot_input, grid)
 
         if "inflow_value_f" in loss_params:
 

@@ -31,28 +31,34 @@ class SourceSolver:
         self.x_grid = grid.r_centers if grid.r_centers is not None else grid.p_centers
         self.params = params or {}
 
-        # Allow user to pass a callable source or a fixed array
-        self.source_func = self.params.get("source", None)
+        source_input = self.params.get("source", None)
 
-        if self.source_func is None:
+        if source_input is None:
             raise ValueError("A source function or array must be provided.")
 
-    def _compute_source(self, t: float) -> np.ndarray:
-        """
-        Evaluate the source term at time t.
-        The function must return an array of shape matching state.f.
-        """
-        if callable(self.source_func):
-            # Handle 1D or 2D case transparently
-            if self.grid.p_centers is not None and self.grid.r_centers is not None:
-                return self.source_func(self.grid.r_centers, self.grid.p_centers, t)
-            elif self.grid.r_centers is not None:
-                return self.source_func(self.grid.r_centers, None, t)
-            else:
-                return self.source_func(None, self.grid.p_centers, t)
+        if callable(source_input):
+            self.is_source_dynamic = True
+
+            def _get_source_dynamic(t):
+                if self.grid.p_centers is not None and self.grid.r_centers is not None:
+                    return np.asarray(
+                        source_input(self.grid.r_centers, self.grid.p_centers, t),
+                        dtype=float,
+                    )
+                elif self.grid.r_centers is not None:
+                    return np.asarray(
+                        source_input(self.grid.r_centers, None, t), dtype=float
+                    )
+                else:
+                    return np.asarray(
+                        source_input(None, self.grid.p_centers, t), dtype=float
+                    )
+
+            self._get_source = _get_source_dynamic
         else:
-            # Fixed source array
-            return np.asarray(self.source_func, dtype=float)
+            self.is_source_dynamic = False
+            self.source_static = np.asarray(source_input, dtype=float)
+            self._get_source = lambda t: self.source_static
 
     def advance(self, n_steps: int, state: State) -> np.ndarray:
         """
@@ -60,8 +66,11 @@ class SourceSolver:
         """
         total_dt = float(n_steps) * np.diff(self.t_grid)[0]
 
-        # Compute source term at current time
-        S = self._compute_source(state.t)
+        # Process source term efficiently
+        if self.is_source_dynamic:
+            S = self._get_source(state.t)
+        else:
+            S = self.source_static
 
         # Ensure shape compatibility
         if S.shape != state.get_f().shape:

@@ -5,17 +5,23 @@ import matplotlib.pyplot as plt
 
 # Apply unified plot style
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from plot_style import apply_plot_style
+from plot_style import (
+    apply_plot_style,
+    get_numerical_style,
+    get_analytical_style,
+    get_quantitative_style,
+    add_time_colorbar,
+)
 
 apply_plot_style()
 
 from saetass import State, Grid, Solver
 
 
-def run_advection_simulation(r_grid, t_grid, f_initial, solver_params):
+def run_advection_simulation(r_grid, t_grid, f_initial, solver_params, sample_count=5):
     """
     Create and run an advection Solver for the provided grids and params.
-    Returns the final distribution (numpy array) and the solver object.
+    Returns the final distribution (numpy array), the snapshots, and snap times.
     """
     grid = Grid(r_centers=r_grid, t_grid=t_grid, p_centers=None)
     state = State(f_initial)
@@ -30,9 +36,26 @@ def run_advection_simulation(r_grid, t_grid, f_initial, solver_params):
     )
 
     num_timesteps = len(t_grid) - 1
-    solver.step(num_timesteps)
 
-    return solver.state.f.flatten(), solver
+    snapshots = [np.copy(state.f.flatten())]
+    times = [t_grid[0]]
+
+    if sample_count > 0 and num_timesteps > 0:
+        sample_indices = np.linspace(0, num_timesteps, sample_count, dtype=int)
+        sample_indices = np.unique(np.append(sample_indices, [0, num_timesteps]))
+    else:
+        sample_indices = np.array([0, num_timesteps], dtype=int)
+
+    current_step = 0
+    for next_step in sample_indices[1:]:
+        steps_to_advance = int(next_step - current_step)
+        if steps_to_advance > 0:
+            solver.step(steps_to_advance)
+            current_step = next_step
+        snapshots.append(np.copy(solver.state.f.flatten()))
+        times.append(t_grid[current_step])
+
+    return solver.state.f.flatten(), snapshots, times
 
 
 def analytical_spherical_advection(r_grid, f_initial_func, v_const, t_final):
@@ -63,13 +86,15 @@ def gaussian_shell(r, r0, sigma):
 def compute_relative_L2(numerical, analytical, mask=None):
     if mask is None:
         mask = np.ones_like(numerical, dtype=bool)
-    diff = numerical[mask] - analytical[mask]
-    denom = analytical[mask]
-    norm_diff = np.sqrt(np.sum(diff**2))
-    norm_ana = np.sqrt(np.sum(denom**2))
-    if norm_ana == 0:
-        return norm_diff
-    return norm_diff / norm_ana
+    num = numerical[mask]
+    theo = analytical[mask]
+
+    sum_diff_sq = np.sum((num - theo) ** 2)
+    sum_theo_sq = np.sum(theo**2)
+
+    if sum_theo_sq == 0:
+        return np.sqrt(sum_diff_sq)
+    return np.sqrt(sum_diff_sq / sum_theo_sq)
 
 
 def validation_sweep(
@@ -110,8 +135,8 @@ def validation_sweep(
             "inflow_value_U": 0.0,
         }
 
-        f_num, solver = run_advection_simulation(
-            r_grid, t_grid, f_initial, solver_params
+        f_num, snapshots, snap_times = run_advection_simulation(
+            r_grid, t_grid, f_initial, solver_params, sample_count=7
         )
 
         # analytical solution at t_final
@@ -137,6 +162,8 @@ def validation_sweep(
                 "f_num": f_num,
                 "f_ana": f_ana,
                 "relL2": relL2,
+                "snapshots": snapshots,
+                "snap_times": snap_times,
             }
         )
 
@@ -161,7 +188,8 @@ def validation_sweep(
         ylims = (max(0.0, ymin - padding), ymax + padding)
 
         plt.figure(figsize=(6, 4))
-        plt.loglog(res, errors, "o-", label="Relative $L_2$ error")
+        quant_style = get_quantitative_style()
+        plt.loglog(res, errors, label=r"Error ($\mathcal{E}_{L_2}$)", **quant_style)
         # # Fit a slope line for reference (power law)
         # if len(res) >= 2:
         #     coeffs = np.polyfit(np.log(res), np.log(errors), 1)
@@ -172,7 +200,7 @@ def validation_sweep(
         #     plt.loglog(xfit, yfit, "--", label=f"slope {slope:.2f}")
 
         plt.xlabel("Number of radial cells: $N$")
-        plt.ylabel("Relative $L_2$ error")
+        plt.ylabel(r"Relative error: $\mathcal{E}_{L_2}$")
         plt.grid(alpha=0.3, which="both")
         # capture convergence figure
         conv_fig = plt.gcf()
@@ -188,17 +216,39 @@ def validation_sweep(
             f_num = rec["f_num"]
             f_ana = rec["f_ana"]
             relL2 = rec["relL2"]
+            snapshots = rec["snapshots"]
+            snap_times = rec["snap_times"]
 
-            fig = plt.figure(figsize=(8, 4))
-            plt.plot(r_grid, f_initial, "k--", label="Initial")
-            plt.plot(r_grid, f_num, label=f"Numerical solution ($N$={N})")
-            plt.plot(r_grid, f_ana, "r:", label="Analytical solution")
+            fig = plt.figure(figsize=(6, 4))
+
+            for idx, (s, t) in enumerate(zip(snapshots, snap_times)):
+                is_initial = idx == 0
+                is_final = idx == len(snapshots) - 1
+                style = get_numerical_style(
+                    is_initial=is_initial,
+                    is_final=is_final,
+                    step_idx=idx,
+                    total_steps=len(snapshots),
+                )
+                label = (
+                    "Initial"
+                    if is_initial
+                    else ("Numerical (final)" if is_final else None)
+                )
+                plt.plot(r_grid, s, label=label, **style)
+
+            ana_style = get_analytical_style()
+            plt.plot(r_grid, f_ana, label="Analytical (final)", **ana_style)
+
+            add_time_colorbar(fig, plt.gca(), t_min=snap_times[0], t_max=snap_times[-1])
+
             plt.xlim(0, r_end)
             plt.ylim(ylims)
             plt.xlabel("Radial coordinate: $r$")
             plt.ylabel("Solution: $f(r)$")
             plt.legend()
             plt.grid(alpha=0.4)
+            plt.tight_layout()
             plt.show()
             last_fig = fig
             last_N = N

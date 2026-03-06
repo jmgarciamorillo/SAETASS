@@ -14,24 +14,23 @@ from rich.theme import Theme
 from .palette import (
     SAETASS_YELLOW,
     SAETASS_ORANGE,
-    SAETASS_RED,
     SAETASS_BLUE,
-    SAETASS_CYAN,
-    SAETASS_GREEN,
+    SAETASS_GREY,
+    SAETASS_DARK,
 )
 
 # SAETASS Theme
 custom_theme = Theme(
     {
-        "info": SAETASS_CYAN,
+        "info": SAETASS_GREY,
         "warning": SAETASS_YELLOW,
-        "danger": SAETASS_RED,
+        "danger": SAETASS_ORANGE,
+        "success": SAETASS_BLUE,
         "saetass_yellow": SAETASS_YELLOW,
         "saetass_orange": SAETASS_ORANGE,
-        "saetass_red": SAETASS_RED,
         "saetass_blue": SAETASS_BLUE,
-        "saetass_cyan": SAETASS_CYAN,
-        "saetass_green": SAETASS_GREEN,
+        "saetass_grey": SAETASS_GREY,
+        "saetass_dark": SAETASS_DARK,
     }
 )
 
@@ -80,9 +79,9 @@ class ProgressBarSingleton:
                 TextColumn("[progress.description]{task.description}"),
                 BarColumn(
                     bar_width=None,
-                    complete_style=SAETASS_CYAN,
-                    finished_style=SAETASS_GREEN,
-                    pulse_style=SAETASS_YELLOW,
+                    complete_style=SAETASS_BLUE,
+                    finished_style=SAETASS_BLUE,
+                    pulse_style=SAETASS_BLUE,
                 ),
                 MofNCompleteColumn(),
                 TextColumn("[dim]metrics:[/] {task.fields[metrics]}"),

@@ -199,6 +199,77 @@ class Test1DRadialDiffusion:
         # Since D_high > D_low, we expect |grad_high| < |grad_low| for flux continuity
         assert grad_high_D < grad_low_D
 
+    def test_boundary_conditions(self, plot_results):
+        """
+        Tests the three implemented boundary conditions (dirichlet, neumann, outflow)
+        at the outer boundary r_end.
+        """
+        num_points = 200
+        r_end = 5.0
+        t_final = 1.0
+        D_const = 1.0
+
+        r_grid = np.linspace(0.0, r_end, num_points)
+        t_grid = np.linspace(0, t_final, 100)
+
+        # Initial condition: Gaussian pulse somewhat near the boundary
+        f_initial = np.exp(-((r_grid - 3.5) ** 2) / (2 * 0.5**2))
+
+        grid_params = {"r_grid": r_grid, "t_grid": t_grid}
+
+        # 1. Dirichlet: f(r_end) = f_end
+        solver_params_dirichlet = {
+            "boundary_condition": "dirichlet",
+            "D_values": np.full(num_points, D_const),
+            "f_end": 0.0,
+        }
+        f_dirichlet = run_diffusion_test(
+            grid_params, solver_params_dirichlet, f_initial
+        ).flatten()
+
+        # 2. Neumann: zero flux (df/dr = 0)
+        solver_params_neumann = {
+            "boundary_condition": "neumann",
+            "D_values": np.full(num_points, D_const),
+        }
+        f_neumann = run_diffusion_test(
+            grid_params, solver_params_neumann, f_initial
+        ).flatten()
+
+        # 3. Outflow: f ~ 1/r (df/dr = -f/r)
+        solver_params_outflow = {
+            "boundary_condition": "outflow",
+            "D_values": np.full(num_points, D_const),
+        }
+        f_outflow = run_diffusion_test(
+            grid_params, solver_params_outflow, f_initial
+        ).flatten()
+
+        if plot_results:
+            plt.figure(figsize=(10, 6))
+            plt.plot(r_grid, f_initial, "k--", label="Initial Profile", alpha=0.5)
+            plt.plot(r_grid, f_dirichlet, label="Dirichlet (f=0)")
+            plt.plot(r_grid, f_neumann, label="Neumann (df/dr=0)")
+            plt.plot(r_grid, f_outflow, label="Outflow (f ~ 1/r)")
+            plt.title("Diffusion Boundary Conditions Test")
+            plt.legend()
+            plt.grid(True)
+            plt.show()
+
+        # Assertions
+        # 1. Dirichlet should exactly equal the f_end value at the boundary
+        assert np.isclose(f_dirichlet[-1], 0.0, atol=1e-12)
+
+        # 2. Neumann should have zero gradient at the boundary: f_{N-1} ≈ f_N
+        assert np.isclose(f_neumann[-2], f_neumann[-1], rtol=1e-3, atol=1e-4)
+
+        # 3. Outflow should have dropping gradient f_{N-1} > f_N and f_N > 0 (it should let mass escape but not abruptly clamp to 0)
+        assert f_outflow[-1] > 0.0
+        assert f_outflow[-2] > f_outflow[-1]
+
+        # 4. Outflow should drain mass faster than Neumann
+        assert sum(f_outflow) < sum(f_neumann)
+
 
 class Test2DEnergyRadiusDiffusion:
     """

@@ -5,7 +5,13 @@ import matplotlib.pyplot as plt
 
 # Apply unified plot style
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from plot_style import apply_plot_style
+from plot_style import (
+    apply_plot_style,
+    get_numerical_style,
+    get_analytical_style,
+    get_quantitative_style,
+    add_time_colorbar,
+)
 
 apply_plot_style()
 
@@ -73,8 +79,8 @@ def compute_plume_slope(r_grid, f_values, source_r_max, min_points=10):
     Compute slope of log(f) vs log(r) in the plume region (r > source_r_max).
     Returns slope and the mask used.
     """
-    # Select only points between source_r_max and r_grid = 6
-    mask = (r_grid > source_r_max) & (r_grid < 6)
+    # Select only points between 1.5*source_r_max and r_grid = 6
+    mask = (r_grid > 10 * source_r_max) & (r_grid < 20)
     x = np.log(r_grid[mask])
     y = np.log(f_values[mask])
     slope, intercept = np.polyfit(x, y, 1)
@@ -133,7 +139,7 @@ def validation_pointlike_source(
             f_initial,
             solver_params,
             source_params={"source": Q_values},
-            sample_count=5,
+            sample_count=7,
         )
 
         # compute slope in plume region
@@ -174,18 +180,25 @@ def validation_pointlike_source(
 
             # Only produce log-log plots showing time evolution of the profile
             mask_pos_all = [(r_grid > 0) & (s > 0) for s in snapshots]
-            fig_log = plt.figure(figsize=(8, 4))
-            colors = plt.cm.viridis(np.linspace(0, 1, len(snapshots)))
+            fig_log = plt.figure(figsize=(6, 4))
             for idx, (s, t, mask_pos) in enumerate(
                 zip(snapshots, snap_times, mask_pos_all)
             ):
                 if np.any(mask_pos):
-                    plt.loglog(
-                        r_grid[mask_pos],
-                        s[mask_pos],
-                        color=colors[idx],
-                        label=f"$t = {t:.2f}$",
+                    is_initial = idx == 0
+                    is_final = idx == len(snapshots) - 1
+                    style = get_numerical_style(
+                        is_initial=is_initial,
+                        is_final=is_final,
+                        step_idx=idx,
+                        total_steps=len(snapshots),
                     )
+                    label = (
+                        "Initial"
+                        if is_initial
+                        else ("Numerical (final)" if is_final else None)
+                    )
+                    plt.loglog(r_grid[mask_pos], s[mask_pos], label=label, **style)
 
             # add reference r^-2 scaled to the mid-plume of the final snapshot if available
             final = snapshots[-1]
@@ -194,12 +207,17 @@ def validation_pointlike_source(
                 mid = plume_idx[len(plume_idx) // 3]
                 scale = final[mid] * r_grid[mid] ** 2
                 ref = scale * r_grid ** (-2)
+                ana_style = get_analytical_style()
                 plt.loglog(
                     r_grid[r_grid > 0],
                     ref[r_grid > 0],
-                    "k--",
                     label=r"$\propto r^{-2}$",
+                    **ana_style,
                 )
+
+            add_time_colorbar(
+                fig_log, plt.gca(), t_min=snap_times[0], t_max=snap_times[-1]
+            )
 
             plt.xlim(left=max(r_grid[1], 1e-6), right=r_end)
             # common y-limits computed earlier; use them in log space if positive
@@ -211,23 +229,24 @@ def validation_pointlike_source(
                 plt.ylim(y_min_log * 0.8, y_max_log * 1.2)
 
             plt.xlabel(r"Radial coordinate: $r$")
-            plt.ylabel(r"Solution at time $t$: $f(r,t)$")
-            plt.legend()
+            plt.ylabel(r"Solution: $f(r,t)$")
             plt.ylim([1e-3, 1e1])
             plt.xlim([source_r_min, r_end])
             plt.grid(alpha=0.4, which="both")
+            plt.legend()
+            plt.tight_layout()
             plt.show()
             last_log_fig = fig_log
             last_fig = None
             last_N = N
 
-        # convergence plot: slope vs N
+        # convergence plot: |slope + 2| vs N using loglog
         plt.figure(figsize=(6, 4))
-        plt.semilogx(res, slopes, "o-", label="fitted slope")
-        plt.axhline(-2, color="k", ls="--", label=r"expected $-2$")
+        quant_style = get_quantitative_style()
+        slope_errors = np.abs(np.array(slopes) + 2.0)
+        plt.loglog(res, slope_errors, label=r"$|\alpha - (-2)|$", **quant_style)
         plt.xlabel("Number of radial cells: $N$")
-        plt.ylabel(r"Slope: $\alpha$")
-        plt.ylim([-2.001, -1.999])
+        plt.ylabel(r"Error: $|\alpha - \alpha_{\mathrm{theo}}|$")
 
         plt.grid(alpha=0.3, which="both")
         conv_fig = plt.gcf()
@@ -273,7 +292,7 @@ if __name__ == "__main__":
     validation_pointlike_source(
         resolutions,
         r_end=40.0,
-        t_final=2.0,
+        t_final=3.0,
         v_const=10.0,
         source_r_min=0.9,
         source_r_max=1.1,

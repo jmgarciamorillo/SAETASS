@@ -5,7 +5,13 @@ import matplotlib.pyplot as plt
 
 # Apply unified plot style
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from plot_style import apply_plot_style
+from plot_style import (
+    apply_plot_style,
+    get_numerical_style,
+    get_analytical_style,
+    get_quantitative_style,
+    add_time_colorbar,
+)
 
 apply_plot_style()
 
@@ -72,13 +78,15 @@ def analytical_steady_state_loss(p_grid, Q0, b0, alpha, beta, p0, p_end):
 def compute_relative_L2(numerical, analytical, mask=None):
     if mask is None:
         mask = np.ones_like(numerical, dtype=bool)
-    diff = numerical[mask] - analytical[mask]
-    denom = analytical[mask]
-    norm_diff = np.sqrt(np.sum(diff**2))
-    norm_ana = np.sqrt(np.sum(denom**2))
-    if norm_ana == 0:
-        return norm_diff
-    return norm_diff / norm_ana
+    num = numerical[mask]
+    theo = analytical[mask]
+
+    sum_diff_sq = np.sum((num - theo) ** 2)
+    sum_theo_sq = np.sum(theo**2)
+
+    if sum_theo_sq == 0:
+        return np.sqrt(sum_diff_sq)
+    return np.sqrt(sum_diff_sq / sum_theo_sq)
 
 
 def validation_loss_source_steady_state(
@@ -167,9 +175,15 @@ def validation_loss_source_steady_state(
 
         # residuals vs time
         plt.figure(figsize=(6, 4))
-        plt.semilogy(times_arr, residuals, "o-", label="Relative $L_2$ error")
+        quant_style = get_quantitative_style()
+        plt.semilogy(
+            times_arr,
+            residuals,
+            label=r"Relative error: $\mathcal{E}_{L_2}$",
+            **quant_style,
+        )
         plt.xlabel(r"Final simulation time: $t_\mathrm{end}$")
-        plt.ylabel("Relative $L_2$ error")
+        plt.ylabel(r"Relative error: $\mathcal{E}_{L_2}$")
         plt.grid(alpha=0.3, which="both")
         conv_fig = plt.gcf()
         plt.show()
@@ -206,29 +220,40 @@ def validation_loss_source_steady_state(
             snap_times = rec.get("snap_times", [])
             ana_ = rec["ana"]
 
-            fig = plt.figure(figsize=(8, 4))
-            colors = plt.cm.viridis(np.linspace(0, 1, len(snapshots)))
+            fig = plt.figure(figsize=(6, 4))
             for idx, (s, t) in enumerate(zip(snapshots, snap_times)):
-                plt.loglog(
-                    p,
-                    (p**5) * np.maximum(s, 1e-300),
-                    color=colors[idx],
-                    label=f"$t={t:.3f}$",
+                is_initial = idx == 0
+                is_final = idx == len(snapshots) - 1
+                style = get_numerical_style(
+                    is_initial=is_initial,
+                    is_final=is_final,
+                    step_idx=idx,
+                    total_steps=len(snapshots),
                 )
+                label = (
+                    "Initial"
+                    if is_initial
+                    else ("Numerical (final)" if is_final else None)
+                )
+                plt.loglog(p, (p**5) * np.maximum(s, 1e-300), label=label, **style)
 
+            ana_style = get_analytical_style()
             plt.loglog(
                 p,
                 (p**5) * np.maximum(ana_, 1e-300),
-                "k--",
-                label="Analytical steady state",
+                label="Analytical SS",
+                **ana_style,
             )
+
+            add_time_colorbar(fig, plt.gca(), t_min=snap_times[0], t_max=snap_times[-1])
 
             plt.xlim(p[0], p[-1])
             plt.ylim(1e-2, 1)
             plt.xlabel(r"Momentum coordinate: $p$")
-            plt.ylabel(r"Slope-corrected spectrum at $t$: $p^5 f(p,t)$")
+            plt.ylabel(r"Spectrum: $p^5 f(p,t)$")
             plt.legend()
             plt.grid(alpha=0.4, which="both")
+            plt.tight_layout()
             # store the figure object so we can save exactly the same one later
             try:
                 rec["fig"] = fig
@@ -261,41 +286,47 @@ def validation_loss_source_steady_state(
             else:
                 # fallback: re-create the plot (older behavior)
                 try:
-                    fig_target = plt.figure(figsize=(8, 4))
+                    fig_target = plt.figure(figsize=(6, 4))
                     p = rec_target["p_grid"]
                     snapshots = rec_target.get("snapshots", [])
                     snap_times = rec_target.get("snap_times", [])
                     ana_ = rec_target["ana"]
-                    colors = plt.cm.viridis(np.linspace(0, 1, len(snapshots)))
                     for idx, (s, t) in enumerate(zip(snapshots, snap_times)):
+                        is_initial = idx == 0
+                        is_final = idx == len(snapshots) - 1
+                        style = get_numerical_style(
+                            is_initial=is_initial,
+                            is_final=is_final,
+                            step_idx=idx,
+                            total_steps=len(snapshots),
+                        )
                         plt.loglog(
                             p,
                             (p**5) * np.maximum(s, 1e-300),
-                            color=colors[idx],
                             label=f"$t={t:.3f}$",
+                            **style,
                         )
+                    ana_style = get_analytical_style()
                     plt.loglog(
                         p,
                         (p**5) * np.maximum(ana_, 1e-300),
-                        "k--",
-                        label="Analytical steady state",
+                        label="Analytical SS",
+                        **ana_style,
                     )
-                    plt.title(
-                        f"Temporal evolution up to t_final={rec_target['t_final']:.3g}"
+
+                    add_time_colorbar(
+                        fig_target, plt.gca(), t_min=snap_times[0], t_max=snap_times[-1]
                     )
+
                     plt.xlim(p[0], p[-1])
+                    plt.xlabel(r"Momentum coordinate: $p$")
+                    plt.ylabel(r"Spectrum: $p^5 f(p,t)$")
+                    plt.legend()
+                    plt.grid(alpha=0.4, which="both")
                     try:
                         plt.ylim(ymin, ymax)
                     except Exception:
                         pass
-                    plt.xlabel(r"Momentum coordinate: $p$")
-                    plt.ylabel(r"Slope-corrected spectrum at $t$: $p^5 f(p,t)$")
-                    plt.legend()
-                    plt.grid(alpha=0.4, which="both")
-
-                    target_path_pdf = os.path.join(
-                        out_dir, f"loss_source_steady_tend0p4.pdf"
-                    )
                     fig_target.va(target_path_pdf, dpi=200, bbox_inches="tight")
                     print(f"Saved t_end=0.4 simulation figure to: {target_path_pdf}")
                 except Exception as e:
