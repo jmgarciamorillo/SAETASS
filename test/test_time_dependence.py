@@ -561,7 +561,7 @@ def test_manufactured_diffusion_source(plot_results):
     D0 = 0.01
 
     def f_exact(r, t):
-        return (2.0 + np.cos(t)) * np.exp(-r)
+        return (2.0 + np.cos(t)) * np.exp(-(r**2))
 
     f_init = f_exact(r_grid, 0.0)
 
@@ -571,18 +571,15 @@ def test_manufactured_diffusion_source(plot_results):
         return np.full_like(grid.r_centers, D0 * (1.0 + t))
 
     def f_end_callable(t):
-        return (2.0 + np.cos(t)) * np.exp(-r_end)
+        return (2.0 + np.cos(t)) * np.exp(-(r_end**2))
 
     def Q_src(r, p, t):
         term1 = -np.sin(t)
-        r_safe = np.where(r == 0, 1e-10, r)
-        # Correct formula: Q = df/dt - ∇·(D∇f)
-        # (1/r²)∂_r(r²*D*(-e^{-r})) = D*e^{-r}*(r-2)/r  → subtract from df/dt gives (2-r)/r term.
-        term2 = D0 * (1.0 + t) * (2.0 + np.cos(t)) * (2.0 / r_safe - 1.0)
-
-        Q = np.exp(-r) * (term1 + term2)
-        if r_grid[0] == 0.0:
-            Q[0] = Q[1]
+        # Correct formula for Q = df/dt - ∇·(D∇f) with f = (2+cos t)*exp(-r^2)
+        # ∇·(D∇f) = D * (2+cos t) * exp(-r^2) * 2(2r^2 - 3)
+        # -∇·(D∇f) = D * (2+cos t) * exp(-r^2) * 2(3 - 2r^2)
+        term2 = 2.0 * D0 * (1.0 + t) * (2.0 + np.cos(t)) * (3.0 - 2.0 * r**2)
+        Q = np.exp(-(r**2)) * (term1 + term2)
         return Q
 
     state = State(f_init.copy())
