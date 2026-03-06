@@ -9,9 +9,17 @@ SAETASS_ORANGE = "#F3664B"
 SAETASS_BLUE = "#4D7EA8"
 
 
-def get_quantitative_style():
+def get_quantitative_style(step_idx=None, total_steps=None):
     """Style for quantitative metrics (convergence, errors, particle counts)."""
-    return {"color": SAETASS_BLUE, "linestyle": "-", "marker": "o"}
+    if step_idx is None or total_steps is None or total_steps <= 1:
+        return {"color": SAETASS_BLUE, "linestyle": "-", "marker": "o", "alpha": 1.0}
+
+    # Calculate opacity between 0.4 and 1.0 for temporal evolutions
+    alpha_min, alpha_max = 0.4, 1.0
+    normalized_step = step_idx / (total_steps - 1)
+    alpha = alpha_min + (alpha_max - alpha_min) * normalized_step
+
+    return {"color": SAETASS_BLUE, "linestyle": "-", "marker": "o", "alpha": alpha}
 
 
 def get_analytical_style():
