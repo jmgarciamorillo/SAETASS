@@ -1,6 +1,76 @@
 import matplotlib.pyplot as plt
 
 
+import matplotlib.pyplot as plt
+import matplotlib as mpl
+
+SAETASS_YELLOW = "#F3AC4B"
+SAETASS_ORANGE = "#F3664B"
+SAETASS_BLUE = "#4D7EA8"
+
+
+def get_quantitative_style():
+    """Style for quantitative metrics (convergence, errors, particle counts)."""
+    return {"color": SAETASS_BLUE, "linestyle": "-", "marker": "o"}
+
+
+def get_analytical_style():
+    """Style for analytical solutions."""
+    return {"color": SAETASS_YELLOW, "linestyle": ":"}
+
+
+def get_numerical_style(
+    is_initial=False, is_final=False, step_idx=None, total_steps=None
+):
+    """
+    Style for numerical solutions.
+    - initial: dashed, low opacity
+    - final: solid, high opacity
+    - intermediate: solid, increasing opacity
+    """
+    if is_initial:
+        return {"color": SAETASS_ORANGE, "linestyle": "--", "alpha": 0.4}
+
+    if is_final or step_idx is None or total_steps is None or total_steps <= 1:
+        return {"color": SAETASS_ORANGE, "linestyle": "-", "alpha": 1.0}
+
+    # Calculate opacity between 0.4 and 1.0 for temporal evolutions
+    alpha_min, alpha_max = 0.4, 1.0
+    normalized_step = step_idx / (total_steps - 1)
+    alpha = alpha_min + (alpha_max - alpha_min) * normalized_step
+
+    return {"color": SAETASS_ORANGE, "linestyle": "-", "alpha": alpha}
+
+
+def add_time_colorbar(fig, ax, t_min, t_max, cmap_name="Oranges"):
+    """
+    Adds a colorbar to the figure to represent the time evolution.
+    Matches the SAETASS Orange gradient used in get_numerical_style.
+    """
+    # Create an invisible mappable object for the colorbar
+    norm = mpl.colors.Normalize(vmin=t_min, vmax=t_max)
+
+    # We create a custom colormap that matches the alpha blending from get_numerical_style
+    # get_numerical_style goes from alpha=0.4 to alpha=1.0 using SAETASS_ORANGE
+    from matplotlib.colors import LinearSegmentedColormap
+    from matplotlib.colors import to_rgba
+
+    color_rgba = to_rgba(SAETASS_ORANGE)
+    color_low_alpha = (color_rgba[0], color_rgba[1], color_rgba[2], 0.4)
+    color_high_alpha = (color_rgba[0], color_rgba[1], color_rgba[2], 1.0)
+
+    saetass_oranges_cmap = LinearSegmentedColormap.from_list(
+        "saetass_oranges", [color_low_alpha, color_high_alpha]
+    )
+
+    sm = mpl.cm.ScalarMappable(cmap=saetass_oranges_cmap, norm=norm)
+    sm.set_array([])
+
+    cbar = fig.colorbar(sm, ax=ax, pad=0.02)
+    cbar.set_label("Time: $t$")
+    return cbar
+
+
 def apply_plot_style():
     """
     Apply unified plot style settings for validation cases.
@@ -17,7 +87,7 @@ def apply_plot_style():
             "axes.labelsize": 25,
             "xtick.labelsize": 20,
             "ytick.labelsize": 20,
-            "legend.fontsize": 20,
+            "legend.fontsize": 15,
             "lines.linewidth": 3,
             # Automatically adjust subplot parameters to give specified padding
             # and prevent axes labels from being cut off

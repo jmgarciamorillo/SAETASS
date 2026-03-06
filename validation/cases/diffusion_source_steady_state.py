@@ -5,7 +5,13 @@ import matplotlib.pyplot as plt
 
 # Apply unified plot style
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from plot_style import apply_plot_style
+from plot_style import (
+    apply_plot_style,
+    get_numerical_style,
+    get_analytical_style,
+    get_quantitative_style,
+    add_time_colorbar,
+)
 
 apply_plot_style()
 
@@ -60,13 +66,15 @@ def run_diffusion_simulation(
 def compute_relative_L2(numerical, analytical, mask=None):
     if mask is None:
         mask = np.ones_like(numerical, dtype=bool)
-    diff = numerical[mask] - analytical[mask]
-    denom = analytical[mask]
-    norm_diff = np.sqrt(np.sum(diff**2))
-    norm_ana = np.sqrt(np.sum(denom**2))
-    if norm_ana == 0:
-        return norm_diff
-    return norm_diff / norm_ana
+    num = numerical[mask]
+    theo = analytical[mask]
+
+    sum_diff_sq = np.sum((num - theo) ** 2)
+    sum_theo_sq = np.sum(theo**2)
+
+    if sum_theo_sq == 0:
+        return np.sqrt(sum_diff_sq)
+    return np.sqrt(sum_diff_sq / sum_theo_sq)
 
 
 def analytical_steady_state(r_grid, D_0, Q_0, eps):
@@ -154,9 +162,15 @@ def validation_diffusion_source_steady_state(
 
         # residuals vs time plot (how close to steady state as t increases)
         plt.figure(figsize=(6, 4))
-        plt.semilogy(times_arr, errors, "o-", label="Relative $L_2$ error")
+        quant_style = get_quantitative_style()
+        plt.semilogy(
+            times_arr,
+            errors,
+            label=r"Relative error: $\mathcal{E}_{L_2}$",
+            **quant_style,
+        )
         plt.xlabel(r"Final simulation time: $t_\mathrm{end}$")
-        plt.ylabel("Relative $L_2$ error")
+        plt.ylabel(r"Relative error: $\mathcal{E}_{L_2}$")
         plt.grid(alpha=0.3, which="both")
         conv_fig = plt.gcf()
         plt.show()
@@ -183,21 +197,36 @@ def validation_diffusion_source_steady_state(
             snap_times = rec.get("snap_times", [])
             ana = rec["ana"]
 
-            # temporal evolution plot (multiple lines) + analytical steady state
-            fig = plt.figure(figsize=(8, 4))
-            colors = plt.cm.viridis(np.linspace(0, 1, len(snapshots)))
+            fig = plt.figure(figsize=(6, 4))
             for idx, (s, t) in enumerate(zip(snapshots, snap_times)):
-                plt.plot(r_grid, s, color=colors[idx], label=f"$t={t:.2f}$")
+                is_initial = idx == 0
+                is_final = idx == len(snapshots) - 1
+                style = get_numerical_style(
+                    is_initial=is_initial,
+                    is_final=is_final,
+                    step_idx=idx,
+                    total_steps=len(snapshots),
+                )
+                label = (
+                    "Initial"
+                    if is_initial
+                    else ("Numerical (final)" if is_final else None)
+                )
+                plt.plot(r_grid, s, label=label, **style)
 
             # overlay analytical steady state (final)
-            plt.plot(r_grid, ana, "k--", label="Analytical steady state")
+            ana_style = get_analytical_style()
+            plt.plot(r_grid, ana, label="Analytical SS", **ana_style)
+
+            add_time_colorbar(fig, plt.gca(), t_min=snap_times[0], t_max=snap_times[-1])
 
             plt.xlim(0, r_end)
             plt.ylim(ylims)
             plt.xlabel(r"Radial coordinate: $r$")
-            plt.ylabel(r"Solution at time $t$: $f(r,t)$")
+            plt.ylabel(r"Solution: $f(r,t)$")
             plt.legend()
             plt.grid(alpha=0.4)
+            plt.tight_layout()
             plt.show()
             last_fig = fig
             last_t = t_final
@@ -213,27 +242,49 @@ def validation_diffusion_source_steady_state(
             # find the recorded run closest to target_t
             rec_target = min(all_results, key=lambda r: abs(r["t_final"] - target_t))
             try:
-                fig_target = plt.figure(figsize=(8, 4))
+                fig_target = plt.figure(figsize=(7.5, 5))
                 r_grid = rec_target["r_grid"]
                 snapshots = rec_target.get("snapshots", [])
                 snap_times = rec_target.get("snap_times", [])
                 ana = rec_target["ana"]
-                colors = plt.cm.viridis(np.linspace(0, 1, len(snapshots)))
                 for idx, (s, t) in enumerate(zip(snapshots, snap_times)):
-                    plt.plot(r_grid, s, color=colors[idx], label=f"$t={t:.2f}$")
-                plt.plot(r_grid, ana, "k--", label="Analytical steady state")
+                    is_initial = idx == 0
+                    is_final = idx == len(snapshots) - 1
+                    style = get_numerical_style(
+                        is_initial=is_initial,
+                        is_final=is_final,
+                        step_idx=idx,
+                        total_steps=len(snapshots),
+                    )
+                    label = (
+                        "Initial"
+                        if is_initial
+                        else ("Numerical (final)" if is_final else None)
+                    )
+                    plt.plot(r_grid, s, label=label, **style)
+
+                ana_style = get_analytical_style()
+                plt.plot(r_grid, ana, label="Analytical SS", **ana_style)
+
+                add_time_colorbar(
+                    fig_target, plt.gca(), t_min=snap_times[0], t_max=snap_times[-1]
+                )
+
                 plt.xlim(0, r_end)
                 plt.ylim(ylims)
                 plt.xlabel(r"Radial coordinate: $r$")
-                plt.ylabel(r"Solution at time $t$: $f(r,t)$")
+                plt.ylabel(r"Solution: $f(r,t)$")
                 plt.legend()
                 plt.grid(alpha=0.4)
+                plt.tight_layout()
+                plt.show()
                 target_path_pdf = os.path.join(
-                    out_dir, f"diffusion_source_steady_tend0p7.pdf"
+                    out_dir, f"diffusion_source_steady_t{target_t:.3g}.pdf"
                 )
                 fig_target.savefig(target_path_pdf, dpi=200, bbox_inches="tight")
-                print(f"Saved t_end=0.7 simulation figure to: {target_path_pdf}")
-            except Exception:
+                print(f"Saved t_end={target_t} simulation figure to: {target_path_pdf}")
+            except Exception as e:
+                print(f"Error saving target plot: {e}")
                 # fallback: save last_fig if target plot failed
                 if last_fig is not None:
                     last_path_pdf = os.path.join(

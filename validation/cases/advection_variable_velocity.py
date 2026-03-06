@@ -5,7 +5,13 @@ import matplotlib.pyplot as plt
 
 # Apply unified plot style
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from plot_style import apply_plot_style
+from plot_style import (
+    apply_plot_style,
+    get_numerical_style,
+    get_analytical_style,
+    get_quantitative_style,
+    add_time_colorbar,
+)
 
 apply_plot_style()
 
@@ -117,7 +123,7 @@ def validation_variable_velocity(
             f_initial,
             solver_params,
             source_params={"source": Q_values},
-            sample_count=5,
+            sample_count=10,
         )
 
         all_results.append(
@@ -141,19 +147,30 @@ def validation_variable_velocity(
             snapshots = rec["snapshots"]
             snap_times = rec["snap_times"]
 
-            fig_log = plt.figure(figsize=(8, 4))
-            colors = plt.cm.viridis(np.linspace(0, 1, len(snapshots)))
+            fig_log = plt.figure(figsize=(14, 7))
             mask_pos_all = [(r_grid > 0) & (s > 0) for s in snapshots]
             for idx, (s, t, mask_pos) in enumerate(
                 zip(snapshots, snap_times, mask_pos_all)
             ):
                 if np.any(mask_pos):
-                    plt.loglog(
-                        r_grid[mask_pos],
-                        s[mask_pos],
-                        color=colors[idx],
-                        label=f"$t = {t:.2f}$",
+                    is_initial = idx == 0
+                    is_final = idx == len(snapshots) - 1
+                    style = get_numerical_style(
+                        is_initial=is_initial,
+                        is_final=is_final,
+                        step_idx=idx,
+                        total_steps=len(snapshots),
                     )
+                    label = (
+                        "Initial"
+                        if is_initial
+                        else ("Numerical (final)" if is_final else None)
+                    )
+                    plt.loglog(r_grid[mask_pos], s[mask_pos], label=label, **style)
+
+            add_time_colorbar(
+                fig_log, plt.gca(), t_min=snap_times[0], t_max=snap_times[-1]
+            )
 
             plt.xlim(left=max(r_grid[1], 1e-6), right=r_end)
             pos_vals = np.concatenate([s[s > 0] for s in snapshots])
@@ -163,11 +180,11 @@ def validation_variable_velocity(
                 plt.ylim(y_min_log * 0.8, y_max_log * 1.2)
 
             plt.xlabel(r"Radial coordinate: $r$")
-            plt.ylabel(r"Solution at time $t$: $f(r,t)$")
-            plt.legend()
-            plt.ylim([1e-2, 1e2])
+            plt.ylabel(r"Solution: $f(r,t)$")
+            plt.ylim([1e-1, 1e2])
             plt.xlim([source_r_min, r_end])
             plt.grid(alpha=0.4, which="both")
+            plt.tight_layout()
             plt.show()
             last_log_fig = fig_log
             last_fig = None
@@ -198,7 +215,7 @@ if __name__ == "__main__":
     validation_variable_velocity(
         resolutions,
         r_end=10.0,
-        t_final=4.0,
+        t_final=10.0,
         v_at_1=10.0,
         r_core=0.5,
         source_r_min=0.9,

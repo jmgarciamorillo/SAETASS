@@ -5,7 +5,13 @@ import matplotlib.pyplot as plt
 
 # Apply unified plot style
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from plot_style import apply_plot_style
+from plot_style import (
+    apply_plot_style,
+    get_numerical_style,
+    get_analytical_style,
+    get_quantitative_style,
+    add_time_colorbar,
+)
 
 apply_plot_style()
 
@@ -60,13 +66,15 @@ def run_diffusion_simulation(r_grid, t_grid, f_initial, solver_params, sample_co
 def compute_relative_L2(numerical, analytical, mask=None):
     if mask is None:
         mask = np.ones_like(numerical, dtype=bool)
-    diff = numerical[mask] - analytical[mask]
-    denom = analytical[mask]
-    norm_diff = np.sqrt(np.sum(diff**2))
-    norm_ana = np.sqrt(np.sum(denom**2))
-    if norm_ana == 0:
-        return norm_diff
-    return norm_diff / norm_ana
+    num = numerical[mask]
+    theo = analytical[mask]
+
+    sum_diff_sq = np.sum((num - theo) ** 2)
+    sum_theo_sq = np.sum(theo**2)
+
+    if sum_theo_sq == 0:
+        return np.sqrt(sum_diff_sq)
+    return np.sqrt(sum_diff_sq / sum_theo_sq)
 
 
 def validation_diffusion_analytic(
@@ -144,9 +152,12 @@ def validation_diffusion_analytic(
 
         # convergence plot
         plt.figure(figsize=(6, 4))
-        plt.loglog(res, errors, "o-", label="Relative $L_2$ error")
+        quant_style = get_quantitative_style()
+        plt.loglog(
+            res, errors, label=r"Relative error: $\mathcal{E}_{L_2}$", **quant_style
+        )
         plt.xlabel("Number of radial cells: $N$")
-        plt.ylabel("Relative $L_2$ error")
+        plt.ylabel(r"Relative error: $\mathcal{E}_{L_2}$")
         plt.grid(alpha=0.3, which="both")
         conv_fig = plt.gcf()
         plt.show()
@@ -163,25 +174,38 @@ def validation_diffusion_analytic(
             snapshots = rec.get("snapshots", [f_num])
             snap_times = rec.get("snap_times", [t_final])
 
-            fig = plt.figure(figsize=(8, 4))
-            colors = plt.cm.viridis(np.linspace(0, 1, len(snapshots)))
-            # plot snapshots with varying alpha; emphasize initial and final
-            for i, (s, t, c) in enumerate(zip(snapshots, snap_times, colors)):
-                alpha = 0.9 if (i == 0 or i == len(snapshots) - 1) else 0.5
+            fig = plt.figure(figsize=(6, 4))
+            # plot snapshots with varying opacity
+            for i, (s, t) in enumerate(zip(snapshots, snap_times)):
+                is_initial = i == 0
+                is_final = i == len(snapshots) - 1
+                style = get_numerical_style(
+                    is_initial=is_initial,
+                    is_final=is_final,
+                    step_idx=i,
+                    total_steps=len(snapshots),
+                )
 
-                # Label every snapshot so all lines appear in the legend
-                label = f"$t = {t:.2f}$"
-                plt.plot(r_grid, s, color=c, alpha=alpha, label=label)
+                label = (
+                    "Initial"
+                    if is_initial
+                    else ("Numerical (final)" if is_final else None)
+                )
+                plt.plot(r_grid, s, label=label, **style)
 
             # analytical solution (final)
-            plt.plot(r_grid, f_ana, "k:", label="Analytical (final)")
+            ana_style = get_analytical_style()
+            plt.plot(r_grid, f_ana, label="Analytical (final)", **ana_style)
+
+            add_time_colorbar(fig, plt.gca(), t_min=snap_times[0], t_max=snap_times[-1])
 
             plt.xlim(0, r_end)
             plt.ylim(ylims)
             plt.xlabel(r"Radial coordinate: $r$")
-            plt.ylabel(r"Solution at time $t$: $f(r,t)$")
+            plt.ylabel(r"Solution: $f(r,t)$")
             plt.legend()
             plt.grid(alpha=0.4)
+            plt.tight_layout()
             plt.show()
             last_fig = fig
             last_N = N
@@ -206,7 +230,7 @@ def validation_diffusion_analytic(
 
 
 if __name__ == "__main__":
-    resolutions = [128, 256, 512, 1024, 2048, 4096]
+    resolutions = [128, 256, 512, 1024, 2048, 4096, 8192, 16384]
     validation_diffusion_analytic(
         resolutions,
         r_end=1.0,
