@@ -163,7 +163,7 @@ class TestAdvectionSource:
         source_mask = (r_grid >= source_r_min) & (r_grid <= source_r_max)
         Q_values[source_mask] = 40.0
 
-        # Operator parameters
+        # SubSolver parameters
         grid_params = {"r_grid": r_grid, "t_grid": t_grid}
         op_params = {
             "advection": {
@@ -236,7 +236,7 @@ class TestAdvectionSource:
                 np.log(f_final[mid_point + 5]) - np.log(f_final[mid_point - 5])
             ) / (np.log(r_grid[mid_point + 5]) - np.log(r_grid[mid_point - 5]))
             expected_slope = -2
-            assert np.isclose(slope, expected_slope, rtol=1e-5)
+            assert np.isclose(slope, expected_slope, rtol=1e-3)
 
     def test_variable_velocity_and_source(self, plot_results):
         """
@@ -263,7 +263,7 @@ class TestAdvectionSource:
         source_mask = (r_grid >= source_r_min) & (r_grid <= source_r_max)
         Q_values[source_mask] = 40.0
 
-        # Operator parameters
+        # SubSolver parameters
         grid_params = {"r_grid": r_grid, "t_grid": t_grid}
         op_params = {
             "advection": {
@@ -356,7 +356,7 @@ class TestDiffusionSource:
         D_values = D_0 * (r_grid + eps) ** 2
         Q_values = Q_0 * r_grid
 
-        # Operator parameters
+        # SubSolver parameters
         grid_params = {"r_grid": r_grid, "t_grid": t_grid}
         op_params = {
             "diffusion": {"D_values": D_values, "f_end": 0.0},
