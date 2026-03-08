@@ -633,6 +633,10 @@ class EnergyLossCalculator:
 class Particle(StrEnum):
     """Auxiliary class for correct particle types handling.
 
+    .. note::
+        Currently, the supported splitting schemes are: "proton" and "electron".
+
+
     Parameters
     ----------
     particle_type : str
