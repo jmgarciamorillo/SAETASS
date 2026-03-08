@@ -1,6 +1,6 @@
 """
 This module provides a class and auxiliary methods to track the state of a solution
-in a finite-volume method with operator splitting solver such as SAETASS. The :class:`State`
+in a finite-volume method with operator splitting solver such as SAETASS. The :py:class:`~saetass.state.State`
 class is designed to support the following features:
 
 - Hold the conserved variables (e.g., particle distribution function) as a ``Numpy`` array.
@@ -278,59 +278,3 @@ class State:
             f"State(t={self.t:.3f}, dt={self.dt:.3f}, stage={self.stage}, "
             f"stage_name={self.stage_name!r}, f_shape={self.f.shape}, history_len={len(self.history)})"
         )
-
-
-class SliceState:
-    """TEMPORARY SOLUTION: Helper class to represent a single slice of a 2D State."""
-
-    def __init__(self, full_state: State, idx: int, axis: int = 1):
-        self.full_state = full_state
-        self.idx = idx
-        self.axis = axis
-        if self.axis == 1:
-            self.f = (
-                full_state.f[idx].copy()
-                if full_state.f.ndim > 1
-                else full_state.f.copy()
-            )
-        elif self.axis == 0:
-            self.f = (
-                full_state.f[:, idx].copy()
-                if full_state.f.ndim > 1
-                else full_state.f.copy()
-            )
-        else:
-            raise ValueError("axis must be 0 or 1")
-
-    def get_f(self) -> np.ndarray:
-        """Return a proper np.array for computation."""
-        return self.f  # return 1D array
-
-    def update_f(self, new_f):
-        """Update only the slice of the full state."""
-        new_f_arr = np.asarray(new_f, dtype=float)
-        if self.axis == 1:
-            # Space problem: update row idx
-            expected_shape = (self.full_state.n_r,)
-            if new_f_arr.shape != expected_shape:
-                raise ValueError(
-                    f"new_f must have shape {expected_shape}, got {new_f_arr.shape}"
-                )
-            if self.full_state.ndim > 1:
-                self.full_state.f[self.idx] = new_f_arr
-            else:
-                self.full_state.f[0] = new_f_arr
-        elif self.axis == 0:
-            # Momentum problem: update column idx
-            expected_shape = (self.full_state.n_p,)
-            if new_f_arr.shape != expected_shape:
-                raise ValueError(
-                    f"new_f must have shape {expected_shape}, got {new_f_arr.shape}"
-                )
-            if self.full_state.ndim > 1:
-                self.full_state.f[:, self.idx] = new_f_arr
-            else:
-                self.full_state.f[0] = new_f_arr
-        else:
-            raise ValueError("axis must be 0 or 1")
-        self.f = new_f_arr

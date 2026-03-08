@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.sparse import diags
 from scipy.sparse.linalg import spsolve
-from ..state import State, SliceState
+from ..state import State
 from ..grid import Grid
 from ..solver import SubSolver
 import logging
@@ -169,14 +169,8 @@ class DiffusionSolver(SubSolver):
         # Vectorized batched solve for all slices
         f_new_all = self._advance_all_slices_batched(dt, f_all)
 
-        # Update state: ideally state.update_f(f_new_all)
-        if hasattr(state, "update_f"):
-            state.update_f(f_new_all)
-        else:
-            # fallback: update slice by slice
-            for i in range(self.n_p):
-                slice_state = SliceState(state, i)
-                slice_state.update_f(f_new_all[i, :])
+        # Update state natively using the 2D array capability
+        state.update_f(f_new_all)
 
     # ------------------- Core batched advance -------------------
     def _update_conductances(self, D_values: np.ndarray) -> None:

@@ -16,7 +16,7 @@ Thus, :class:`AdvectionSolver` and :class:`LossSolver` inherit from this base cl
 
 import numpy as np
 from typing import Literal
-from ..state import State, SliceState
+from ..state import State
 from ..grid import Grid
 from ..solver import SubSolver
 from abc import ABC, abstractmethod
@@ -56,7 +56,7 @@ def minmod_multi(a, b, c):
     return minmod_multi_arr(a, b, c)
 
 
-class HyperbolicSolver(ABC):
+class HyperbolicSolver(SubSolver, ABC):
     """
     Base class for hyperbolic PDE solvers using finite volume methods.
     It exposes a public API for advancing the solution in time and relies on subclasses to define problem-specific transformations and velocity fields.
