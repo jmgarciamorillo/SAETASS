@@ -26,24 +26,21 @@ class SubSolver(ABC):
     Implementations must properly initialize from a domain :py:class:`~saetass.grid.Grid`, a specific time grid,
     and a parameter dictionary, and must provide an :py:meth:`~saetass.solver.SubSolver.advance` method to update the
     global :py:class:`~saetass.state.State`.
+
+    Parameters
+    ----------
+    grid : :py:class:`~saetass.grid.Grid`
+        The :py:class:`~saetass.grid.Grid` object containing spatial and/or momentum nodes.
+    t_grid : np.ndarray
+        The refined time grid for this specific operator's integration steps.
+    params : Dict[str, Any]
+        Dictionary containing physical and numerical parameters specific to this :py:class:`~saetass.solver.SubSolver`.
     """
 
     @abstractmethod
     def __init__(
         self, grid: Grid, t_grid: np.ndarray, params: Dict[str, Any], **kwargs
     ):
-        """
-        Initialize the operator.
-
-        Parameters
-        ----------
-        grid : :py:class:`~saetass.grid.Grid`
-            The grid object containing spatial and/or momentum nodes.
-        t_grid : np.ndarray
-            The refined time grid for this specific operator's integration steps.
-        params : Dict[str, Any]
-            Dictionary containing physics/numerical parameters specific to this operator.
-        """
         pass
 
     @abstractmethod
@@ -75,6 +72,10 @@ logger = logging.getLogger(__name__)
 class OperatorType(StrEnum):
     """Auxiliary class for correct operator type handling.
 
+    .. note::
+       Currently, the supported operator types are: "advection", "diffusion", "loss" and "source".
+
+
     Parameters
     ----------
     operator_type : str
@@ -99,30 +100,29 @@ class Solver:
     Main class to manage the simulation workflow. It initializes operators based on the specified problem type and coordinates the time advancement of the solution.
 
     In the initialization phase, the :py:class:`~saetass.solver.Solver` class takes in the associated :py:class:`~saetass.grid.Grid`, initial :py:class:`~saetass.state.State`, problem type, operator parameters, substep counts and splitting scheme.
-    It parses the problem type to determine which operators are involved and initializes them with their own refined time grids based on the specified :py:class:`~saetass.splittng.SplittingScheme`.
+    It parses the problem type to determine which operators are involved and initializes them with their own refined time grids based on the specified splitting type.
 
-    Any object of the :py:class:`~saetass.solver.Solver` class exposes two main methods: one for advancing the solution by a single time step and another for running the entire simulation.
+    Any object of the :py:class:`~saetass.solver.Solver` class exposes two main methods: :py:meth:`~saetass.solver.Solver.step` for advancing the solution by some amount of time steps and :py:meth:`~saetass.solver.Solver.run` for running the entire simulation.
     After each advancement, :py:class:`~saetass.solver.Solver` updates the :py:class:`~saetass.state.State` object associated with the solution.
-
 
     Parameters
     ----------
-    grid : Grid
-        Grid object containing spatial and momentum grids and time grid.
-    state : State
-        State object containing the initial distribution f.
+    grid : :py:class:`~saetass.grid.Grid`
+        :py:class:`~saetass.grid.Grid` object containing spatial and momentum grids and time grid.
+    state : :py:class:`~saetass.state.State`
+        :py:class:`~saetass.state.State` object containing the initial distribution.
     problem_type : str
         String specifying the type of problem and which operators to include. Valid operators are defined in
-        :py:class:`~saetass.solver.OperatorType` (e.g., "advection-diffusion-loss-source").
+        :py:class:`~saetass.solver.OperatorType` (e.g., "advection-diffusion-loss-source"). The order of the operators will affect the behaviour of :py:class:`~saetass.splitting.SplittingScheme`.
     operator_params : dict, optional
-        Dictionary mapping operator names to their specific parameters (e.g., {"advection": {...}, "diffusion": {...}}).
+        Dictionary mapping operator names to their specific parameters (e.g., ``{"advection": {...}, "diffusion": {...}}``).
         These parameters will be passed to the corresponding subsolvers during initialization and should be structured accordingly.
         For further details on expected parameters for each operator, refer to the documentation of the respective subsolver classes.
     substeps : dict, optional
-        Dictionary specifying the number of substeps for each operator (e.g., {"advection": 2, "diffusion": 1}).
+        Dictionary specifying the number of substeps for each operator (e.g., ``{"advection": 2, "diffusion": 1}``).
         Default is no subrefinement, this is, 1 substep per operator.
-    splitting_scheme : str | SplittingSchemeType, optional
-        String or :py:class:`~saetass.splitting.SplittingSchemeType` specifying the operator :py:class:`~saetass.splitting.SplittingScheme` to use. Valid schemes are defined in
+    splitting_scheme : str or :py:class:`~saetass.splitting.SplittingSchemeType`, optional
+        String or :py:class:`~saetass.splitting.SplittingSchemeType` specifying the :py:class:`~saetass.splitting.SplittingScheme` to use. Valid schemes are defined in
         :py:class:`~saetass.splitting.SplittingSchemeType` (e.g., "strang", "lie"). Default is "strang".
     """
 
@@ -278,7 +278,7 @@ class Solver:
         self._advance(num_timesteps)
         return self.state
 
-    def step(self, n_steps=1):
+    def step(self, n_steps=1) -> State:
         """Advances the solution by n_steps global time steps, updating and returning the current :py:class:`~saetass.state.State` object.
 
         Parameters
