@@ -1,3 +1,5 @@
+.. title:: Home
+
 .. image:: _static/saetass_logotagline_horizontal.svg
    :alt: SAETASS Logo
    :align: center
