@@ -44,12 +44,13 @@ plt.rcParams.update(
     {
         "text.usetex": True,
         "font.family": "serif",
-        "font.size": 16,
-        "axes.labelsize": 18,
-        "axes.titlesize": 18,
+        "font.size": 20,
+        "axes.labelsize": 20,
+        "axes.titlesize": 22,
         "legend.fontsize": 14,
-        "xtick.labelsize": 16,
-        "ytick.labelsize": 16,
+        "legend.title_fontsize": 16,
+        "xtick.labelsize": 18,
+        "ytick.labelsize": 18,
     }
 )
 
@@ -164,12 +165,12 @@ def plot_simulation_step(
 
     # Add labels only to the left and bottom subplots
     if col_idx == 0:
-        ax.set_ylabel(r"Normalized distribution: $f(r,t)/f_\mathrm{TS}$")
+        ax.set_ylabel(r"Norm. dist.: $f(r,t)/f_\mathrm{TS}$")
     else:
         ax.set_yticklabels([])  # Remove yticks from internal subplots
 
     if diff_props["row"] == 2:
-        ax.set_xlabel("Radius (pc)")
+        ax.set_xlabel(r"Radial coordinate: $r$ (pc)")
 
     # Add energy to top subplots
     if diff_props["row"] == 0:
@@ -180,7 +181,7 @@ def plot_simulation_step(
 
     # Add legend only to the first subplot of each row
     if col_idx == 0:
-        ax.legend(loc="upper right", fontsize=9, title=diff_props["name"])
+        ax.legend(loc="upper right", title=diff_props["name"])
 
     # Add grid
     ax.grid(True, alpha=0.3)
@@ -194,7 +195,7 @@ def finalize_and_save_figure(fig, gs, diffusion_models):
             cmap=diff_props["cmap"], norm=plt.Normalize(vmin=0.0, vmax=1.2)
         )
         cbar = fig.colorbar(sm, cax=cbar_ax)
-        cbar.set_label("Time (Myr)", rotation=270, labelpad=20)
+        cbar.set_label(r"Time: $t$ (Myr)", rotation=270, labelpad=20)
 
     plt.tight_layout()
     plt.subplots_adjust(hspace=0.3, wspace=0.1)
