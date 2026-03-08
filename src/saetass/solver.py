@@ -1,18 +1,65 @@
 """
-The Solver class is the main interface for running simulations.
-It manages the overall time loop and coordinates the advancement of the solution according to the specified problem type and parameters.
-Hence, it serves as the central orchestrator of the simulation workflow, while delegating the actual numerical updates to specialized subsolvers for each operator (advection, diffusion, loss, source).
+The solver module contains the main interface for running simulations.
 
-In the initialization phase, the Solver class takes in the grid, initial state, problem type, operator parameters, substep counts and splitting scheme.
-It parses the problem type to determine which operators are involved and initializes the corresponding subsolvers with their own refined time grids based on the specified splitting scheme.
+It defines the public API that all physical operators must expose through the abstrac class :py:class:`~saetass.solver.SubSolver`.
 
-Any object of the Solver class exposes two main methods: one for advancing the solution by a single time step and another for running the entire simulation.
-After each advancement, the Solver updates the State object associated with the solution.
+It also defines the :py:class:`~saetass.solver.Solver` class, which manages the overall time loop and coordinates the advancement of the solution according to the specified problem type and parameters.
+Hence, it serves as the central orchestrator of the simulation workflow, while delegating the actual numerical updates to the specialized operators (:py:class:`~saetass.solvers.advection_solver.AdvectionSolver`, :py:class:`~saetass.solvers.diffusion_solver.DiffusionSolver`, :py:class:`~saetass.solvers.loss_solver.LossSolver`, :py:class:`~saetass.solvers.source_solver.SourceSolver`...).
 
 --------------
 """
 
 import numpy as np
+from abc import ABC, abstractmethod
+from enum import StrEnum
+from typing import Any, Dict
+import logging
+
+from .state import State
+from .grid import Grid
+
+
+class SubSolver(ABC):
+    """
+    Abstract base class defining the minimal interface every operator must expose.
+
+    Implementations must properly initialize from a domain :py:class:`~saetass.grid.Grid`, a specific time grid,
+    and a parameter dictionary, and must provide an :py:meth:`~saetass.solver.SubSolver.advance` method to update the
+    global :py:class:`~saetass.state.State`.
+    """
+
+    @abstractmethod
+    def __init__(
+        self, grid: Grid, t_grid: np.ndarray, params: Dict[str, Any], **kwargs
+    ):
+        """
+        Initialize the operator.
+
+        Parameters
+        ----------
+        grid : :py:class:`~saetass.grid.Grid`
+            The grid object containing spatial and/or momentum nodes.
+        t_grid : np.ndarray
+            The refined time grid for this specific operator's integration steps.
+        params : Dict[str, Any]
+            Dictionary containing physics/numerical parameters specific to this operator.
+        """
+        pass
+
+    @abstractmethod
+    def advance(self, n_steps: int, state: State) -> None:
+        """
+        Advance the provided :py:class:`~saetass.state.State` by a specified number of internal steps.
+
+        Parameters
+        ----------
+        n_steps : int
+            The number of internal substeps to advance based on :py:attr:`~saetass.solver.SubSolver.t_grid`.
+        state : :py:class:`~saetass.state.State`
+            The global tracking :py:class:`~saetass.state.State` to be updated.
+        """
+        pass
+
 
 from .solvers.diffusion_solver import DiffusionSolver
 from .solvers.advection_solver import AdvectionSolver
@@ -38,7 +85,14 @@ SUBSOLVER_MAP = {
 
 class Solver:
     """
-    Main class to manage the simulation workflow. It initializes subsolvers based on the specified problem type and coordinates the time advancement of the solution.
+    Main class to manage the simulation workflow. It initializes operators based on the specified problem type and coordinates the time advancement of the solution.
+
+    In the initialization phase, the :py:class:`~saetass.solver.Solver` class takes in the associated :py:class:`~saetass.grid.Grid`, initial :py:class:`~saetass.state.State`, problem type, operator parameters, substep counts and splitting scheme.
+    It parses the problem type to determine which operators are involved and initializes them with their own refined time grids based on the specified :py:class:`~saetass.splittng.SplittingScheme`.
+
+    Any object of the :py:class:`~saetass.solver.Solver` class exposes two main methods: one for advancing the solution by a single time step and another for running the entire simulation.
+    After each advancement, :py:class:`~saetass.solver.Solver` updates the :py:class:`~saetass.state.State` object associated with the solution.
+
 
     Parameters
     ----------
@@ -171,8 +225,6 @@ class Solver:
 
         for _ in range(n_steps):
             self.global_step += 1
-            if self.global_step == 371:
-                logger.debug("Reached global step 371.")
 
             f_max = np.max(self.state.f)
             f_min = np.min(self.state.f)
@@ -199,7 +251,7 @@ class Solver:
             self._progress = None
 
     def run(self) -> State:
-        """Advances the solution to the final time, updating and returning the final :class:`State` object.
+        """Advances the solution to the final time, updating and returning the final :py:class:`~saetass.state.State` object.
 
         Returns
         -------
@@ -211,7 +263,7 @@ class Solver:
         return self.state
 
     def step(self, n_steps=1):
-        """Advances the solution by n_steps global time steps, updating and returning the current :class:`State` object.
+        """Advances the solution by n_steps global time steps, updating and returning the current :py:class:`~saetass.state.State` object.
 
         Parameters
         ----------

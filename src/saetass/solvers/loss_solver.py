@@ -153,7 +153,7 @@ class LossSolver(HyperbolicSolver):
 
             mask = p > 0.0
             f = np.zeros_like(U)
-            # Solo dividimos columnas donde p > 0
+            # Only divide columns where p > 0
             f[:, mask] = U[:, mask] / p[mask]
             if mask.sum() < len(p):
                 raise ValueError(

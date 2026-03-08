@@ -18,6 +18,7 @@ import numpy as np
 from typing import Literal
 from ..state import State, SliceState
 from ..grid import Grid
+from ..solver import SubSolver
 from abc import ABC, abstractmethod
 from numba import njit, prange
 
@@ -568,10 +569,6 @@ class HyperbolicSolver(ABC):
         else:
             slopes[..., -1] = d_bwd  # fallback
 
-        # TESTING: zero slopes at boundaries
-        # slopes[..., 0] = 0.0
-        # slopes[..., -1] = 0.0
-
         return slopes
 
     def _recontruct_face_states(
@@ -592,7 +589,6 @@ class HyperbolicSolver(ABC):
         UR[..., :-1] = U - slopes * self.dx_L
         UL[..., 1:] = U + slopes * self.dx_R
 
-        # TEMPORARY FIX FOR BOUNDARIES
         UR[..., -1] = U[..., -1]
         UL[..., 0] = U[..., 0]
 
@@ -618,10 +614,6 @@ class HyperbolicSolver(ABC):
             ULh[..., 1:] -= 0.5 * dt * V_centers * slopes
             # UR* (state coming from cell i-1) uses v_{i-1} and slope_{i-1}
             URh[..., :-1] -= 0.5 * dt * V_centers * slopes
-
-        # TEMPORARY FIX FOR BOUNDARIES
-        # ULh[..., 0] -= 0.5 * dt * V_centers[..., 0] * slopes[..., 0]
-        # URh[..., -1] -= 0.5 * dt * V_centers[..., -1] * slopes[..., -1]
 
         return ULh, URh
 

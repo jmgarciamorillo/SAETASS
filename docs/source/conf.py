@@ -50,6 +50,8 @@ html_show_sourcelink = False
 autodoc_member_order = "bysource"
 autodoc_typehints = "description"
 
+add_module_names = False
+
 
 def setup(app):
     app.add_css_file("custom.css")

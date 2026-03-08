@@ -133,8 +133,6 @@ class Grid:
                 self.p_faces = np.array(
                     [self.p_centers[0] - 0.5 * dp, self.p_centers[0] + 0.5 * dp]
                 )
-        # if np.any(self.p_centers <= 0) or np.any(self.p_faces <= 0):
-        # raise ValueError("Momentum centers and faces must be positive values.")
 
     @cached_property
     def dr(self) -> np.ndarray:
