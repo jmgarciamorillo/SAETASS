@@ -1,16 +1,53 @@
-*.png
-GiovanniConv/
+# =========================================================
+# Python cache and compiled files
+# =========================================================
 __pycache__/
-.pytest_cache/
-.vscode/
 *.pyc
+*.pyo
+*.pyd
+
+# Pytest cache
+.pytest_cache/
+
+# Coverage reports
+.coverage
+
+# =========================================================
+# Virtual environments
+# =========================================================
+.venv/
+venv/
+env/
+
+# =========================================================
+# IDE / Editor settings
+# =========================================================
+.vscode/
+
+# macOS system files
+.DS_Store
+
+# =========================================================
+# Project output files
+# =========================================================
+outputs/
+examples/outputs/
+
+# Simulation / computation outputs
+*.png
+*.out
 *.npz
 *.pkl
-*.out
-.coverage
-outputs/
+
+# =========================================================
+# Temporary / scratch files
+# =========================================================
 untitled*
-testing_scripts/
-.venv/
+
+# =========================================================
+# Private or local development folders
+# =========================================================
 _private/
-*DS_Store
+
+# Testing scripts (not part of main codebase)
+testing_scripts/
