@@ -71,13 +71,27 @@ from .cli.banner import print_banner
 
 logger = logging.getLogger(__name__)
 
-# Map operator names to their solver classes
-SUBSOLVER_MAP = {
-    "advection": AdvectionSolver,
-    "diffusion": DiffusionSolver,
-    "loss": LossSolver,
-    "source": SourceSolver,
-}
+
+class OperatorType(StrEnum):
+    """Auxiliary class for correct operator type handling.
+
+    Parameters
+    ----------
+    operator_type : str
+        String identifier for the operator type (e.g., "advection", "diffusion"). This
+        will raise a ``ValueError`` if an unsupported operator type is provided.
+    """
+
+    ADVECTION = ("advection", AdvectionSolver)
+    DIFFUSION = ("diffusion", DiffusionSolver)
+    LOSS = ("loss", LossSolver)
+    SOURCE = ("source", SourceSolver)
+
+    def __new__(cls, operator_type: str, solver_class: type):
+        obj = str.__new__(cls, operator_type)
+        obj._value_ = operator_type
+        obj.solver_class = solver_class
+        return obj
 
 
 class Solver:
@@ -98,7 +112,8 @@ class Solver:
     state : State
         State object containing the initial distribution f.
     problem_type : str
-        String specifying the type of problem and which operators to include (e.g., "advection-diffusion-loss-source").
+        String specifying the type of problem and which operators to include. Valid operators are defined in
+        :py:class:`~saetass.solver.OperatorType` (e.g., "advection-diffusion-loss-source").
     operator_params : dict, optional
         Dictionary mapping operator names to their specific parameters (e.g., {"advection": {...}, "diffusion": {...}}).
         These parameters will be passed to the corresponding subsolvers during initialization and should be structured accordingly.
@@ -134,15 +149,18 @@ class Solver:
 
         # Determine which operators are present and print for debugging
         logger.debug(f"Problem type: {self.problem_type}")
-        logger.debug(f"Available operators: {list(SUBSOLVER_MAP.keys())}")
+        logger.debug(f"Available operators: {[op.value for op in OperatorType]}")
 
         # Parse operators from problem_type, handling exact operator names split by '-'
         self.operator_list = []
         ops_in_type = [op.strip().lower() for op in self.problem_type.split("-")]
-        for op in SUBSOLVER_MAP:
-            if op.lower() in ops_in_type:
-                self.operator_list.append(op)
-        logger.debug(f"Using operators: {self.operator_list}")
+
+        for op in ops_in_type:
+            # This implicitly validates standard operator strings (raises ValueError if invalid)
+            operator_type = OperatorType(op)
+            self.operator_list.append(operator_type)
+
+        logger.debug(f"Using operators: {[op.value for op in self.operator_list]}")
         self.n_os = len(self.operator_list)
 
         if self.n_os == 0:
@@ -191,9 +209,9 @@ class Solver:
 
         for i, op in enumerate(self.operator_list):
 
-            solver_class = SUBSOLVER_MAP[op]
+            solver_class = op.solver_class
             t_grid_refined = refined_t_grids[op]
-            op_params = self.operator_params.get(op, {})
+            op_params = self.operator_params.get(op.value, {})
 
             self.operator_subsolvers.append(
                 solver_class(
@@ -204,7 +222,7 @@ class Solver:
                 )
             )
 
-            logger.debug(f"Initialized '{op}' solver with params: {op_params}")
+            logger.debug(f"Initialized '{op.value}' solver with params: {op_params}")
 
     def _advance(self, n_steps):
         """Advance the solution by n_steps using operator splitting."""
