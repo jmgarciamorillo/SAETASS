@@ -11,18 +11,40 @@ logger = logging.getLogger(__name__)
 
 class LossSolver(HyperbolicSolver):
     """
-    FV solver for momentum losses using the generalized hyperbolic solver framework.
+    Finite volume solver for energy losses in momentum space, inheriting from :py:class:`~saetass.solvers.hyperbolic_solver.HyperbolicSolver`.
 
-    This solver handles the equation:
-    ∂f/∂t + ∂(P_dot * f)/∂p = 0
+    Solves the momentum-loss equation in conservative form,
 
-    Where P_dot is the momentum loss rate (dp/dt < 0 for losses).
+    .. math::
 
-    Key features:
-    - Handles momentum space as the main axis
-    - Converts user-provided P_dot to generalized velocity
-    - Works with both 1D (momentum-only) and 2D (spatial × momentum) grids
-    - Supports boundary conditions appropriate for momentum space
+        \\frac{\\partial f}{\\partial t} + \\frac{\\partial}{\\partial p}\\bigl(\\dot{p}(t,p)\\,f\\bigr) = 0,
+
+    where :math:`\\dot{p} = dp/dt \\leq 0` is the (signed) momentum loss rate. The solver uses the conservative variable :math:`U = p f` and, also, :math:`V(t,y) = \\frac{\\dot{p}}{p\\ln(10)}` and :math:`y = \\log_{10}(p)`.
+    The finite volume update is delegated to the base class across the momentum (p) axis.
+
+    Parameters
+    ----------
+    grid : :py:class:`~saetass.grid.Grid`
+        :py:class:`~saetass.grid.Grid` containing at least ``p_centers`` and ``p_faces``; optionally ``r_centers`` and ``r_faces`` for 2D problems.
+    t_grid : ndarray
+        Subproblem time grid. In the standard SAETASS workflow this is already subrefined during :py:class:`~saetass.solver.Solver` initialization.
+    params : dict
+        Solver configuration.  Accepted keys are:
+
+        P_dot : ndarray or callable
+            Momentum loss rate, :math:`\\dot{p}`, at cell centers. A callable must have signature ``P_dot(t) -> ndarray``.
+        limiter : ``{'minmod', 'vanleer', 'mc'}``
+            Slope limiter used for second-order schemes.
+        cfl : float
+            CFL number for the adaptive sub-step calculation.
+        inflow_value_f : float
+            Value of the primitive distribution function at the high-momentum boundary, used as an inflow condition when :math:`\\dot{p} > 0` (i.e. momentum gain).
+        order : ``{1, 2}``
+            Order of the numerical scheme.
+        adiabatic_losses : bool
+            If ``True``, include adiabatic losses. The key ``v_centers_physical`` must also be supplied.
+        v_centers_physical : ndarray, optional
+            Physical advection velocity at cell centres; required when ``adiabatic_losses`` is ``True``.
     """
 
     def __init__(
@@ -32,23 +54,7 @@ class LossSolver(HyperbolicSolver):
         params: Dict[str, Any],
         **kwargs,
     ) -> None:
-        """
-        Initialize the momentum loss solver.
-
-        Parameters:
-        -----------
-        grid : Grid
-            Grid object containing p_centers, p_faces, and optionally r_centers, r_faces
-        t_grid : np.ndarray
-            Time grid for integration
-        params : dict
-            Dictionary containing solver parameters:
-            - P_dot: Momentum loss rate at cell centers (dp/dt) (array or callable P_dot(t) -> array)
-            - limiter: Slope limiter ('minmod', 'vanleer', or 'mc')
-            - cfl: CFL number for timestep calculation
-            - inflow_value_f: Value of f at high-momentum boundary for inflow
-            - order: Order of the scheme (1 or 2)
-        """
+        """Initialize the loss solver."""
         # Convert momentum loss parameters to general hyperbolic solver format
         loss_params = params.copy()
 
@@ -89,44 +95,14 @@ class LossSolver(HyperbolicSolver):
 
     def _generalized_variable(self, f: np.ndarray, grid: Grid) -> np.ndarray:
         """
-        Convert primitive variable f to generalized variable for logarithmic momentum space.
-
-        In momentum our setup, the generalized variable is defined as: U = p * f
-
-        Parameters:
-        -----------
-        f : np.ndarray
-            Primitive variable values (distribution function)
-        grid : Grid
-            Grid object containing p_centers
-
-        Returns:
-        --------
-        np.ndarray
-            Conservative variable
+        Map the primitive distribution function to the conservative variable.
         """
         p_centers = grid._p_centers_phys
         return p_centers * f
 
     def _inverse_generalized_variable(self, U: np.ndarray, grid: Grid) -> np.ndarray:
         """
-        Convert conservative variable U back to primitive variable f = U / p,
-        handling both 1D and 2D cases where p corresponds to the momentum coordinate.
-
-        Parameters
-        ----------
-        U : np.ndarray
-            Conservative variable array.
-            - 1D case: shape (N,) or (N,1) or (1,N)
-            - 2D case: shape (Np, Nx), where Np is number of momentum points,
-            and Nx number of spatial points.
-        p : np.ndarray
-            1D array of momentum values of length Np.
-
-        Returns
-        -------
-        f : np.ndarray
-            Primitive variable array with same shape as U.
+        Map the conservative variable back to the primitive distribution function.
         """
         p = np.asarray(grid._p_centers_phys).flatten()
 
@@ -168,19 +144,7 @@ class LossSolver(HyperbolicSolver):
 
     def _generalized_velocity(self, P_dot: np.ndarray, grid: Grid) -> np.ndarray:
         """
-        Convert momentum loss rate P_dot to generalized velocity for the solver.
-
-        Parameters:
-        -----------
-        P_dot : np.ndarray
-            Momentum loss rate at cell centers (dp/dt)
-        grid : Grid
-            Grid object containing p_centers
-
-        Returns:
-        --------
-        np.ndarray
-            Generalized velocity for the hyperbolic solver
+        Convert the physical momentum loss rate to the generalized velocity used by the base-class finite-volume update.
         """
         p_centers = grid._p_centers_phys
         ln10 = np.log(10)
@@ -202,6 +166,17 @@ class LossSolver(HyperbolicSolver):
     def _adiabatic_losses(
         self, grid: Grid, v_centers_physical: np.ndarray
     ) -> np.ndarray:
+        """
+        Compute the adiabatic momentum loss rate due to spherical expansion.
+
+        The adiabatic loss term arises from the divergence of the advection velocity field and is given by
+
+        .. math::
+
+            \\dot{p}_{\\text{ad}} = -\\frac{p}{3}\\,\\nabla \\cdot \\mathbf{v},
+
+        evaluated cell-by-cell on the spatial grid via a finite-difference approximation of the radial flux divergence.
+        """
 
         r_faces = grid.r_faces
         A_face = 4.0 * np.pi * r_faces
