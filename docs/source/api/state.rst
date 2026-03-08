@@ -1,4 +1,4 @@
-State Module
+State module
 ------------
 .. automodule:: saetass.state
     :members:

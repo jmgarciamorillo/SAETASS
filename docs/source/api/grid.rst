@@ -1,4 +1,4 @@
-Grid Module
+Grid module
 -----------
 .. automodule:: saetass.grid
     :members:
