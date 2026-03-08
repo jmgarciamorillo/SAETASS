@@ -193,7 +193,7 @@ class HyperbolicSolver(ABC):
         V_face = (V_left * dist_right_b + V_right * dist_left_b) / denom
         return V_face
 
-    def compute_dt(self, V_faces: np.ndarray = None) -> float:
+    def _compute_dt(self, V_faces: np.ndarray = None) -> float:
         """
         Compute a stable time step based on the CFL condition:
 
@@ -283,7 +283,7 @@ class HyperbolicSolver(ABC):
                 self.V_centers = self.V_centers_static
                 V_faces = self.V_faces_static
 
-            dt_cfl = float(self.compute_dt(V_faces=V_faces))
+            dt_cfl = float(self._compute_dt(V_faces=V_faces))
 
             dt_step = min(total_time, dt_cfl)
 
