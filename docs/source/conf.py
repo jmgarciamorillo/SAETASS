@@ -25,7 +25,11 @@ extensions = [
     "sphinx.ext.mathjax",
     "sphinx_tabs.tabs",
     "myst_parser",
+    "sphinxcontrib.bibtex",
+    "sphinx_design",
 ]
+
+bibtex_bibfiles = ["references.bib"]
 
 templates_path = ["_templates"]
 exclude_patterns = []
@@ -39,10 +43,10 @@ html_logo = "_static/saetass_logotagline_horizontal.svg"
 # html_theme = "sphinx_rtd_theme"
 html_theme = "pydata_sphinx_theme"
 html_static_path = ["_static"]
-html_theme_options = {
-    "logo_only": True,
-}
-
+html_show_sourcelink = False
+# html_theme_options = {
+#     "logo_only": True,
+# }
 autodoc_member_order = "bysource"
 autodoc_typehints = "description"
 
