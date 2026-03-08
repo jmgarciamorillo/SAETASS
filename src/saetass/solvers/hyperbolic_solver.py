@@ -1,17 +1,17 @@
 """
-The :class:`HyperbolicSolver` class implements a finite volume method for solving hyperbolic PDEs of the general form
+The :py:class:`~saetass.solvers.hyperbolic_solver.HyperbolicSolver` class implements a finite volume method for solving hyperbolic PDEs of the general form
 
 .. math::
 
-    \\frac{\\partial U}{\\partial t} + \\frac{\\partial}{\\partial y}\\big(V(y)\\, U\\big) = 0,
+    \\frac{\\partial U}{\\partial t} + \\frac{\\partial}{\\partial y}\\big(V(t,y)\\, U\\big) = 0,
 
-where :math:`V(y)` is a generalized velocity that can depend on the variable :math:`y`.
+where :math:`V(t,y)` is a generalized velocity that can depend on time and on the variable :math:`y`.
 It supports both first-order upwind and second-order MUSCL-Hancock schemes with various slope limiters (minmod, van Leer, MC) to ensure stability and non-oscillatory behavior.
 The solver can handle both 1D and 2D problems by treating the secondary axis as independent slices.
-It automatically computes stable time steps based on the CFL condition and updates the state accordingly.
+It automatically computes stable time steps based on the CFL condition and updates the associated :py:class:`~saetass.state.State` object accordingly.
 
 This class serves as a flexible base for specific hyperbolic problems, such as advection or loss terms, by defining the appropriate generalized variable transformations and velocity fields.
-Thus, :class:`AdvectionSolver` and :class:`LossSolver` inherit from this base class and implement the problem-specific logic while reusing the core finite volume update mechanism.
+Thus, :py:class:`~saetass.solvers.advection_solver.AdvectionSolver` and :py:class:`~saetass.solvers.loss_solver.LossSolver` inherit from this base class and implement the problem-specific logic while reusing the core finite volume update mechanism.
 """
 
 import numpy as np
@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 @njit(parallel=True, fastmath=True)
-def minmod_multi_arr(A, B, C):
+def _minmod_multi_arr(A, B, C):
     a = np.asarray(A)
     b = np.asarray(B)
     c = np.asarray(C)
@@ -44,7 +44,7 @@ def minmod_multi_arr(A, B, C):
     return out
 
 
-def minmod_multi(a, b, c):
+def _minmod_multi(a, b, c):
 
     if np.isscalar(a) and np.isscalar(b) and np.isscalar(c):
         if a * b > 0.0 and a * c > 0.0:
@@ -53,28 +53,44 @@ def minmod_multi(a, b, c):
         else:
             return 0.0
 
-    return minmod_multi_arr(a, b, c)
+    return _minmod_multi_arr(a, b, c)
 
 
 class HyperbolicSolver(SubSolver, ABC):
     """
-    Base class for hyperbolic PDE solvers using finite volume methods.
+    Base class for hyperbolic PDE subsolvers using finite volume methods.
+
     It exposes a public API for advancing the solution in time and relies on subclasses to define problem-specific transformations and velocity fields.
 
     Parameters
     ----------
-    grid : Grid
-        Grid object containing spatial and momentum grids.
-    t_grid : np.ndarray
-        Time grid for integration. In the normal SAETASS workflow, the time grid is already subrefined during the :class:`Solver` initialization.
+    grid : :class:`~saetass.grid.Grid`
+        A grid object containing both spatial and momentum grids.
+    t_grid : ndarray
+        Time grid for integration.
+        In the standard SAETASS workflow, this is typically subrefined during :class:`~saetass.solver.Solver` initialization.
     params : dict
-        Dictionary containing solver parameters:
-        - V_centers: Generalized velocities at cell centers (shape must match grid dimensions)
-        - limiter: Slope limiter for second-order scheme ('minmod', 'vanleer', or 'mc')
-        - cfl: CFL number for stable time step calculation
-        - inflow_value_U: Value of the conservative variable U at the outer boundary for inflow conditions
-        - order: Order of the scheme (1 for first-order upwind, 2 for second-order MUSCL-Hancock)
-        - axis: Integer (0 or 1) indicating the main axis of the problem (0 for momentum, 1 for spatial)
+        A dictionary of solver configuration parameters:
+
+        V_centers : ndarray
+            Generalized velocities at cell centers. Shape must match
+            grid dimensions.
+        limiter : ``{'minmod', 'vanleer', 'mc'}``
+            Slope limiter used for second-order schemes.
+        cfl : float
+            CFL (Courant-Friedrichs-Lewy) number for stable time
+            step calculation.
+        inflow_value_U : float
+            Value of the conservative variable $U$ at the outer boundary
+            for inflow conditions.
+        order : ``{1, 2}``
+            Order of the numerical scheme:
+            * 1: First-order upwind.
+            * 2: Second-order MUSCL-Hancock.
+        axis : ``{0, 1}``
+            Integer indicating the main axis of the problem:
+            * 0: Momentum axis.
+            * 1: Spatial axis.
     """
 
     def __init__(
@@ -145,121 +161,22 @@ class HyperbolicSolver(SubSolver, ABC):
         """Return the non-active axis index (0 or 1)."""
         return 1 - self.axis
 
-    def _slice_array(self, arr: np.ndarray, idx: int) -> np.ndarray:
-        """Return a slice of arr at fixed index along the non-active axis."""
-        arr = np.asarray(arr, dtype=float)
-        if arr.ndim == 1:
-            return arr
-
-        other = self._other_axis
-        return np.take(arr, indices=idx, axis=other)
-
-    def _face_generalized_velocity_interpolated(
-        self, V_centers: np.ndarray
-    ) -> np.ndarray:
-        """
-        Linear interpolation of generalized velocities from cell centers to internal face positions x_{i+1/2}.
-        Uses distance-weighted linear interpolation (works for non-uniform grids).
-        Returns
-        -------
-        V_face : np.ndarray
-            Interpolated generalized velocities at faces, length N-1.
-        """
-        if self.N <= 1:
-            return np.zeros(0)
-
-        V = V_centers
-
-        # Distances from face to neighboring centers
-        dist_left = self.dx_L
-        dist_right = self.dx_R
-
-        V_left = V[..., :-1]
-        V_right = V[..., 1:]
-
-        dist_left_b = (
-            np.tile(dist_left[1:], (V.shape[0], 1)) if V.ndim == 2 else dist_left[1:]
-        )
-        dist_right_b = (
-            np.tile(dist_right[:-1], (V.shape[0], 1))
-            if V.ndim == 2
-            else dist_right[:-1]
-        )
-
-        # Compute interpolation denominator safely
-        denom = dist_left_b + dist_right_b
-        denom = np.where(denom == 0.0, 1.0, denom)
-
-        # Linear interpolation: closer center gets higher weight
-        V_face = (V_left * dist_right_b + V_right * dist_left_b) / denom
-        return V_face
-
-    def _compute_dt(self, V_faces: np.ndarray = None) -> float:
-        """
-        Compute a stable time step based on the CFL condition:
-
-            dt = cfl * min(dx) / max(|V|)
-
-        Works for both 1D and 2D problems depending on `self.axis`.
-        """
-
-        # Interpolated velocities at faces along the active axis
-        if V_faces is None:
-            V_faces = self._face_generalized_velocity_interpolated()
-
-        # Take absolute max over all entries (works for scalar, 1D, or 2D)
-        if V_faces.size:
-            Vmax = float(np.max(np.abs(V_faces)))
-        else:
-            Vmax = 0.0
-
-        # Include outermost face proxy using last cell center along the active axis
-        # Take max across slices if multidimensional
-        if self.V_centers.ndim == 1:
-            last_center_vel = abs(self.V_centers[-1])
-        else:
-            # Take the last index along the active axis, all slices on the other axis
-            last_center_vel = np.max(
-                np.abs(np.take(self.V_centers, indices=-1, axis=self.axis))
-            )
-
-        Vmax = max(Vmax, float(last_center_vel))
-
-        # If velocity is zero everywhere → infinite dt
-        if Vmax <= 0.0:
-            logger.debug("Max velocity is zero, returning infinite dt_cfl")
-            return np.inf
-
-        dx_min = np.min(self.dx)
-
-        return float(self.cfl * dx_min / Vmax)
-
     def advance(self, n_steps: int, state: State) -> None:
         """
-        Advance the state by n_steps * dt.
+        Advance the :py:class:`~saetass.state.State` by ``n_steps`` in :py:attr:`~saetass.solvers.hyperbolic_solver.HyperbolicSolver.t_grid`.
 
-        Automatically adapts to whether the main grid is spatial (r) or momentum (p).
+        The inner loop may subdivide each requested step further to satisfy the CFL stability condition, so the number of actual flux evaluations can exceed ``n_steps``.
+        The total elapsed time is always exactly ``n_steps * dt``, where ``dt`` is the time step size inferred from :py:attr:`~saetass.solvers.hyperbolic_solver.HyperbolicSolver.t_grid`.
 
-        If the problem is 1D (no secondary axis), processes it directly.
-        If 2D (main × secondary), processes each slice independently along the secondary axis.
-        """
+        .. note:
+            A positivity floor :math:`U(t,y)\geq 0` is enforced after the update to suppress negatives that may arise at steep gradient fronts when using the MUSCL-Hancock scheme.
 
-        # Determine axis
-        main_axis = "r" if self.axis == 1 else "p"
-        other_axis = "p" if main_axis == "r" else "r"
-        other_centers = getattr(self, f"{other_axis}_centers", None)
-
-        # Detect 1D or 2D case
-        is_1d = other_centers is None or state.ndim == 1
-
-        self._advance_slice(n_steps, state)
-
-        return
-
-    def _advance_slice(self, n_steps: int, state: State) -> None:
-        """
-        Advance a 2D state by n_steps * dt along the main axis.
-        This method is currently not used; the main advance method handles 2D via slices.
+        Parameters
+        ----------
+        n_steps : int
+            Number of time steps to advance.
+        state : :py:class:`~saetass.state.State`
+            Current simulation state. The distribution function is updated in-place at the end of the call.
         """
         f = np.asarray(state.get_f(), dtype=float)
         if self.axis == 0:
@@ -271,29 +188,14 @@ class HyperbolicSolver(SubSolver, ABC):
 
         dt_requested = np.diff(self.t_grid)[0]
         total_time = n_steps * dt_requested
-
         t_local = state.t
 
         while total_time > 1e-40:
-
-            # Dispatch depending on static/dynamic logic
-            if self.is_V_dynamic:
-                self.V_centers = self._get_V_centers(t_local)
-                V_faces = self._face_generalized_velocity_interpolated(self.V_centers)
-            else:
-                self.V_centers = self.V_centers_static
-                V_faces = self.V_faces_static
-
-            dt_cfl = float(self._compute_dt(V_faces=V_faces))
-
-            dt_step = min(total_time, dt_cfl)
+            V_centers, V_faces = self._get_velocities(t_local)
+            dt_step = min(total_time, float(self._compute_dt(V_faces=V_faces)))
 
             if self.order == 1:
-                F = self._compute_first_order_fluxes(
-                    U,
-                    self.V_centers,
-                    V_faces,
-                )
+                F = self._compute_first_order_fluxes(U, V_centers, V_faces)
             elif self.order == 2:
                 F = self._compute_second_order_fluxes(
                     U, self.V_centers, V_faces, dt_step
@@ -315,17 +217,14 @@ class HyperbolicSolver(SubSolver, ABC):
             total_time -= dt_step
             t_local += dt_step
 
-        # The while loop has consumed all of total_time; no extra update needed.
-        U_new = U
-        f_new = self._inverse_generalized_variable(U_new, self.grid)
+        f_new = self._inverse_generalized_variable(U, self.grid)
+
         # Positivity floor: MUSCL-Hancock is TVD but not strictly positive-definite;
         # clip machine-precision negatives that arise at steep gradient fronts.
         f_new = np.maximum(f_new, 0.0)
-        f_new = f_new.T if self.axis == 0 else f_new
-        state.update_f(f_new)
+        state.update_f(f_new.T if self.axis == 0 else f_new)
 
         logger.debug(f"max(|f|) after step: {np.max(np.abs(f_new)):.4g}")
-        return
 
     # ---------------- internal helpers ----------------
     def _unpack_params(self, params: dict = None) -> None:
@@ -441,6 +340,95 @@ class HyperbolicSolver(SubSolver, ABC):
             logger.info(f"No {other_axis}-grid found, operating in 1D mode")
             self.M = None
 
+    def _face_generalized_velocity_interpolated(
+        self, V_centers: np.ndarray
+    ) -> np.ndarray:
+        """
+        Linear interpolation of generalized velocities from cell centers to internal face positions x_{i+1/2}.
+        Uses distance-weighted linear interpolation (works for non-uniform grids).
+
+        Returns
+        -------
+        V_face : np.ndarray
+            Interpolated generalized velocities at faces, length N-1.
+        """
+        if self.N <= 1:
+            return np.zeros(0)
+
+        V = V_centers
+
+        # Distances from face to neighboring centers
+        dist_left = self.dx_L
+        dist_right = self.dx_R
+
+        V_left = V[..., :-1]
+        V_right = V[..., 1:]
+
+        dist_left_b = (
+            np.tile(dist_left[1:], (V.shape[0], 1)) if V.ndim == 2 else dist_left[1:]
+        )
+        dist_right_b = (
+            np.tile(dist_right[:-1], (V.shape[0], 1))
+            if V.ndim == 2
+            else dist_right[:-1]
+        )
+
+        # Compute interpolation denominator safely
+        denom = dist_left_b + dist_right_b
+        denom = np.where(denom == 0.0, 1.0, denom)
+
+        # Linear interpolation: closer center gets higher weight
+        V_face = (V_left * dist_right_b + V_right * dist_left_b) / denom
+        return V_face
+
+    def _compute_dt(self, V_faces: np.ndarray = None) -> float:
+        """
+        Compute a stable time step based on the CFL condition:
+
+            dt = cfl * min(dx) / max(|V|)
+
+        Works for both 1D and 2D problems depending on `self.axis`.
+        """
+
+        # Interpolated velocities at faces along the active axis
+        if V_faces is None:
+            V_faces = self._face_generalized_velocity_interpolated()
+
+        # Take absolute max over all entries (works for scalar, 1D, or 2D)
+        if V_faces.size:
+            Vmax = float(np.max(np.abs(V_faces)))
+        else:
+            Vmax = 0.0
+
+        # Include outermost face proxy using last cell center along the active axis
+        # Take max across slices if multidimensional
+        if self.V_centers.ndim == 1:
+            last_center_vel = abs(self.V_centers[-1])
+        else:
+            # Take the last index along the active axis, all slices on the other axis
+            last_center_vel = np.max(
+                np.abs(np.take(self.V_centers, indices=-1, axis=self.axis))
+            )
+
+        Vmax = max(Vmax, float(last_center_vel))
+
+        # If velocity is zero everywhere → infinite dt
+        if Vmax <= 0.0:
+            logger.debug("Max velocity is zero, returning infinite dt_cfl")
+            return np.inf
+
+        dx_min = np.min(self.dx)
+
+        return float(self.cfl * dx_min / Vmax)
+
+    def _get_velocities(self, t: float) -> tuple[np.ndarray, np.ndarray]:
+        """Return the current generalized velocities at centers and faces."""
+        if self.is_V_dynamic:
+            self.V_centers = self._get_V_centers(t)
+            V_faces = self._face_generalized_velocity_interpolated(self.V_centers)
+            return self.V_centers, V_faces
+        return self.V_centers_static, self.V_faces_static
+
     def _compute_first_order_fluxes(
         self,
         U: np.ndarray,
@@ -523,12 +511,12 @@ class HyperbolicSolver(SubSolver, ABC):
         dC = (U[..., 2:] - U[..., :-2]) / (centers[2:] - centers[:-2])  # length N-2
 
         if self.limiter == "minmod":
-            slopes_interior = minmod_multi(dL, dR, dC)
+            slopes_interior = _minmod_multi(dL, dR, dC)
         elif self.limiter == "vanleer":  # generalized
             prod = dL * dR
             slopes_interior = np.where(prod > 0.0, (2.0 * prod) / (dL + dR), 0.0)
         elif self.limiter == "mc":
-            slopes_interior = minmod_multi(2.0 * dL, 2.0 * dR, 0.5 * dC)
+            slopes_interior = _minmod_multi(2.0 * dL, 2.0 * dR, 0.5 * dC)
         else:  # should not happen due to earlier check, but just in case
             raise NotImplementedError("limiter must be 'minmod', 'vanleer' or 'mc'")
         # Assign slopes to correct slices
@@ -542,12 +530,12 @@ class HyperbolicSolver(SubSolver, ABC):
         )  # two-cell centred forward
 
         if self.limiter == "minmod":
-            slopes[..., 0] = minmod_multi(d_fwd, d_fwd2, d_fwd)
+            slopes[..., 0] = _minmod_multi(d_fwd, d_fwd2, d_fwd)
         elif self.limiter == "vanleer":
             prod = d_fwd * d_fwd2
             slopes[..., 0] = np.where(prod > 0.0, (2.0 * prod) / (d_fwd + d_fwd2), 0.0)
         elif self.limiter == "mc":
-            slopes[..., 0] = minmod_multi(2.0 * d_fwd, 2.0 * d_fwd2, 0.5 * d_fwd2)
+            slopes[..., 0] = _minmod_multi(2.0 * d_fwd, 2.0 * d_fwd2, 0.5 * d_fwd2)
         else:
             slopes[..., 0] = d_fwd  # fallback (shouldn't happen)
 
@@ -560,12 +548,12 @@ class HyperbolicSolver(SubSolver, ABC):
         )  # two-cell centred backward
 
         if self.limiter == "minmod":
-            slopes[..., -1] = minmod_multi(d_bwd, d_bwd2, d_bwd)
+            slopes[..., -1] = _minmod_multi(d_bwd, d_bwd2, d_bwd)
         elif self.limiter == "vanleer":
             prod = d_bwd * d_bwd2
             slopes[..., -1] = np.where(prod > 0.0, (2.0 * prod) / (d_bwd + d_bwd2), 0.0)
         elif self.limiter == "mc":
-            slopes[..., -1] = minmod_multi(2.0 * d_bwd, 2.0 * d_bwd2, 0.5 * d_bwd2)
+            slopes[..., -1] = _minmod_multi(2.0 * d_bwd, 2.0 * d_bwd2, 0.5 * d_bwd2)
         else:
             slopes[..., -1] = d_bwd  # fallback
 
