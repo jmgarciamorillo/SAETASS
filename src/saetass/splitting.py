@@ -181,6 +181,9 @@ class LieSplitting(SplittingScheme):
 class SplittingSchemeType(StrEnum):
     """Auxiliary class for correct splitting scheme handling.
 
+    .. note::
+        Currently, the supported particle types are: "strand" and "lie".
+
     Parameters
     ----------
     scheme_type : str
