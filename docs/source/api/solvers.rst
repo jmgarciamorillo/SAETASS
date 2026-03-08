@@ -10,6 +10,8 @@ for source terms.
 
 Users can also create custom operators by providing their own implementations inheriting from :py:class:`~saetass.solver.SubSolver`.
 
+------------------
+
 The solver module
 ------------------
 
@@ -24,6 +26,7 @@ Hyperbolic solver
 
 .. automodule:: saetass.solvers.hyperbolic_solver
     :members:
+    :show-inheritance:
 
 Advection Solver
 ^^^^^^^^^^^^^^^^
@@ -45,6 +48,7 @@ Diffusion solver
 .. automodule:: saetass.solvers.diffusion_solver
     :members:
     :undoc-members:
+    :show-inheritance:
 
 Source solver
 ~~~~~~~~~~~~~
@@ -52,3 +56,4 @@ Source solver
 .. automodule:: saetass.solvers.source_solver
     :members:
     :undoc-members:
+    :show-inheritance:
