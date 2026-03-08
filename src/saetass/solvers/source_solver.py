@@ -11,19 +11,34 @@ logger = logging.getLogger(__name__)
 
 class SourceSolver(SubSolver):
     """
-    Source term operator for FVM operator splitting.
+    Explicit Euler operator for a source term, inheriting from :py:class:`~saetass.solver.SubSolver`.
 
-    This operator simply updates the conserved variable f according to:
-        df/dt = Q(r, p, t)
+    Advances the distribution function according to:
 
-    The source function Q can depend on space (r), momentum (p), and time (t),
-    and may be provided as a callable or as a fixed array matching the grid shape.
+    .. math::
 
-    Attributes:
-        x_grid: np.ndarray (spatial or momentum grid, as appropriate)
-        t_grid: np.ndarray (optional time grid)
-        state: State (the solution to update)
-        operator_params: dict (contains at least the 'source' function or array)
+        \\frac{\\partial f}{\\partial t} = Q(t, r, p),
+
+    using a single first-order explicit Euler step over the total requested
+    time ``n_steps * dt``.
+
+    Because the source operator does not involve any spatial derivatives, no CFL condition applies and the entire ``n_steps * dt`` interval is consumed in one evaluation of :math:`Q`.
+    The source function :math:`Q` may be time-dependent or a fixed array.
+
+    Parameters
+    ----------
+    grid : :py:class:`~saetass.grid.Grid`
+        :py:class:`~saetass.grid.Grid` providing ``r_centers`` and/or ``p_centers`` depending on the problem dimension.
+    t_grid : ndarray
+        Subproblem time grid.
+        In the standard SAETASS workflow this is already subrefined during :py:class:`~saetass.solver.Solver` initialization.
+    params : dict
+        Solver configuration.  Accepted keys are:
+
+        source : ndarray or callable
+            Source term, :math:`Q`.
+            If callable, the signature must be ``source(r_centers, p_centers, t) -> ndarray``, where either ``r_centers`` or ``p_centers`` may be ``None`` for 1D problems.
+            If an array, its shape must match the :py:class:`~saetass.state.State` distribution function.
     """
 
     def __init__(self, grid: Grid, t_grid: np.ndarray, params: dict, **kwargs):
@@ -63,7 +78,16 @@ class SourceSolver(SubSolver):
 
     def advance(self, n_steps: int, state: State) -> None:
         """
-        Advance the state by n_steps * dt using simple explicit Euler integration.
+        Advance the :py:class:`~saetass.state.State` by ``n_steps`` in :py:attr:`~saetass.solvers.source_solver.SourceSolver.t_grid`.
+
+        Applies a single explicit Euler step with total time ``total_dt = n_steps * dt``.
+
+        Parameters
+        ----------
+        n_steps : int
+            Number of time steps to advance.
+        state : :py:class:`~saetass.state.State`
+            Current simulation state. The distribution function is updated in-place at the end of the call.
         """
         total_dt = float(n_steps) * np.diff(self.t_grid)[0]
 
