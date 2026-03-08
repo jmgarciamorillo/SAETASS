@@ -3,12 +3,13 @@ import logging
 from ..state import State
 from ..grid import Grid
 from ..state import State
+from ..solver import SubSolver
 from typing import Callable, Optional
 
 logger = logging.getLogger(__name__)
 
 
-class SourceSolver:
+class SourceSolver(SubSolver):
     """
     Source term operator for FVM operator splitting.
 
@@ -60,7 +61,7 @@ class SourceSolver:
             self.source_static = np.asarray(source_input, dtype=float)
             self._get_source = lambda t: self.source_static
 
-    def advance(self, n_steps: int, state: State) -> np.ndarray:
+    def advance(self, n_steps: int, state: State) -> None:
         """
         Advance the state by n_steps * dt using simple explicit Euler integration.
         """
@@ -83,5 +84,3 @@ class SourceSolver:
         state.update_f(f_new)
 
         logger.debug(f"Advanced source operator by {n_steps} steps (dt={total_dt})")
-
-        return state.f
