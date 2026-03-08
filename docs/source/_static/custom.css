@@ -18,6 +18,11 @@
     background: transparent;
 } */
 
+/* Custom CSS for SAETASS */
+
+.bd-docs-nav:has(.bd-toc-item:empty) {
+    display: none;
+}
 /* Barra superior */
 /* .wy-nav-top {
     background-color: #f7f7f7;
