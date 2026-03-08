@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from enum import StrEnum
 from .state import State
 import logging
 import numpy as np
@@ -177,15 +178,40 @@ class LieSplitting(SplittingScheme):
         self._advance_global_time(state)
 
 
-def create_splitting_scheme(scheme_name: str) -> SplittingScheme:
-    """Factory function to create a SplittingScheme instance based on the scheme name."""
-    scheme_name = scheme_name.lower()
-    if scheme_name == "strang":
-        return StrangSplitting()
-    elif scheme_name == "lie":
-        return LieSplitting()
-    else:
-        raise ValueError(f"Unknown splitting scheme: {scheme_name}")
+class SplittingSchemeType(StrEnum):
+    """Auxiliary class for correct splitting scheme handling.
+
+    Parameters
+    ----------
+    scheme_type : str
+        String identifier for the splitting scheme (e.g., "strang", "lie"). This
+        will raise a ``ValueError`` if an unsupported splitting scheme is provided.
+    """
+
+    STRANG = ("strang", StrangSplitting)
+    LIE = ("lie", LieSplitting)
+
+    def __new__(cls, scheme_type: str, scheme_class: type):
+        obj = str.__new__(cls, scheme_type)
+        obj._value_ = scheme_type
+        obj.scheme_class = scheme_class
+        return obj
+
+
+def create_splitting_scheme(scheme_name: str | SplittingSchemeType) -> SplittingScheme:
+    """Factory function to create a :py:class:`~saetass.splitting.SplittingScheme` instance based on the scheme name.
+
+    Parameters
+    ----------
+    scheme_name : str | SplittingSchemeType
+        Name of the scheme or a :py:class:`~saetass.splitting.SplittingSchemeType` enum instance.
+        Valid string names are mapped by the enum (e.g., "strang", "lie").
+    """
+    if isinstance(scheme_name, str):
+        scheme_name = scheme_name.lower().strip()
+
+    scheme_type = SplittingSchemeType(scheme_name)
+    return scheme_type.scheme_class()
 
 
 def _refine_t_grid(t_grid: np.ndarray, n_sub: int) -> np.ndarray:

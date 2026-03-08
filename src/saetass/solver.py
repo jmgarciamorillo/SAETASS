@@ -65,12 +65,9 @@ from .solvers.diffusion_solver import DiffusionSolver
 from .solvers.advection_solver import AdvectionSolver
 from .solvers.loss_solver import LossSolver
 from .solvers.source_solver import SourceSolver
-from .state import State
-from .grid import Grid
-from .splitting import StrangSplitting, LieSplitting, create_splitting_scheme
+from .splitting import create_splitting_scheme
 from .cli.progress import create_progress_bar
 from .cli.banner import print_banner
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -109,8 +106,9 @@ class Solver:
     substeps : dict, optional
         Dictionary specifying the number of substeps for each operator (e.g., {"advection": 2, "diffusion": 1}).
         Default is no subrefinement, this is, 1 substep per operator.
-    splitting_scheme : str, optional
-        String specifying the operator splitting scheme to use (e.g., "strang", "lie"). Default is "strang".
+    splitting_scheme : str | SplittingSchemeType, optional
+        String or :py:class:`~saetass.splitting.SplittingSchemeType` specifying the operator :py:class:`~saetass.splitting.SplittingScheme` to use. Valid schemes are defined in
+        :py:class:`~saetass.splitting.SplittingSchemeType` (e.g., "strang", "lie"). Default is "strang".
     """
 
     def __init__(
