@@ -12,6 +12,46 @@ logger = logging.getLogger(__name__)
 
 
 class DiffusionSolver(SubSolver):
+    """
+    Finite volume solver for spatial diffusion, inheriting from :py:class:`~saetass.solver.SubSolver`.
+
+    Solves the spherical diffusion equation in conservative form,
+
+    .. math::
+
+        \\frac{\\partial f}{\\partial t} = \\frac{1}{r^2}\\frac{\\partial}{\\partial r}\\!\\left(D(t,r,p)\\,r^2\\frac{\\partial f}{\\partial r}\\right),
+
+    using a fully implicit Crank-Nicolson scheme with a batched tridiagonal Thomas solver, so that all momentum slices are advanced simultaneously without any loop over :math:`p`.
+
+    The scheme is cell-centred finite volume on a non-uniform radial grid. The flux at each internal face is computed via a harmonic-mean diffusion coefficient, ensuring continuity of the flux even for discontinuous :math:`D`,
+
+    .. math::
+
+        D_{i+1/2} = \\frac{h_L + h_R}{h_L / D_i + h_R / D_{i+1}},
+
+    where :math:`h_L` and :math:`h_R` are the distances from the face to the
+    left and right cell centres respectively. At :math:`r = 0` a symmetry (zero-flux) condition is always enforced.
+
+    Parameters
+    ----------
+    grid : :py:class:`~saetass.grid.Grid`
+        :py:class:`~saetass.grid.Grid` containing at least ``r_centers`` and ``r_faces``.  The first centre must be at :math:`r = 0`.
+        Optionally includes ``p_centers`` and ``p_faces`` for 2D problems.
+    t_grid : ndarray
+        Subproblem time grid.
+        In the standard SAETASS workflow this is already subrefined during :py:class:`~saetass.solver.Solver` initialization.
+    params : dict
+        Solver configuration.  Accepted keys are:
+
+        D_values : ndarray or callable
+            Diffusion coefficient at cell centres.  Shape must match the grid (``(nr,)`` for 1D or ``(np, nr)`` for 2D).  A callable must have signature ``D_values(t) -> ndarray``.
+        boundary_condition : ``{'dirichlet', 'neumann', 'outflow'}``, optional
+            Outer boundary condition (default: ``'dirichlet'``).
+        f_end : float or callable, optional
+            Value of :math:`f` at the outer boundary for the Dirichlet condition (default: 0).
+            A callable must have signature ``f_end(t) -> float``.
+    """
+
     def __init__(self, grid: Grid, t_grid: np.ndarray, params: dict, **kwargs) -> None:
         self._unpack_grid(grid)
         self.t_grid = np.asarray(t_grid, dtype=float)
@@ -134,6 +174,18 @@ class DiffusionSolver(SubSolver):
 
     # ------------------- Public advance -------------------
     def advance(self, n_steps: int, state: State) -> None:
+        """
+        Advance the :py:class:`~saetass.state.State` by ``n_steps`` in :py:attr:`~saetass.solvers.diffusion_solver.DiffusionSolver.t_grid`.
+
+        Uses a Crank-Nicolson scheme solved simultaneously via a batched Thomas (tridiagonal) solver.
+
+        Parameters
+        ----------
+        n_steps : int
+            Number of time steps to advance.
+        state : :py:class:`~saetass.state.State`
+            Current simulation state. The distribution function is update in-place at the end of the call.
+        """
         dt = float(np.diff(self.t_grid)[0]) * n_steps
 
         f_all = state.get_f()
