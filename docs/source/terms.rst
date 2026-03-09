@@ -8,7 +8,7 @@ SAETASS is provided as an open-source tool for the astroparticle physics communi
 License Summary
 ---------------
 
-SAETASS is licensed under the **MIT License**. This allows for broad freedom in usage, provided that the original copyright notice and permission notice are included in all copies or substantial portions of the software.
+SAETASS is licensed under the **BSD 3-Clause License**. This allows for broad freedom in usage and redistribution, provided that the original copyright notice, list of conditions and disclaimer are retained in all copies or substantial portions of the software; and that the name of the copyright holder is not used to endorse derived products without permission.
 
 Citation Policy
 ---------------
