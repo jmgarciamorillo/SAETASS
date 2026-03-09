@@ -13,10 +13,9 @@
 
    introduction
    installation
-   foundations
+   api/index
    tutorials/index
    examples/index
-   api/index
    terms
    references
 
@@ -26,30 +25,30 @@
         :link: introduction
         :link-type: doc
 
-        🚀 Getting Started
-        ^^^^^^^^^^^^^^^^^^
-        New to SAETASS? Learn about its core features, installation process, and general architecture.
+        Getting Started
+        ^^^^^^^^^^^^^^^^
+        New to SAETASS? Learn about its core features, installation process and general architecture.
 
     .. grid-item-card::
         :link: tutorials/index
         :link-type: doc
 
-        📚 Tutorials & Examples
-        ^^^^^^^^^^^^^^^^^^^^^^^
-        Step-by-step guides and reproducible scripts demonstrating real physics scenarios.
+        Tutorials
+        ^^^^^^^^^^^^^^^^^^^^^
+        Start learning SAETASS with these easy-to-follow, step-by-step guides covering fundamental concepts.
 
     .. grid-item-card::
-        :link: foundations
+        :link: examples/index
         :link-type: doc
 
-        🔢 Mathematical Foundations
-        ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-        Dive into the underlying transport equations, advection-diffusion solvers, and numerical operator splitting schemes.
+        Examples
+        ^^^^^^^^^^^^^^^^^^^^^^^
+        Have a look to a collection of standalone, reproducible scripts demonstrating specific physical setups and complete analysis. 
 
     .. grid-item-card::
         :link: api/index
         :link-type: doc
 
-        ⚙️ API Reference
+        API Reference
         ^^^^^^^^^^^^^^^^
-        Detailed, automatically generated descriptions of classes, functions, and internal modules.
+        Read the detailed, automatically generated descriptions of classes, functions and internal modules.
