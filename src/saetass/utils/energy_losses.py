@@ -1,18 +1,15 @@
 """
-This module provides functions to compute energy losses rates and timescales
-avaliable to be used in cosmic ray transport simulations. The current version
-of this module focuses on the most relevant processes for protons and electrons,
-both in neutral and ionised gas, and includes the following mechanisms:
+This module provides functions to compute energy losses rates and timescales avaliable to be used in cosmic ray transport simulations.
+The current version of this module focuses on the most relevant processes for protons and electrons, both in neutral and ionised gas, and includes the following mechanisms:
 
 - Ionization losses
 - Coulomb scattering losses
 - Pion production losses
 - Synchrotron losses
 - Bremsstrahlung losses
-- Inverse Compton losses (work in progress)
+- Inverse Compton losses
 
-Moreover, the module is designed to be extensible, allowing for future additions
-or user-defined loss processes. Other features included are:
+Moreover, the module is designed to be extensible, allowing for future additions or user-defined loss processes. Other features included are:
 
 - Storage of individual loss components for detailed analysis and debugging.
 - Support for both energy-space (dE/dt) and momentum-space (dP/dt) loss rates, with consistent conversion between them.
