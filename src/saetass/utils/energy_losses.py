@@ -236,7 +236,7 @@ class EnergyLossCalculator:
     ) -> u.Quantity:
         """
         Compute synchrotron energy loss rate using standard expressions
-        (Evoli et al., 2017).
+        (:cite:ct:`Ginzburg1979`).
 
         Parameters
         ----------
