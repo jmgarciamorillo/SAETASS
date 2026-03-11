@@ -1,6 +1,6 @@
 import os, sys
 
-sys.path.insert(0, os.path.abspath("../../src"))
+sys.path.insert(0, os.path.abspath(r"../../src"))
 
 # Configuration file for the Sphinx documentation builder.
 #
@@ -27,15 +27,18 @@ extensions = [
     "myst_parser",
     "sphinxcontrib.bibtex",
     "sphinx_design",
+    "nbsphinx",
 ]
+
+nbsphinx_allow_errors = True
 
 bibtex_bibfiles = ["references.bib"]
 
 templates_path = ["_templates"]
 exclude_patterns = []
 
-html_favicon = "_static/saetass_favicon.ico"
-html_logo = "_static/saetass_logotagline_horizontal.svg"
+html_favicon = r"_static/saetass_favicon.ico"
+html_logo = r"_static/saetass_logotagline_horizontal.svg"
 
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output

@@ -502,14 +502,17 @@ code.literal {
     font-size: var(--saetass-font-size-sm);
 }
 
-.highlight,
-div[class*="highlight-"] {
+/* Target only highlights that ARE NOT inside a prompt */
+:not(.prompt)>.highlight,
+:not(.prompt)>div[class*="highlight-"] {
     border-radius: var(--saetass-radius-md);
     border: 1px solid var(--pst-color-border-muted);
     overflow: hidden;
+    margin-bottom: var(--saetass-spacing-md);
 }
 
-.highlight pre {
+/* Ensure the pre inside a prompt doesn't get the global padding/background */
+:not(.prompt)>.highlight pre {
     font-size: var(--saetass-font-size-sm);
     line-height: 1.55;
     padding: var(--saetass-spacing-md);
@@ -532,6 +535,27 @@ div[class*="highlight-"] {
     border-right: 1px solid var(--pst-color-border);
     padding-right: var(--saetass-spacing-sm);
     margin-right: var(--saetass-spacing-sm);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   §10b  NOTEBOOK PROMPT RESET (Prevents prompt labels from looking like code)
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.prompt.highlight-none.notranslate,
+.prompt .highlight,
+.prompt pre {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: auto !important;
+}
+
+.prompt pre {
+    /* Aligns the [1]: text properly */
+    padding-top: 0.8rem !important;
+    color: var(--pst-color-text-muted);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -1330,4 +1354,131 @@ dl.attribute dt {
     padding: var(--saetass-spacing-xs) var(--saetass-spacing-sm);
     border-radius: 0 var(--saetass-radius-sm) var(--saetass-radius-sm) 0;
     margin-bottom: var(--saetass-spacing-xs);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   §26  DARK TERMINAL OUTPUT (Force dark background for console outputs)
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* Target the output container and its preformatted text */
+.nboutput.container .output_area pre,
+.nboutput.container .output_area .highlight pre {
+    background-color: #1b1d24 !important;
+    /* SAETASS Neutral 900 (Very Dark) */
+    color: #eeeeee !important;
+    /* Off-white text */
+    padding: var(--saetass-spacing-md) !important;
+    border-radius: var(--saetass-radius-md) !important;
+    border: 1px solid var(--saetass-neutral-800) !important;
+
+    /* Terminal styling */
+    box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.5) !important;
+    font-family: var(--saetass-font-family-mono) !important;
+    line-height: 1.4 !important;
+
+    /* Ensure colors from 'rich' or ANSI are readable */
+    text-shadow: none !important;
+}
+
+/* Force specific colors in the banner to pop against the dark background */
+.nboutput.container .output_area span {
+    /* If the inline styles are too dark, this ensures they are visible, 
+       but usually ANSI colors look perfect on Neutral 900 */
+    opacity: 1 !important;
+}
+
+/* Optional: Make the scrollbar for these terminal boxes more subtle */
+.nboutput.container .output_area pre::-webkit-scrollbar-thumb {
+    background-color: var(--saetass-neutral-600) !important;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   §27  DEACTIVATE DEFAULT NBOUTPUT BOXES
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* Target the exact selector you found to override its defaults */
+html[data-theme=dark] .bd-content .nboutput .output_area .widget-subarea,
+html[data-theme=dark] .bd-content .nboutput .output_area.rendered_html:not(:has(table.dataframe)) {
+    background-color: transparent !important;
+    /* Remove that forced background */
+    border: none !important;
+    /* Kill the border */
+    padding: 0 !important;
+    /* Remove the forced padding */
+    color: inherit !important;
+    /* Let it use the page/terminal color */
+    box-shadow: none !important;
+    /* Just in case there's a shadow hidden there */
+}
+
+/* Also apply to light mode just in case it appears there too */
+.bd-content .nboutput .output_area .widget-subarea,
+.bd-content .nboutput .output_area.rendered_html:not(:has(table.dataframe)) {
+    background-color: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   §28  NBSPHINX RESET (Neutralizing Default Styles)
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* 1. Fix the Input Area (The Code Box) */
+div.nbinput.container div.input_area {
+    border: 1px solid var(--pst-color-border-muted) !important;
+    border-radius: var(--saetass-radius-md) !important;
+    background: var(--pst-color-surface) !important;
+    padding: 0 !important;
+    /* Let the internal highlight handle padding */
+}
+
+/* 2. Fix the Prompt Area ([1]:) */
+div.nbinput.container div.prompt,
+div.nboutput.container div.prompt {
+    /* Resetting the default nbsphinx width/padding */
+    width: 65px !important;
+    min-width: 65px !important;
+    padding-top: 0.8rem !important;
+
+    /* Re-enabling selection if you want to be able to copy the [1] */
+    user-select: auto !important;
+
+    /* Aesthetics */
+    font-size: var(--saetass-font-size-xs) !important;
+    border: none !important;
+    background: transparent !important;
+}
+
+/* 3. Dark Mode Specificity Fix */
+/* This prevents the theme from forcing a white background in dark mode */
+html[data-theme="dark"] div.nbinput.container div.input_area {
+    background: var(--saetass-neutral-900) !important;
+    border-color: var(--saetass-neutral-700) !important;
+}
+
+/* 4. Remove the default nbsphinx shadow/border on output images/widgets */
+.nboutput.container .output_area.rendered_html,
+.nboutput.container .output_area img {
+    border: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+/* Completely hide the prompt div */
+.nbinput.container div.prompt,
+.nboutput.container div.prompt {
+    display: none !important;
+}
+
+/* Re-align the code area to use the full width now that the prompt is gone */
+.nbinput.container div.input_area,
+.nboutput.container div.output_area {
+    width: 100% !important;
+    margin-left: 0 !important;
+}
+
+/* Optional: Add a tiny bit of left padding to the code so it's not 
+   glued to the very edge of the container */
+.nbinput.container div.input_area pre {
+    padding-left: var(--saetass-spacing-md) !important;
 }
