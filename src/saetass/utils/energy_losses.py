@@ -148,7 +148,7 @@ class EnergyLossCalculator:
     ) -> u.Quantity:
         """
         Compute ionization energy loss rate using standard expressions for protons
-        (Mannheim & Schlickeiser, 1994) and electrons (Ginzburg, 1979).
+        (:cite:ct:`MannheimSchlickeiser1994`) and electrons (:cite:ct:`Ginzburg1979`).
 
         Returns
         -------
@@ -203,7 +203,7 @@ class EnergyLossCalculator:
     def compute_pion_production_losses(self) -> u.Quantity:
         """
         Compute pion production energy loss rate using standard expressions for hadrons
-        (Krakau & Schlickeiser, 2015).
+        (:cite:ct:`KrakauSchlickeiser2015`).
 
         Returns
         -------
@@ -287,7 +287,7 @@ class EnergyLossCalculator:
         self, ionised_mask: npt.NDArray[np.bool_]
     ) -> u.Quantity:
         """
-        Compute bremsstrahlung energy loss rate using standard expressions (Ginzburg, 1979).
+        Compute bremsstrahlung energy loss rate using standard expressions (:cite:ct:`Ginzburg1979`).
 
         Parameters
         ----------
@@ -295,9 +295,9 @@ class EnergyLossCalculator:
             Boolean array with shape (num_r,) indicating which radial points correspond
             to ionised gas.
 
-             - For ionised gas, ``True``, the loss rate is computed using the weak-shielded formula (Ginzburg, 1979).
+             - For ionised gas, ``True``, the loss rate is computed using the weak-shielded formula (:cite:ct:`Ginzburg1979`).
 
-             - For neutral gas, ``False``, the loss rate is computed using a interpolation between strong-shielded and weak-shielded formula (Ginzburg, 1979), depending on the particle energy.
+             - For neutral gas, ``False``, the loss rate is computed using a interpolation between strong-shielded and weak-shielded formula (:cite:ct:`Ginzburg1979`), depending on the particle energy.
 
         Returns
         -------
@@ -361,7 +361,7 @@ class EnergyLossCalculator:
     ) -> u.Quantity:
         """
         Compute Coulomb scattering energy loss rate using standard expressions for protons
-        (Mannheim & Schlickeiser, 1994) and electrons (Ginzburg, 1979).
+        (:cite:ct:`MannheimSchlickeiser1994`) and electrons (:cite:ct:`Ginzburg1979`).
 
         Returns
         -------
@@ -446,7 +446,7 @@ class EnergyLossCalculator:
         num_q: int = 120,
     ) -> u.Quantity:
         """
-        Compute inverse Compton energy loss rate using the full Klein-Nishina cross section (Blumenthal & Gould, 1970).
+        Compute inverse Compton energy loss rate using the full Klein-Nishina cross section (:cite:ct:`BlumenthalGould1970`).
 
         .. note::
             The correct physical input is the photon number density spectrum :math:`\\frac{dn}{d\\epsilon}` (number of photons per unit volume per unit energy) rather than the energy density.
