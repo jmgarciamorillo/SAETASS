@@ -441,102 +441,95 @@ class EnergyLossCalculator:
 
     def compute_inverse_compton_losses(
         self,
-        u_rad: u.Quantity,
-        eps_grid: u.Quantity | None = None,
-        *,
-        num_eps: int = 120,
+        eps_grid: u.Quantity,
+        dn_deps: u.Quantity,
         num_q: int = 120,
     ) -> u.Quantity:
         """
-        Work in progres...
+        Compute inverse Compton energy loss rate using the full Klein-Nishina cross section (Blumenthal & Gould, 1970).
+
+        .. note::
+            The correct physical input is the photon number density spectrum :math:`\\frac{dn}{d\\epsilon}` (number of photons per unit volume per unit energy) rather than the energy density.
+            The integration is performed using a vectorized algorithm over the photon energy grid and the kinematic :math:`q`-variable grid.
+
+        Parameters
+        ----------
+        eps_grid : u.Quantity
+            Photon energy grid with energy units, shape (n_eps).
+            Should be positive and log-spaced for accuracy, covering the expected photon fields (e.g., CMB, infrared, optical, UV).
+        dn_deps : u.Quantity
+            Photon spectral number density with shape (n_eps, n_r).
+            Units must be compatible with, for example, cm^(-3) eV^(-1).
+        num_q : int, optional
+            Number of points for integration over the Klein-Nishina phase space parameter :math:`q`.
+            Default is 120.
+
+        Returns
+        -------
+        E_dot_IC : u.Quantity
+            Energy loss rate with shape (n_E, n_r) in GeV/s.
         """
-
-        num_E = len(self.E_grid)
-
-        num_r = len(self.r_grid)
-
-        # -------------------- prepare eps grid --------------------
-        if eps_grid is None:
-            # default: 1e-9 eV -> 1e3 eV (covers CMB..UV)
-            eps_min = 1e-9 * u.eV
-            eps_max = 1e3 * u.eV
-            eps_grid = (
-                np.exp(
-                    np.linspace(np.log(eps_min.value), np.log(eps_max.value), num_eps)
-                )
-                * eps_min.unit
+        # Validate shapes
+        if eps_grid.ndim != 1:
+            raise ValueError("eps_grid must be a 1D array.")
+        if dn_deps.ndim != 2:
+            raise ValueError("dn_deps must be a 2D array with shape (n_eps, n_r).")
+        if eps_grid.shape[0] != dn_deps.shape[0]:
+            raise ValueError(
+                f"eps_grid shape ({eps_grid.shape[0]}) must match first axis of dn_deps ({dn_deps.shape[0]})."
             )
-        else:
-            if not isinstance(eps_grid, u.Quantity):
-                raise TypeError(
-                    "eps_grid must be an astropy Quantity with energy units."
-                )
-            num_eps = eps_grid.size
 
-        # interpret u_rad
-        # (num_eps, num_r) : full spectral density per radius (preferred)
+        N_E = len(self.E_grid)
+        N_eps = len(eps_grid)
+        N_r = len(self.r_grid)
 
-        if u_rad.ndim == 2:
-            if u_rad.shape[1] == num_r and u_rad.shape[0] == num_eps:
-                # good: (num_eps, num_r)
-                n_photon = u_rad  # shape (num_eps, num_r)
-            else:
-                raise ValueError("u_rad shape must be 2D (num_eps, num_r).")
+        # Convert to numpy arrays to avoid astropy overhead in large intermediate arrays
+        gamma_val = self.gamma.to_value(u.dimensionless_unscaled)[
+            :, np.newaxis, np.newaxis
+        ]  # (N_E, 1, 1)
+        eps_val = eps_grid.to_value(u.eV)[np.newaxis, :, np.newaxis]  # (1, N_eps, 1)
+        mec2_eV = (const.m_e * const.c**2).to_value(u.eV)
 
-        # -------------------- precompute kernel K(gamma, eps) = ∫_{q_min}^1 F(q) dq --------------------
-        # K shape: (num_E, num_eps)
-        K = np.zeros((num_E, num_eps), dtype=float)
+        # Calculate Gamma parameter
+        # Gamma = 4 * gamma * eps / (m_e c^2)
+        Gamma = 4.0 * gamma_val * eps_val / mec2_eV  # shape (N_E, N_eps, 1)
 
-        # q grid
-        q_min = 1 / (4.0 * self.gamma**2)  # shape (num_E,)
+        # Construct q grid for integration: q goes from 1 / (4 gamma^2) to 1
+        q_min = np.clip(1.0 / (4.0 * gamma_val**2), 0.0, 1.0)  # shape (N_E, 1, 1)
+        x = np.linspace(0.0, 1.0, num_q).reshape(1, 1, num_q)  # shape (1, 1, N_q)
+        q = q_min + x * (1.0 - q_min)  # shape (N_E, 1, N_q)
+        q_safe = np.clip(q, 1e-30, 1.0)  # Avoid log(0) just in case
 
-        for i_e in range(num_E):
-            gamma = self.gamma[i_e]
-            q_min_e = q_min[i_e]
-            # if q_min >= 1 no scattering allowed -> K zeros remain
-            if q_min_e >= 1.0:
-                continue
-            # define q_sub vector from max(q_min,q_floor) to 1)
-            q_sub = np.linspace(q_min_e, 1.0, num_q)
+        Gamma_q = Gamma * q_safe
 
-            # vectorize over eps
-            # For numeric efficiency, compute Gamma for all eps first:
-            Gamma_eps = (
-                4.0 * gamma * eps_grid / (const.m_e * const.c**2)
-            ).decompose()  # shape (num_eps,)
+        # Compute Klein-Nishina kernel F(q, Gamma) and prefactor
+        F = (
+            1.0
+            + 2.0 * q_safe * (np.log(q_safe) - q_safe + 0.5)
+            + ((1.0 - q_safe) * Gamma_q**2) / (2.0 * (1.0 + Gamma_q))
+        )
+        prefactor = ((4.0 * gamma_val**2 - Gamma) * q_safe - 1.0) / (1.0 + Gamma_q) ** 3
 
-            # For each eps compute integral over q
-            for i_eps in range(num_eps):
-                Gamma = Gamma_eps[i_eps]
-                q = q_sub  # shape (num_q,)
-                # compute integrand
-                integrand = (
-                    ((4 * gamma**2 * -Gamma) * q - 1)
-                    / (1 + Gamma * q) ** 3
-                    * (
-                        1
-                        + 2 * q * (np.log(q) - q + 0.5)
-                        + ((1 - q) * (Gamma * q) ** 2) / (2 * (1 + Gamma * q))
-                    )
-                )
+        integrand_q = prefactor * F  # shape (N_E, N_eps, N_q)
 
-                # integrate in q
-                Kval = np.trapezoid(integrand, q)
-                K[i_e, i_eps] = Kval
+        # Integrate over q
+        K_val = np.trapezoid(integrand_q, x=q, axis=2)  # shape (N_E, N_eps)
 
-        # -------------------- integrate over eps for each gamma and radius --------------------
-        dEdt = np.zeros((num_E, num_r), dtype=float) * u.GeV / u.s
+        # Weight the kernel by the photon spectral density and energy
+        # eps_weighted = eps * dn_deps -> shape (N_eps, N_r)
+        eps_weighted_val = (eps_grid[:, np.newaxis] * dn_deps).to_value(u.cm**-3)
 
-        for ir in range(num_r):
-            n_eps = n_photon[:, ir]  # shape (num_eps,)
-            # integrand per gamma: integrand_eps = n_eps * K[ie,:]  -> shape (num_E, num_eps)
-            integrand_eps = K * n_eps[np.newaxis, :]
-            integral_eps = np.trapezoid(
-                integrand_eps, eps_grid, axis=1
-            )  # shape (num_E,), numeric
-            dEdt[:, ir] = -3.0 * const.sigma_T * const.c * integral_eps  # numeric erg/s
+        # integrand_eps = K * eps_weighted -> shape (N_E, N_eps, N_r)
+        integrand_eps_val = K_val[:, :, np.newaxis] * eps_weighted_val[np.newaxis, :, :]
 
-        E_dot_IC = dEdt.to(u.GeV / u.s)
+        # Integrate over eps
+        integral_eps_val = np.trapezoid(
+            integrand_eps_val, x=eps_grid.to_value(u.eV), axis=1
+        )  # shape (N_E, N_r)
+        I = integral_eps_val * (u.eV / u.cm**3)
+
+        # Final physical loss rate: -dE/dt = 3 * sigma_T * c * I
+        E_dot_IC = (-3.0 * const.sigma_T * const.c * I).to(u.GeV / u.s)
 
         self._E_dot_components["inverse_compton"] = E_dot_IC
         logger.debug("Inverse Compton losses computed")
