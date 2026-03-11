@@ -262,9 +262,10 @@ class Solver:
             f"Advance finished | max(f)={np.max(self.state.f):.4g} min(f)={np.min(self.state.f):.4g}"
         )
 
-        if manage_progress and self.global_step >= self.total_steps:
-            self._progress.stop()
-            self._progress = None
+        if manage_progress or self.global_step >= self.total_steps:
+            if self._progress is not None:
+                self._progress.stop()
+                self._progress = None
 
     def run(self) -> State:
         """Advances the solution to the final time, updating and returning the final :py:class:`~saetass.state.State` object.
