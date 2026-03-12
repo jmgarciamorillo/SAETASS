@@ -252,19 +252,20 @@ class EnergyLossCalculator:
             Energy loss rate with shape (len(E_grid), len(r_grid)) in GeV/s.
         """
 
-        # Convert B_field to proper units
+        # Convert B_field to U_B if provided
         if B_field is not None:
-            prefactor = -2.53e-18
-            E_dot_synchrotron = (
-                prefactor
-                * np.outer(
-                    self.E_grid.to("GeV").value ** 2,
-                    B_field.to(u.microGauss).value ** 2,
-                )
-                * u.GeV
-                / u.s
-            )
-        elif U_B is not None:
+            B_gauss = B_field.to(u.G).value
+            # Handle both scalar and array properly depending on len(r_grid)
+            if np.isscalar(B_gauss):
+                U_B_val = (B_gauss**2 / (8 * np.pi)) * np.ones(len(self.r_grid))
+            else:
+                U_B_val = B_gauss**2 / (8 * np.pi)
+            U_B = U_B_val * u.erg / u.cm**3
+
+        if U_B is not None:
+            if U_B.size == 1 and len(self.r_grid) > 1:
+                U_B = U_B.value * np.ones(len(self.r_grid)) * U_B.unit
+
             prefactor = -4 / 3 * const.sigma_T * const.c
             E_dot_synchrotron = (
                 prefactor
