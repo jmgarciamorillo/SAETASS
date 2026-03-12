@@ -1,7 +1,7 @@
 .. _terms:
 
-Terms, Conditions, and Citation Policy
-======================================
+Terms, Conditions and Citation Policy
+=====================================
 
 SAETASS is provided as an open-source tool for the astroparticle physics community. While the software is free to use, modify and distribute under its formal license, users are expected to adhere to the academic standards of attribution and collaboration outlined below.
 
