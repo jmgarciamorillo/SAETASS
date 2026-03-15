@@ -1,3 +1,17 @@
+"""
+The splitting module defines the operator splitting schemes used by the simulation.
+
+SAETASS uses operator splitting schemes to advance the state of the system in time by
+combining different physical operators (e.g. advection, diffusion, sources, losses).
+The splitting module provides the abstract base class :py:class:`~saetass.splitting.SplittingScheme`
+and concrete implementations such as :py:class:`~saetass.splitting.StrangSplitting` and
+:py:class:`~saetass.splitting.LieSplitting`.
+
+These schemes coordinate with the main :py:class:`~saetass.solver.Solver` to refine time
+grids per operator and explicitly order the execution sequence of
+:py:class:`~saetass.solver.SubSolver` instances.
+"""
+
 from abc import ABC, abstractmethod
 from enum import StrEnum
 from .state import State
@@ -8,13 +22,20 @@ logger = logging.getLogger(__name__)
 
 
 class SplittingScheme(ABC):
-    """Base class for operator splitting schemes.
+    """
+    Abstract base class for operator splitting schemes.
 
-    Subclasses must call ``super().__init__()`` and invoke
-    ``self._store_t_grid(t_grid)`` inside their ``initialize_t_grid``
-    implementation.  At the end of every ``apply`` call they must invoke
-    ``self._advance_global_time(state)`` so that ``state.t`` always reflects
-    the canonical grid value (no floating-point accumulation drift).
+    A splitting scheme dictates how a global macro-timestep is divided
+    among the constituent physical operators (e.g., advection and diffusion) and in what
+    order those operators are applied.
+
+    Subclasses must call ``super().__init__()`` to initialize internal tracking. Furthermore,
+    they are contractually required to invoke :py:meth:`~saetass.splitting.SplittingScheme._store_t_grid`
+    inside their :py:meth:`~saetass.splitting.SplittingScheme.initialize_t_grid` implementation.
+    At the end of every :py:meth:`~saetass.splitting.SplittingScheme.apply` call, they must invoke
+    :py:meth:`~saetass.splitting.SplittingScheme._advance_global_time` so that the underlying
+    :py:attr:`saetass.state.State.t` scalar always reflects the exact canonical grid value, preventing
+    floating-point accumulation drift over millions of substeps.
     """
 
     def __init__(self):
@@ -26,21 +47,32 @@ class SplittingScheme(ABC):
     # ------------------------------------------------------------------
 
     def _store_t_grid(self, t_grid: np.ndarray) -> None:
-        """Store the global time grid and reset the internal step counter.
+        """
+        Store the global time grid and reset the internal step counter.
 
-        Must be called by every concrete ``initialize_t_grid`` implementation.
+        This method must be called by every concrete ``initialize_t_grid`` implementation
+        so the scheme tracks exactly which macro-step is currently active.
+
+        Parameters
+        ----------
+        t_grid : np.ndarray
+            1D array of canonical global simulation times.
         """
         self.t_grid = np.asarray(t_grid, dtype=float)
         self._global_step = 0
 
     def _advance_global_time(self, state: State) -> None:
-        """Increment the internal step counter and set ``state.t`` to the
-        exact canonical grid value.
+        """
+        Increment the internal step counter and snap the state's time to the grid.
 
-        This replaces any external ``state.advance_time(dt)`` call in the
-        ``Solver`` loop.  Using :meth:`State.set_time` (assignment rather than
-        accumulation) guarantees that ``state.t`` never drifts away from the
-        true grid value due to repeated floating-point additions.
+        By using :py:meth:`~saetass.state.State.set_time` via direct assignment rather than accumulating
+        `dt` repeatedly, this guarantees that ``state.t`` naturally stays perfectly aligned with the grid array
+        and immune to floating-point drift.
+
+        Parameters
+        ----------
+        state : :py:class:`~saetass.state.State`
+            The global distribution tracking state object to mutate.
         """
         self._global_step += 1
         state.set_time(self.t_grid[self._global_step])
@@ -52,11 +84,25 @@ class SplittingScheme(ABC):
     @abstractmethod
     def initialize_t_grid(
         self, operator_list: list, substeps_per_op: dict, t_grid: np.ndarray
-    ):
-        """Build per-operator refined time grids and store the global grid.
+    ) -> dict:
+        """
+        Build per-operator refined time grids based on requested sub-stepping configurations.
 
-        Implementations must call ``self._store_t_grid(t_grid)`` so that the
-        base class can track global time.
+        Implementations must call ``self._store_t_grid(t_grid)`` to track global time internally.
+
+        Parameters
+        ----------
+        operator_list : list of :py:class:`~saetass.solver.OperatorType`
+            The ordered sequence of split operators to simulate.
+        substeps_per_op : dict
+            Dictionary mapping :py:class:`~saetass.solver.OperatorType` elements to their integer sub-step multipliers.
+        t_grid : np.ndarray
+            The global canonical time grid array from the main :py:class:`~saetass.grid.Grid`.
+
+        Returns
+        -------
+        dict
+            A dictionary mapping :py:class:`~saetass.solver.OperatorType` operators to their specific refined 1D ``np.ndarray`` time grids.
         """
         pass
 
@@ -67,17 +113,37 @@ class SplittingScheme(ABC):
         operator_subsolvers: list,
         substeps_per_op: dict,
         state: State,
-    ):
-        """Apply one global time step of the splitting scheme.
+    ) -> None:
+        """
+        Apply exactly one global macro-step of the splitting scheme.
 
-        Implementations must call ``self._advance_global_time(state)`` as
-        their final action so that ``state.t`` is updated to the canonical
-        end-of-step grid value.
+        Sequentially commands the provided ``operator_subsolvers`` to integrate their independent
+        physical phenomena on the phase-space. Implementations must call ``self._advance_global_time(state)``
+        as their final action.
+
+        Parameters
+        ----------
+        operator_list : list of :py:class:`~saetass.solver.OperatorType`
+            Ordered sequence indicating which physical mechanism each subsolver targets.
+        operator_subsolvers : list of :py:class:`~saetass.solver.SubSolver`
+            Corresponding list of instantiated numerical physics operators.
+        substeps_per_op : dict
+            Dictionary mapping operators to their sub-step configuration.
+        state : :py:class:`~saetass.state.State`
+            The global distribution state object to consecutively mutate inplace.
         """
         pass
 
 
 class StrangSplitting(SplittingScheme):
+    """
+    Implements second-order Strang Operator Splitting.
+
+    For an operator sequence ``[A, B, C]``, Strang splitting evaluates the operators
+    symmetrically over a single timestep: it steps half intervals for all preceding operators,
+    a full interval for the final operator, and then half intervals back out in reversed order.
+    """
+
     def __init__(self):
         super().__init__()
 
@@ -86,11 +152,27 @@ class StrangSplitting(SplittingScheme):
         operator_list: list,
         substeps_per_op: dict,
         t_grid: np.ndarray,
-    ):
-        """For Strang splitting, the time grid is refined by the substeps and the refinment
-        for symmetric operators is double (all of them except for the last one).
+    ) -> dict:
+        """
+        Refine the macroscopic time grid for Strang splitting topologies.
 
-        output: refined_t_grids: dict
+        Because symmetric operators in the Strang hierarchy are stepped *twice* per global macro-step,
+        their sub-stepping grid structures inherently receive exactly double their normally specified
+        number of partitions.
+
+        Parameters
+        ----------
+        operator_list : list of :py:class:`~saetass.solver.OperatorType`
+            Ordered sequence of operators.
+        substeps_per_op : dict
+            User configurations for base sub-steps per operator.
+        t_grid : np.ndarray
+            1D array of the base canonical macro-timesteps.
+
+        Returns
+        -------
+        dict
+            Dictionary mapping each operator to its refined time grid array.
         """
         self._store_t_grid(t_grid)
         refined_t_grids = {}
@@ -98,7 +180,9 @@ class StrangSplitting(SplittingScheme):
         for i, op in enumerate(operator_list):
             n_sub = substeps_per_op[op]
             if i < len(operator_list) - 1:
-                n_sub = n_sub * 2  # Double substeps for all but last operator
+                n_sub = (
+                    n_sub * 2
+                )  # Double substeps for all but the central (last) operator
 
             refined_t_grids[op] = _refine_t_grid(t_grid, n_sub)
 
@@ -110,9 +194,21 @@ class StrangSplitting(SplittingScheme):
         operator_subsolvers: list,
         substeps_per_op: dict,
         state: State,
-    ):
-        """Apply the Strang splitting scheme."""
+    ) -> None:
+        """
+        Perform a single macroscopic advancement using Strang splitting evaluating logic.
 
+        Parameters
+        ----------
+        operator_list : list of :py:class:`~saetass.solver.OperatorType`
+            Ordered operators sequence.
+        operator_subsolvers : list of :py:class:`~saetass.solver.SubSolver`
+            Associated physics solver objects.
+        substeps_per_op : dict
+            Operator sub-step parameter lookup.
+        state : :py:class:`~saetass.state.State`
+            State wrapper passed in-place down the subsolver chain.
+        """
         if np.min(state.f) < 0:
             logger.warning(
                 "Strang splitting: Negative values detected in state.f before applying operators."
@@ -142,6 +238,13 @@ class StrangSplitting(SplittingScheme):
 
 
 class LieSplitting(SplittingScheme):
+    """
+    Implements first-order Lie-Trotter Operator Splitting.
+
+    For an operator sequence ``[A, B, C]``, Lie splitting simply evaluates the operators
+    sequentially for the full timestep interval.
+    """
+
     def __init__(self):
         super().__init__()
 
@@ -150,8 +253,24 @@ class LieSplitting(SplittingScheme):
         operator_list: list,
         substeps_per_op: dict,
         t_grid: np.ndarray,
-    ):
-        """For Lie splitting, the time grid is refined by the substeps only."""
+    ) -> dict:
+        """
+        Refine the time grid strictly using sub-step values defined for Lie topologies.
+
+        Parameters
+        ----------
+        operator_list : list of :py:class:`~saetass.solver.OperatorType`
+            Ordered sequence of operators.
+        substeps_per_op : dict
+            User configurations for sub-steps per operator.
+        t_grid : np.ndarray
+            1D array of the base canonical macro-timesteps.
+
+        Returns
+        -------
+        dict
+            Dictionary grouping each respective operator to its sub-refined time grid array.
+        """
         self._store_t_grid(t_grid)
         refined_t_grids = {}
 
@@ -167,8 +286,21 @@ class LieSplitting(SplittingScheme):
         operator_subsolvers: list,
         substeps_per_op: dict,
         state: State,
-    ):
-        """Apply the Lie splitting scheme."""
+    ) -> None:
+        """
+        Perform a single macroscopic advancement exclusively evaluating physics sequentially.
+
+        Parameters
+        ----------
+        operator_list : list of :py:class:`~saetass.solver.OperatorType`
+            Ordered operators sequence.
+        operator_subsolvers : list of :py:class:`~saetass.solver.SubSolver`
+            Associated physics solver objects.
+        substeps_per_op : dict
+            Operator sub-step parameter lookup.
+        state : :py:class:`~saetass.state.State`
+            State wrapper iterated across consecutively.
+        """
         for op, subsolver in zip(operator_list, operator_subsolvers):
             logger.debug(f"Lie splitting: full step for operator '{op}'")
             n_sub = substeps_per_op[op]
@@ -179,16 +311,16 @@ class LieSplitting(SplittingScheme):
 
 
 class SplittingSchemeType(StrEnum):
-    """Auxiliary class for correct splitting scheme handling.
+    """
+    Auxiliary class enumerating registered operator splitting schema choices.
 
     .. note::
-        Currently, the supported particle types are: "strand" and "lie".
+        Currently, the supported splitting types are: ``"strang"`` and ``"lie"``.
 
     Parameters
     ----------
     scheme_type : str
-        String identifier for the splitting scheme (e.g., "strang", "lie"). This
-        will raise a ``ValueError`` if an unsupported splitting scheme is provided.
+        String identifier for the requested scheme context. Raising ``ValueError`` silently for unavailable schemes.
     """
 
     STRANG = ("strang", StrangSplitting)
@@ -202,13 +334,23 @@ class SplittingSchemeType(StrEnum):
 
 
 def create_splitting_scheme(scheme_name: str | SplittingSchemeType) -> SplittingScheme:
-    """Factory function to create a :py:class:`~saetass.splitting.SplittingScheme` instance based on the scheme name.
+    """
+    Factory wrapper bridging scheme configuration identifiers to their instantiated classes.
 
     Parameters
     ----------
-    scheme_name : str | SplittingSchemeType
-        Name of the scheme or a :py:class:`~saetass.splitting.SplittingSchemeType` enum instance.
-        Valid string names are mapped by the enum (e.g., "strang", "lie").
+    scheme_name : str or :py:class:`~saetass.splitting.SplittingSchemeType`
+        String identifier specifying the desired structural design.
+
+    Returns
+    -------
+    SplittingScheme
+        An untethered sub-class of :py:class:`~saetass.splitting.SplittingScheme`.
+
+    Raises
+    ------
+    ValueError
+        If an unrecognized splitting design is implicitly provided.
     """
     if isinstance(scheme_name, str):
         scheme_name = scheme_name.lower().strip()
@@ -218,6 +360,21 @@ def create_splitting_scheme(scheme_name: str | SplittingSchemeType) -> Splitting
 
 
 def _refine_t_grid(t_grid: np.ndarray, n_sub: int) -> np.ndarray:
+    """
+    Helper function interpolating a time-series by an integer partition multiplier.
+
+    Parameters
+    ----------
+    t_grid : np.ndarray
+        Array of macroscopic timesteps to process.
+    n_sub : int
+        Number of steps to forcefully insert equivalently between macro-intervals.
+
+    Returns
+    -------
+    np.ndarray
+        Dense temporal grid array.
+    """
     if n_sub > 1:
         t_grid_refined = []
         for j in range(len(t_grid) - 1):
