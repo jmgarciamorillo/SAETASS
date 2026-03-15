@@ -1,7 +1,7 @@
 """
 The solver module contains the main interface for running simulations.
 
-It defines the public API that all physical operators must expose through the abstrac class :py:class:`~saetass.solver.SubSolver`.
+It defines the public API that all physical operators must expose through the abstract class :py:class:`~saetass.solver.SubSolver`.
 
 It also defines the :py:class:`~saetass.solver.Solver` class, which manages the overall time loop and coordinates the advancement of the solution according to the specified problem type and parameters.
 Hence, it serves as the central orchestrator of the simulation workflow, while delegating the actual numerical updates to the specialized operators (:py:class:`~saetass.solvers.advection_solver.AdvectionSolver`, :py:class:`~saetass.solvers.diffusion_solver.DiffusionSolver`, :py:class:`~saetass.solvers.loss_solver.LossSolver`, :py:class:`~saetass.solvers.source_solver.SourceSolver`...).
