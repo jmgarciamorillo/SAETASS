@@ -589,8 +589,8 @@ class BubbleModel(StrEnum):
         The model type (e.g., "Weaver77" or "Morlino21").
     """
 
-    WEAVER = "Weaver77"
-    MORLINO = "Morlino21"
+    WEAVER77 = "Weaver77"
+    MORLINO21 = "Morlino21"
 
     def __new__(cls, model_type: str):
         obj = str.__new__(cls, model_type)
