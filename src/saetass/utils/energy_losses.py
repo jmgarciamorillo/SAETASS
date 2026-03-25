@@ -2,12 +2,12 @@
 This module provides functions to compute energy losses rates and timescales avaliable to be used in cosmic ray transport simulations.
 The current version of this module focuses on the most relevant processes for protons and electrons, both in neutral and ionised gas, and includes the following mechanisms:
 
-- Ionization losses
-- Coulomb scattering losses
-- Pion production losses
-- Synchrotron losses
-- Bremsstrahlung losses
-- Inverse Compton losses
+- Ionization losses (:py:meth:`~saetass.utils.energy_losses.EnergyLossCalculator.compute_ionization_losses`)
+- Coulomb scattering losses (:py:meth:`~saetass.utils.energy_losses.EnergyLossCalculator.compute_coulomb_losses`)
+- Pion production losses (:py:meth:`~saetass.utils.energy_losses.EnergyLossCalculator.compute_pion_production_losses`)
+- Synchrotron losses (:py:meth:`~saetass.utils.energy_losses.EnergyLossCalculator.compute_synchrotron_losses`)
+- Bremsstrahlung losses (:py:meth:`~saetass.utils.energy_losses.EnergyLossCalculator.compute_bremsstrahlung_losses`)
+- Inverse Compton losses (:py:meth:`~saetass.utils.energy_losses.EnergyLossCalculator.compute_inverse_compton_losses`)
 
 Moreover, the module is designed to be extensible, allowing for future additions or user-defined loss processes. Other features included are:
 
@@ -625,15 +625,16 @@ class Particle(StrEnum):
     """Auxiliary class for correct particle types handling.
 
     .. note::
-        Currently, the supported splitting schemes are: "proton" and "electron".
+        Currently, the supported particle types are: ``"proton"`` and ``"electron"``.
 
 
     Parameters
     ----------
     particle_type : str
-        String identifier for the particle type (e.g., "proton", "electron"). This
-        will raise a ``ValueError`` if an unsupported particle type is provided.
+        String identifier for the particle type (e.g., "proton", "electron"). This will raise a ``ValueError`` if an unsupported particle type is provided.
     """
+
+    ## Separation of docstring because of Sphinx bug
 
     PROTON = ("proton", const.m_p, "hadronic")
     ELECTRON = ("electron", const.m_e, "leptonic")
