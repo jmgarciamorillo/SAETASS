@@ -3,7 +3,7 @@ This module provides functions and classes to compute the spatial profiles of pl
 The models available are based on the theoretical frameworks by
 
 - :cite:ct:`Weaver1977`
-- :cite:ct:`Menchiari2024`
+- :cite:ct:`Morlino2021`
 
 The module provides an extensible framework using :py:class:`~saetass.utils.bubble_profiles.BubbleProfileCalculator` to easily extract density, velocity, magnetic field or transport parameters to be used in SAETASS simulations.
 """
@@ -34,10 +34,10 @@ class BubbleProfileCalculator:
     r_grid : u.Quantity or np.ndarray
         Radial grid for the profiles computation (in pc).
     model : BubbleModel or str
-        The bubble description model (e.g., "weaver" or "menchiari").
+        The bubble description model (e.g., "Weaver77" or "Morlino21").
     **kwargs :
-        Specific physical parameters required by the selected model. For 'weaver' and
-        'menchiari', the required kwargs are:
+        Specific physical parameters required by the selected model. For 'Weaver77' and
+        'Morlino21', the required kwargs are:
 
         - ``L_wind`` : u.Quantity (Wind mechanical luminosity)
         - ``M_dot`` : u.Quantity (Mass loss rate)
@@ -50,7 +50,7 @@ class BubbleProfileCalculator:
     def __init__(
         self,
         r_grid: u.Quantity | np.ndarray,
-        model: BubbleModel | str = "menchiari",
+        model: BubbleModel | str = "Morlino21",
         **kwargs,
     ):
         if isinstance(r_grid, u.Quantity):
@@ -61,7 +61,10 @@ class BubbleProfileCalculator:
             self.r_grid = r_grid * u.pc
 
         if isinstance(model, str):
-            model = model.lower()
+            for m in BubbleModel:
+                if m.value.lower() == model.lower():
+                    model = m
+                    break
         self.model = BubbleModel(model)
 
         self.kwargs = kwargs
@@ -77,16 +80,16 @@ class BubbleProfileCalculator:
 
     def _compute_kinematics(self):
         """Dispatch the kinematics computation based on the model."""
-        if self.model in [BubbleModel.WEAVER, BubbleModel.MENCHIARI]:
-            self._compute_weaver_kinematics()
+        if self.model in [BubbleModel.WEAVER77, BubbleModel.MORLINO21]:
+            self._compute_Weaver7777_kinematics()
         else:
             raise NotImplementedError(
                 f"Kinematics for model {self.model} are not implemented."
             )
 
-    def _compute_weaver_kinematics(self):
+    def _compute_Weaver7777_kinematics(self):
         """
-        Compute baseline parameters for Weaver/Menchiari models from wind properties.
+        Compute baseline parameters for Weaver77/Morlino21 models from wind properties.
         Expected kwargs: L_wind, M_dot, rho_0, t_b
         """
         required = ["L_wind", "M_dot", "rho_0", "t_b"]
@@ -101,7 +104,7 @@ class BubbleProfileCalculator:
         rho_0 = self.kwargs["rho_0"]
         t_b = self.kwargs["t_b"]
 
-        # Weaver parameters
+        # Weaver77 parameters
         kappa = 0.762865
 
         self.v_w = np.sqrt(2 * L_wind / M_dot).to(u.km / u.s)
@@ -137,7 +140,7 @@ class BubbleProfileCalculator:
         }
         # Wind also includes the core region
         self.masks["r_wind_overall"] = r_val < self.R_TS.value
-        logger.debug("Weaver kinematics computed")
+        logger.debug("Weaver77 kinematics computed")
 
     def compute_density_profile(self) -> u.Quantity:
         """
@@ -148,7 +151,7 @@ class BubbleProfileCalculator:
         u.Quantity
             Density profile (in cm^-3)
         """
-        if self.model in [BubbleModel.WEAVER, BubbleModel.MENCHIARI]:
+        if self.model in [BubbleModel.WEAVER77, BubbleModel.MORLINO21]:
             M_dot = self.kwargs["M_dot"]
             rho_0 = self.kwargs["rho_0"]
             t_b = self.kwargs["t_b"]
@@ -233,7 +236,7 @@ class BubbleProfileCalculator:
         u.Quantity
             Temperature profile (in K)
         """
-        if self.model in [BubbleModel.WEAVER, BubbleModel.MENCHIARI]:
+        if self.model in [BubbleModel.WEAVER77, BubbleModel.MORLINO21]:
             T_profile = np.zeros_like(self.r_grid.value)
 
             T_profile[self.masks["r_core"]] = T_core.to(u.K).value
@@ -259,7 +262,7 @@ class BubbleProfileCalculator:
         """
         v_field = np.zeros_like(self.r_grid.value)
 
-        if self.model in [BubbleModel.MENCHIARI, BubbleModel.WEAVER]:
+        if self.model in [BubbleModel.MORLINO21, BubbleModel.WEAVER77]:
             v_field[self.masks["r_wind_overall"]] = self.v_w.to(u.km / u.s).value
 
             # v inside bubble = v_w / 4 * (R_TS / r)^2
@@ -286,7 +289,7 @@ class BubbleProfileCalculator:
         Parameters
         ----------
         eta_B : float
-            Magnetic field efficiency param (used in Menchiari)
+            Magnetic field efficiency param (used in Morlino21)
 
         Returns
         -------
@@ -295,7 +298,7 @@ class BubbleProfileCalculator:
         """
         delta_B = np.zeros_like(self.r_grid.value) * u.G
 
-        if self.model == BubbleModel.MENCHIARI:
+        if self.model == BubbleModel.MORLINO21:
             M_dot = self.kwargs["M_dot"]
 
             r_win = self.masks["r_wind_overall"]
@@ -371,7 +374,7 @@ class BubbleProfileCalculator:
         u.Quantity
             Diffusion coefficient profile
         """
-        if self.model == BubbleModel.MENCHIARI:
+        if self.model == BubbleModel.MORLINO21:
             B_field = self.compute_magnetic_field_profile(eta_B=eta_B)
             r_L = self._get_larmor_radius(E_k, B_field)
             v_p = self._get_particle_velocity(E_k)
@@ -435,7 +438,7 @@ class BubbleProfileCalculator:
     ) -> np.ndarray:
         """
         Calculate the analytical steady-state cosmic ray profile
-        following the theoretical Menchiari model equations.
+        following the theoretical Morlino21 model equations.
 
         Parameters
         ----------
@@ -560,7 +563,7 @@ class BubbleProfileCalculator:
             "v_field": self.compute_velocity_profile(),
         }
 
-        if self.model == BubbleModel.MENCHIARI:
+        if self.model == BubbleModel.MORLINO21:
             eta_B = kwargs.get("eta_B", 0.1)
             eta_inj = kwargs.get("eta_inj", 0.1)
             diffusion_model = kwargs.get("diffusion_model", "kolmogorov")
@@ -578,16 +581,16 @@ class BubbleModel(StrEnum):
     """Auxiliary class for correct particle types handling.
 
     .. note::
-        Currently, the supported models are: ``"weaver"`` and ``"menchiari"``.
+        Currently, the supported models are: ``"Weaver77"`` and ``"Morlino21"``.
 
     Parameters
     ----------
     model_type : str
-        The model type (e.g., "weaver" or "menchiari").
+        The model type (e.g., "Weaver77" or "Morlino21").
     """
 
-    WEAVER = "weaver"
-    MENCHIARI = "menchiari"
+    WEAVER = "Weaver77"
+    MORLINO = "Morlino21"
 
     def __new__(cls, model_type: str):
         obj = str.__new__(cls, model_type)

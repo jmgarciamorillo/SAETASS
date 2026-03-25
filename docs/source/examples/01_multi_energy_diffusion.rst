@@ -5,7 +5,7 @@ This example demonstrates how to set up and execute an advanced analysis of cosm
 
 It showcases the initialization of a :py:class:`~saetass.grid.Grid` geometry and a :py:class:`~saetass.state.State` containing physical values. These objects are passed into a :py:class:`~saetass.solver.Solver` which evolves the configuration explicitly according to advective and diffusive operators alongside custom source shapes.
 
-The script executes the necessary propagation computations and compares with the analytical steady-state solution (:cite:ct:`Menchiari2024`), outputting a PDF matrix plot.
+The script executes the necessary propagation computations and compares with the analytical steady-state solution (:cite:ct:`Morlino2021`), outputting a PDF matrix plot.
 
 Workflow Highlights
 -----------------------

@@ -232,7 +232,7 @@ if __name__ == "__main__":
             t_b = 1 * u.Myr
             calculator = BubbleProfileCalculator(
                 r_grid=np.linspace(0.0, 300.0, 800) * u.pc,
-                model="menchiari",
+                model="Morlino21",
                 L_wind=1e38 * u.erg / u.s,
                 M_dot=1e-4 * const.M_sun / u.yr,
                 rho_0=const.m_p / u.cm**3,
