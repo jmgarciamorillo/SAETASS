@@ -5,7 +5,7 @@ This example demonstrates how to set up and execute an advanced analysis of cosm
 
 It showcases the initialization of a :py:class:`~saetass.grid.Grid` geometry and a :py:class:`~saetass.state.State` containing physical values. These objects are passed into a :py:class:`~saetass.solver.Solver` which evolves the configuration explicitly according to advective and diffusive operators alongside custom source shapes.
 
-The script executes the necessary propagation computations and compares with the analytical steady-state solution (:cite:ct:`Menchiari2024`), outputting a PDF matrix plot.
+The script executes the necessary propagation computations and compares with the analytical steady-state solution (:cite:ct:`Morlino2021`), outputting a PDF matrix plot.
 
 Workflow Highlights
 -----------------------
@@ -19,7 +19,7 @@ First, the necessary modules are imported from the SAETASS package.
    :start-after: # 0. Import SAETASS modules
    :end-before: # 0.1 Import end
 
-Then, a parameterization of the specific physical setup we want to simulate is performed. In this example paremeters are defined for a stellar cluster wind bubble using the :py:func:`~saetass.utils.giovanni_profiles.create_giovanni_setup` function.
+Then, a parameterization of the specific physical setup we want to simulate is performed. In this example paremeters are defined for a stellar cluster wind bubble using the :py:class:`~saetass.utils.bubble_profiles.BubbleProfileCalculator` class.
 
 .. literalinclude:: ../../../examples/01_multi_energy_diffusion.py
    :language: python

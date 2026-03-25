@@ -23,10 +23,7 @@ from matplotlib.gridspec import GridSpec
 
 # 0. Import SAETASS modules
 from saetass import State, Grid, Solver
-from saetass.utils.giovanni_profiles import (
-    create_giovanni_setup,
-    get_theoretical_profile,
-)
+from saetass.utils.bubble_profiles import BubbleProfileCalculator
 
 # 0.1 Import end
 
@@ -149,14 +146,14 @@ def plot_simulation_step(
         color="gray",
         linestyle=":",
         linewidth=1.5,
-        label="$R_\mathrm{TS}$" if col_idx == 0 else None,
+        label=r"$R_\mathrm{TS}$" if col_idx == 0 else None,
     )
     ax.axvline(
         R_b,
         color="gray",
         linestyle="-.",
         linewidth=1.5,
-        label="$R_\mathrm{B}$" if col_idx == 0 else None,
+        label=r"$R_\mathrm{B}$" if col_idx == 0 else None,
     )
 
     # Set plot limits and labels
@@ -231,24 +228,25 @@ if __name__ == "__main__":
                 else 120000
             )  # Special care needs to be taken in num_timesteps choice due to stability contraints of this specific system
 
-            # We use a function from saetass.utils.giovanni_profiles to calulate simulation parameters
-            setup = create_giovanni_setup(
-                r_0=0.0 * u.pc,
-                r_end=300.0 * u.pc,
-                num_points=800,
+            # We use the new BubbleProfileCalculator from saetass.utils.bubble_profiles
+            t_b = 1 * u.Myr
+            calculator = BubbleProfileCalculator(
+                r_grid=np.linspace(0.0, 300.0, 800) * u.pc,
+                model="Morlino21",
                 L_wind=1e38 * u.erg / u.s,
                 M_dot=1e-4 * const.M_sun / u.yr,
                 rho_0=const.m_p / u.cm**3,
-                t_b=1 * u.Myr,
-                eta_B=0.1,
-                eta_inj=0.1,
-                E_k=E_k,
-                diffusion_model=diff_model_name,
+                t_b=t_b,
             )
-            r = setup["r"]
+
+            setup = calculator.get_all_profiles(
+                E_k=E_k, eta_B=0.1, eta_inj=0.1, diffusion_model=diff_model_name
+            )
+
+            r = setup["r_grid"].to("pc").value
             R_TS = setup["R_TS"]
             R_b = setup["R_b"]
-            t_end = 1.2 * setup["t_b"].to("Myr").value
+            t_end = 1.2 * t_b  # 1 Myr from t_b
 
             # 2. Create Solver arguments
             t_grid = np.linspace(0, t_end, num_timesteps)
@@ -314,13 +312,8 @@ if __name__ == "__main__":
             normalized_curves = [curve / ts_level for curve in stored_curves]
 
             # 7. Generate Baseline Theoretical Configuration
-            f_theoretical = get_theoretical_profile(
-                r,
-                setup["masks"],
-                setup["v_w"],
-                setup["D_values"],
-                R_TS,
-                R_b,
+            f_theoretical = calculator.compute_analytical_CR_profile(
+                D_values=setup["D_values"],
                 f_gal=0.0,
                 f_TS=1.0,
             )

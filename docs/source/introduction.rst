@@ -14,10 +14,9 @@ Documentation Overview
 This documentation is structured to help you get started quickly while providing deep reference material for advanced simulations. You can navigate the documentation using the following sections:
 
 * :doc:`Installation <installation>`: Instructions on how to set up the SAETASS environment and install its dependencies.
-* :doc:`Mathematical Foundations <foundations>`: A deep dive into the underlying physics transport equations, operator splitting schemes, and the core numerical methods implemented in the computational solver.
+* :doc:`API Reference <api/index>`: Detailed technical documentation of the internal modules, classes, and functions.
 * :doc:`Tutorials <tutorials/index>`: Easy-to-follow, step-by-step guides covering fundamental concepts. These range from setting up your first spatial grid to running basic simulations.
 * :doc:`Examples <examples/index>`: A collection of standalone, reproducible scripts demonstrating specific physical setups and complete analysis. 
-* :doc:`API Reference <api/index>`: Detailed technical documentation of the internal modules, classes, and functions.
 * :doc:`Terms and conditions <terms>`: License and terms of use for SAETASS.
 * :doc:`References <references>`: A bibliography of the academic papers, texts and resources that are referenced in the code and documentation.
 

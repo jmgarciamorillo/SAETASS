@@ -5,6 +5,5 @@ This section contains standalone, annotated examples demonstrating how to use th
 
 .. toctree::
    :maxdepth: 2
-   :caption: Examples
 
    01_multi_energy_diffusion

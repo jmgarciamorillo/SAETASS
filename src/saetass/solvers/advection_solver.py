@@ -11,17 +11,35 @@ logger = logging.getLogger(__name__)
 
 class AdvectionSolver(HyperbolicSolver):
     """
-    FV solver for spherical advection using W = r^2 u (reduced variable).
-    Inherits core logic from HyperbolicFVSolver.
+    Finite volume solver for spherical advection, inheriting from :py:class:`~saetass.solvers.hyperbolic_solver.HyperbolicSolver`.
 
-    Supports both 1D (spatial-only) and 2D (spatial × momentum) grids.
-    When p_centers is present, processes each momentum slice independently.
+    Solves the spherical advection equation in conservative form,
 
-    Key features:
-      - Handles spherical advection with proper geometric factors
-      - Solves using conservative variable W = r^2 * f
-      - Implements upwind fluxes with slope limiting for second order
-      - Supports non-uniform grids
+    .. math::
+
+        \\frac{\\partial f}{\\partial t} + \\frac{1}{r^2}\\frac{\\partial}{\\partial r}\\bigl(v(t,r)\\,r^2 f\\bigr) = 0,
+
+    by introducing the conservative variable :math:`U = r^2 f`, :math:`V(t,y) = v(t,r)` and :math:`y = r`, and delegating the finite volume update to the base class across the spatial (:math:`r`) axis.
+
+    Parameters
+    ----------
+    grid : :py:class:`~saetass.grid.Grid`
+        :py:class:`~saetass.grid.Grid` containing at least ``r_centers`` and ``r_faces``; optionally ``p_centers`` and ``p_faces`` for 2D problems.
+    t_grid : ndarray
+        Subproblem time grid. In the standard SAETASS workflow this is already subrefined during :py:class:`~saetass.solver.Solver` initialization.
+    params : dict
+        Solver configuration.  Accepted keys are:
+
+        v_centers : ndarray or callable
+            Advection velocity at cell centers. A callable must have signature ``v_centers(t) -> ndarray``.
+        limiter : ``{'minmod', 'vanleer', 'mc'}``
+            Slope limiter used for second-order schemes.
+        cfl : float
+            CFL number for the adaptive sub-step calculation.
+        inflow_value_U : float
+            Value of the conservative variable at the outer boundary when the flow is directed inward (inflow condition).
+        order : ``{1, 2}``
+            Order of the numerical scheme.
     """
 
     def __init__(
@@ -31,23 +49,7 @@ class AdvectionSolver(HyperbolicSolver):
         params: Dict[str, Any],
         **kwargs,
     ) -> None:
-        """
-        Initialize the advection solver.
-
-        Parameters:
-        -----------
-        grid : Grid
-            Grid object containing r_centers, r_faces, and optionally p_centers, p_faces
-        t_grid : np.ndarray
-            Time grid for integration
-        params : dict
-            Dictionary containing solver parameters:
-            - v_centers: Velocities at cell centers (array or callable v_centers(t) -> array)
-            - limiter: Slope limiter ('minmod', 'vanleer', or 'mc')
-            - cfl: CFL number for timestep calculation
-            - inflow_value_U: Value of U at the outer boundary for inflow
-            - order: Order of the scheme (1 or 2)
-        """
+        """Initialize the advection solver."""
         # Convert advection-specific parameters to general hyperbolic solver format
         hyperbolic_params = params.copy()
 
@@ -68,25 +70,7 @@ class AdvectionSolver(HyperbolicSolver):
 
     def _generalized_variable(self, f: np.ndarray, grid: Grid) -> np.ndarray:
         """
-        Convert a primitive variable f to a conservative variable U for spherical geometry:
-
-            U = r^2 * f
-
-        Supports 1D or ND arrays. Broadcasting occurs along the last axis,
-        which corresponds to the radial coordinate in the grid.
-
-        Parameters
-        ----------
-        f : np.ndarray
-            Primitive variable (density, distribution function, etc.)
-            Shape (..., nr), where nr = len(grid.r_centers)
-        grid : Grid
-            Grid object containing `r_centers`.
-
-        Returns
-        -------
-        np.ndarray
-            Conservative variable of same shape as f.
+        Map the primitive distribution function to the conservative variable.
         """
         self._check_grid_state_consistency(grid, f)
 
@@ -99,13 +83,7 @@ class AdvectionSolver(HyperbolicSolver):
         grid: Grid,
     ) -> np.ndarray:
         """
-        Convert conservative variable U back to primitive variable f = U / r².
-        Supports ND arrays. Last axis is radial axis.
-
-        At the origin cell (r[0] = 0), U[0] = 0 universally.
-        f[0] is reconstructed by a 2nd-order backward linear extrapolation
-        from the FVM-updated neighbours:
-            f[0] ≈ 2·f[1] − f[2]  +  O(Δr²)
+        Map the conservative variable back to the primitive distribution function.
         """
         self._check_grid_state_consistency(grid, U)
 
@@ -128,10 +106,9 @@ class AdvectionSolver(HyperbolicSolver):
 
     def _compute_slopes(self, U: np.ndarray) -> np.ndarray:
         """
-        Overrides HyperbolicSolver's slope computation to correctly handle the
-        geometric U = r² f transformation. Evaluates slopes on primitive
-        variable f to avoid massive O(1) clipping from standard limiters on
-        the quadratic U=r² profile, mapping back via the Product Rule.
+        Compute limited slopes in conservative-variable space, accounting for the spherical-geometry transformation.
+
+        Overrides parent method to avoid excessive limiter clipping on the quadratic r^2 profile.
         """
         # 1. Recover mathematically exact primitive profile
         f = self._inverse_generalized_variable(U, self.grid)
@@ -150,7 +127,7 @@ class AdvectionSolver(HyperbolicSolver):
         self, grid: Grid, state_array: np.ndarray
     ) -> None:
         """
-        Check that the last dimension of state_array matches the radial grid length.
+        Verify that state is dimensionally compatible with grid.
         """
         if not grid.is_compatible_array(state_array):
             raise ValueError(
