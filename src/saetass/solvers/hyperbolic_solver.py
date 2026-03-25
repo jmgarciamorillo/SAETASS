@@ -514,7 +514,10 @@ class HyperbolicSolver(SubSolver, ABC):
             slopes_interior = _minmod_multi(dL, dR, dC)
         elif self.limiter == "vanleer":  # generalized
             prod = dL * dR
-            slopes_interior = np.where(prod > 0.0, (2.0 * prod) / (dL + dR), 0.0)
+            summ = dL + dR
+            slopes_interior = np.where(
+                prod > 0.0, (2.0 * prod) / np.where(summ != 0, summ, 1.0), 0.0
+            )
         elif self.limiter == "mc":
             slopes_interior = _minmod_multi(2.0 * dL, 2.0 * dR, 0.5 * dC)
         else:  # should not happen due to earlier check, but just in case
@@ -533,7 +536,10 @@ class HyperbolicSolver(SubSolver, ABC):
             slopes[..., 0] = _minmod_multi(d_fwd, d_fwd2, d_fwd)
         elif self.limiter == "vanleer":
             prod = d_fwd * d_fwd2
-            slopes[..., 0] = np.where(prod > 0.0, (2.0 * prod) / (d_fwd + d_fwd2), 0.0)
+            summ = d_fwd + d_fwd2
+            slopes[..., 0] = np.where(
+                prod > 0.0, (2.0 * prod) / (summ if summ != 0 else 1.0), 0.0
+            )
         elif self.limiter == "mc":
             slopes[..., 0] = _minmod_multi(2.0 * d_fwd, 2.0 * d_fwd2, 0.5 * d_fwd2)
         else:
@@ -551,7 +557,10 @@ class HyperbolicSolver(SubSolver, ABC):
             slopes[..., -1] = _minmod_multi(d_bwd, d_bwd2, d_bwd)
         elif self.limiter == "vanleer":
             prod = d_bwd * d_bwd2
-            slopes[..., -1] = np.where(prod > 0.0, (2.0 * prod) / (d_bwd + d_bwd2), 0.0)
+            summ = d_bwd + d_bwd2
+            slopes[..., -1] = np.where(
+                prod > 0.0, (2.0 * prod) / (summ if summ != 0 else 1.0), 0.0
+            )
         elif self.limiter == "mc":
             slopes[..., -1] = _minmod_multi(2.0 * d_bwd, 2.0 * d_bwd2, 0.5 * d_bwd2)
         else:
