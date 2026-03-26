@@ -39,6 +39,11 @@ examples/outputs/
 *.npz
 *.pkl
 
+# Exception: track documentation assets
+!docs/assets/*.png
+!docs/assets/*.gif
+!docs/assets/*.svg
+
 # =========================================================
 # Temporary / scratch files
 # =========================================================
