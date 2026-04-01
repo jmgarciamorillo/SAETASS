@@ -1,2 +1,4 @@
 # Remove Jupyter Notebooks tutorials from stats
-tutorials/*.ipynb linguist-documentation
+tutorials/*.ipynb linguist-detectable=false
+tutorials/*.ipynb linguist-documentation=true
+tutorials/*.ipynb linguist-vendored=true
