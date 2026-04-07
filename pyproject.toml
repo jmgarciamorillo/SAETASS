@@ -23,7 +23,9 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=9.0.0",
-    "pytest-cov>=7.0.0"
+    "pytest-cov>=7.0.0",
+    "ruff>=0.3.0",
+    "pre-commit>=3.6.0"
 ]
 plotting = [
     "matplotlib>=3.8.0"
@@ -45,3 +47,24 @@ packages = ["src/saetass"]
 pythonpath = ["src"]
 testpaths = ["test"]
 addopts = "-ra"
+
+# --- RUFF CONFIGURATION ---
+
+[tool.ruff]
+src = ["src"]
+target-version = "py310"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "D", "B", "NPY"]
+# ignore = ["D100", "D104", "D203", "D213"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.ruff.lint.isort]
+known-first-party = ["saetass"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
