@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class Grid:
-    """
+    r"""
     The :py:class:`~saetass.grid.Grid` class can be instantiated in several ways:
 
     - By providing the spatial and/or momentum faces grid coordinates.

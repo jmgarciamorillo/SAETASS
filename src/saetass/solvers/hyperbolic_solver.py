@@ -163,7 +163,7 @@ class HyperbolicSolver(SubSolver, ABC):
         return 1 - self.axis
 
     def advance(self, n_steps: int, state: State) -> None:
-        """
+        r"""
         Advance the :py:class:`~saetass.state.State` by ``n_steps`` in :py:attr:`~saetass.solvers.hyperbolic_solver.HyperbolicSolver.t_grid`.
 
         The inner loop may subdivide each requested step further to satisfy the CFL stability condition, so the number of actual flux evaluations can exceed ``n_steps``.
