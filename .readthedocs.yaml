@@ -11,6 +11,8 @@ python:
       path: .
       extra_requirements:
         - dev
+        - plotting
+    - requirements: docs/requirements.txt
 
 sphinx:
   configuration: docs/source/conf.py
