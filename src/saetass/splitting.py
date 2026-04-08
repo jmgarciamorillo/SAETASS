@@ -12,11 +12,13 @@ grids per operator and explicitly order the execution sequence of
 :py:class:`~saetass.solver.SubSolver` instances.
 """
 
+import logging
 from abc import ABC, abstractmethod
 from enum import StrEnum
-from .state import State
-import logging
+
 import numpy as np
+
+from .state import State
 
 logger = logging.getLogger(__name__)
 

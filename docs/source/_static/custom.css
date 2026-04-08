@@ -1382,7 +1382,7 @@ dl.attribute dt {
 
 /* Force specific colors in the banner to pop against the dark background */
 .nboutput.container .output_area span {
-    /* If the inline styles are too dark, this ensures they are visible, 
+    /* If the inline styles are too dark, this ensures they are visible,
        but usually ANSI colors look perfect on Neutral 900 */
     opacity: 1 !important;
 }
@@ -1477,7 +1477,7 @@ html[data-theme="dark"] div.nbinput.container div.input_area {
     margin-left: 0 !important;
 }
 
-/* Optional: Add a tiny bit of left padding to the code so it's not 
+/* Optional: Add a tiny bit of left padding to the code so it's not
    glued to the very edge of the container */
 .nbinput.container div.input_area pre {
     padding-left: var(--saetass-spacing-md) !important;

@@ -9,13 +9,15 @@ The module provides an extensible framework using :py:class:`~saetass.utils.bubb
 """
 
 from __future__ import annotations
-import numpy as np
-import astropy.units as u
-import astropy.constants as const
-import math
+
 import logging
-from typing import Optional, Dict, Any
+import math
 from enum import StrEnum
+from typing import Any
+
+import astropy.constants as const
+import astropy.units as u
+import numpy as np
 from scipy.integrate import cumulative_trapezoid as cumtrapz
 
 logger = logging.getLogger(__name__)
@@ -349,7 +351,7 @@ class BubbleProfileCalculator:
         self,
         E_k: u.Quantity,
         r_Inj: u.Quantity = 1.0 * u.pc,
-        D_ISM: Optional[u.Quantity] = None,
+        D_ISM: u.Quantity | None = None,
         diffusion_model: str = "kolmogorov",
         eta_B: float = 0.1,
     ) -> u.Quantity:
@@ -492,7 +494,7 @@ class BubbleProfileCalculator:
         EXP_MAX = 700.0
         EXP_MIN = -700.0
         alpha_clip = np.clip(alpha, EXP_MIN, EXP_MAX)
-        alpha_b_clip = np.clip(alpha_b, EXP_MIN, EXP_MAX)
+        # alpha_b_clip = np.clip(alpha_b, EXP_MIN, EXP_MAX)
 
         if np.all(alpha == alpha_clip):  # Normal case
             numerator = (
@@ -502,7 +504,7 @@ class BubbleProfileCalculator:
             f_b_over_ts = numerator / denominator
 
             f_b_over_ts_RB = (
-                (np.exp(alpha_b) + f_gal / f_TS * beta * (np.exp(alpha_b) - 1.0))
+                np.exp(alpha_b) + f_gal / f_TS * beta * (np.exp(alpha_b) - 1.0)
             ) / denominator
         else:  # Extreme case to avoid overflow
             f_b_over_ts = 1 + (1 - beta) / beta * np.exp(alpha - alpha_b)
@@ -534,7 +536,7 @@ class BubbleProfileCalculator:
 
         return np.concatenate([f_w, f_b, f_out])
 
-    def get_all_profiles(self, E_k: u.Quantity, **kwargs) -> Dict[str, Any]:
+    def get_all_profiles(self, E_k: u.Quantity, **kwargs) -> dict[str, Any]:
         """
         Compute all profiles and return them in a dictionary.
 

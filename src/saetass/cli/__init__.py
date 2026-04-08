@@ -6,6 +6,6 @@ and printing the SAETASS banner.
 """
 
 from .banner import print_banner
-from .progress import setup_rich_logging, create_progress_bar
+from .progress import create_progress_bar, setup_rich_logging
 
 __all__ = ["print_banner", "setup_rich_logging", "create_progress_bar"]

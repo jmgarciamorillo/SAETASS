@@ -3,7 +3,7 @@ Introduction
 
 What is SAETASS?
 ----------------
-SAETASS (Solver for Astroparticle Equation of Transport Analysis in Spherical Symmetry) is a Python-based physics library designed to simulate the transport and acceleration of cosmic rays and other energetic particles in astrophysical environments. 
+SAETASS (Solver for Astroparticle Equation of Transport Analysis in Spherical Symmetry) is a Python-based physics library designed to simulate the transport and acceleration of cosmic rays and other energetic particles in astrophysical environments.
 
 Focusing on one-dimensional spherical symmetry, SAETASS provides robust numerical solvers to evaluate the diffusion-advection transport equation. It is built to seamlessly accommodate complex physical models, including custom spatial diffusion coefficients, advective wind flows, adiabatic energy losses, and localized particle injection sources.
 
@@ -16,7 +16,7 @@ This documentation is structured to help you get started quickly while providing
 * :doc:`Installation <installation>`: Instructions on how to set up the SAETASS environment and install its dependencies.
 * :doc:`API Reference <api/index>`: Detailed technical documentation of the internal modules, classes, and functions.
 * :doc:`Tutorials <tutorials/index>`: Easy-to-follow, step-by-step guides covering fundamental concepts. These range from setting up your first spatial grid to running basic simulations.
-* :doc:`Examples <examples/index>`: A collection of standalone, reproducible scripts demonstrating specific physical setups and complete analysis. 
+* :doc:`Examples <examples/index>`: A collection of standalone, reproducible scripts demonstrating specific physical setups and complete analysis.
 * :doc:`Terms and conditions <terms>`: License and terms of use for SAETASS.
 * :doc:`References <references>`: A bibliography of the academic papers, texts and resources that are referenced in the code and documentation.
 

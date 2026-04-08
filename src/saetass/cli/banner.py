@@ -1,10 +1,12 @@
 import logging
-from rich.console import Console
-from rich.text import Text
-from rich.panel import Panel
+
 from rich.align import Align
+from rich.console import Console
+from rich.panel import Panel
+from rich.text import Text
+
+from .palette import SAETASS_ORANGE, SAETASS_YELLOW
 from .progress import console as default_console
-from .palette import SAETASS_YELLOW, SAETASS_ORANGE
 
 logger = logging.getLogger(__name__)
 

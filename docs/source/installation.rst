@@ -66,7 +66,7 @@ Select the installation method that aligns with your intended usage.
 
       .. tip::
          SAETASS follows standard PEP 517 conventions and can be distributed as a pure-Python wheel. This makes the package itself compatible with offline installation workflows using :code:`python -m pip install --no-index`.
-         
+
          In restricted environments without internet access, offline installation is possible provided that SAETASS and all its runtime dependencies are available locally as pre-built wheels.
 
 
@@ -195,7 +195,7 @@ Scientific software evolves to incorporate more efficient algorithms and stabili
          python -m pip install -e ".[dev,plotting]"
 
 .. warning::
-   If you have active simulations running in a persistent environment—such as a **Jupyter kernel** or a long-running **Screen** session—they will continue to execute the *old* code loaded in memory until the interpreter is restarted. 
+   If you have active simulations running in a persistent environment—such as a **Jupyter kernel** or a long-running **Screen** session—they will continue to execute the *old* code loaded in memory until the interpreter is restarted.
 
    To avoid "ghost bugs" caused by a mismatch between the code on disk and the code in memory, always restart your interactive kernels or scripts immediately after an update.
 

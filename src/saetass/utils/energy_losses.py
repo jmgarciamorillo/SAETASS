@@ -22,12 +22,13 @@ ________________
 """
 
 from __future__ import annotations
-import numpy as np
-import astropy.units as u
-import astropy.constants as const
+
 import logging
-from typing import Optional, List, Dict, Callable
 from enum import StrEnum
+
+import astropy.constants as const
+import astropy.units as u
+import numpy as np
 import numpy.typing as npt
 
 logger = logging.getLogger(__name__)
@@ -91,7 +92,7 @@ class EnergyLossCalculator:
         # Momentum
         self.p_grid = (
             np.sqrt(
-                (self.E_grid**2 + 2 * self.E_grid * (self.particle_mass * const.c**2))
+                self.E_grid**2 + 2 * self.E_grid * (self.particle_mass * const.c**2)
             )
             / const.c
         )
@@ -113,7 +114,6 @@ class EnergyLossCalculator:
         particle: Particle | str,
     ):
         """Validate input parameters and convert to proper units if needed."""
-
         if isinstance(E_grid, u.Quantity) and not E_grid.unit.is_equivalent(u.GeV):
             raise ValueError("E_grid must have units equivalent to GeV")
         elif isinstance(E_grid, np.ndarray):
@@ -152,7 +152,6 @@ class EnergyLossCalculator:
         E_dot_ion : u.Quantity
             Energy loss rate with shape (len(E_grid), len(r_grid)) in GeV/s.
         """
-
         if self.particle_species == "hadronic":
             IH = 19.0 * u.eV
 
@@ -251,7 +250,6 @@ class EnergyLossCalculator:
         E_dot_synchrotron : u.Quantity
             Energy loss rate with shape (len(E_grid), len(r_grid)) in GeV/s.
         """
-
         # Convert B_field to U_B if provided
         if B_field is not None:
             B_gauss = B_field.to(u.G).value
@@ -302,7 +300,6 @@ class EnergyLossCalculator:
         E_dot_brems : u.Quantity
             Energy loss rate with shape (len(E_grid), len(r_grid)) in GeV/s.
         """
-
         n_gas_norm = self.n_gas.to(u.cm**-3).value
         E_grid_norm = self.E_grid.to(u.GeV).value
         E_tot_norm = self.E_tot.to(u.GeV).value
@@ -332,14 +329,12 @@ class EnergyLossCalculator:
 
         # --- Asignación dependiendo de la máscara ---
         for j in range(numR):
-
             if ionised_mask[j]:
                 # Ionised -> always WS formula
                 E_dot_brems[:, j] = WS_term[:, j]
             else:
                 # Neutral -> need gamma regions
                 for i in range(numE):
-
                     if self.gamma[i] < 100:
                         E_dot_brems[i, j] = WS_term[i, j]
 
@@ -367,7 +362,6 @@ class EnergyLossCalculator:
             Energy loss rate with shape (len(E_grid), len(r_grid)) in GeV/s.
         """
         if self.particle_species == "hadronic":
-
             if n_e is None:
                 n_e = self.n_gas.to(u.cm**-3)
 
@@ -477,10 +471,6 @@ class EnergyLossCalculator:
                 f"eps_grid shape ({eps_grid.shape[0]}) must match first axis of dn_deps ({dn_deps.shape[0]})."
             )
 
-        N_E = len(self.E_grid)
-        N_eps = len(eps_grid)
-        N_r = len(self.r_grid)
-
         # Convert to numpy arrays to avoid astropy overhead in large intermediate arrays
         gamma_val = self.gamma.to_value(u.dimensionless_unscaled)[
             :, np.newaxis, np.newaxis
@@ -524,10 +514,10 @@ class EnergyLossCalculator:
         integral_eps_val = np.trapezoid(
             integrand_eps_val, x=eps_grid.to_value(u.eV), axis=1
         )  # shape (N_E, N_r)
-        I = integral_eps_val * (u.eV / u.cm**3)
+        integral_eps = integral_eps_val * (u.eV / u.cm**3)
 
         # Final physical loss rate: -dE/dt = 3 * sigma_T * c * I
-        E_dot_IC = (-3.0 * const.sigma_T * const.c * I).to(u.GeV / u.s)
+        E_dot_IC = (-3.0 * const.sigma_T * const.c * integral_eps).to(u.GeV / u.s)
 
         self._E_dot_components["inverse_compton"] = E_dot_IC
         logger.debug("Inverse Compton losses computed")
@@ -562,7 +552,8 @@ class EnergyLossCalculator:
         Convert total energy loss rate to momentum loss rate. This is the quantity that
         ``LossSolver`` will use to compute the momentum-space losses in the transport equation.
 
-        Returns:
+        Returns
+        -------
             P_dot_total: Momentum loss rate with shape (num_E, num_r).
         """
         # Compute total energy losses if not already done
@@ -580,8 +571,8 @@ class EnergyLossCalculator:
 
     def get_loss_timescales(
         self,
-        r_index: Optional[int] = None,
-    ) -> Dict[str, np.ndarray]:
+        r_index: int | None = None,
+    ) -> dict[str, np.ndarray]:
         """
         Compute characteristic loss timescales for each loss mechanisms.
 

@@ -1,21 +1,22 @@
 import os
 import sys
-import numpy as np
+
 import matplotlib.pyplot as plt
+import numpy as np
 
 # Apply unified plot style
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from plot_style import (
-    apply_plot_style,
-    get_numerical_style,
-    get_analytical_style,
-    get_quantitative_style,
     add_time_colorbar,
+    apply_plot_style,
+    get_analytical_style,
+    get_numerical_style,
+    get_quantitative_style,
 )
 
-apply_plot_style()
+from saetass import Grid, Solver, State
 
-from saetass import State, Grid, Solver
+apply_plot_style()
 
 
 def run_loss_simulation(p_grid, t_grid, f_initial, operator_params, sample_count=0):
@@ -277,7 +278,7 @@ def validation_loss_source_steady_state(
             if fig_target is not None:
                 try:
                     target_path_pdf = os.path.join(
-                        out_dir, f"loss_source_steady_tend0p4.pdf"
+                        out_dir, "loss_source_steady_tend0p4.pdf"
                     )
                     fig_target.savefig(target_path_pdf, dpi=200, bbox_inches="tight")
                     print(f"Saved t_end=0.4 simulation figure to: {target_path_pdf}")

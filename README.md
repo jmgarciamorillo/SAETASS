@@ -77,7 +77,7 @@ For complete, more advanced examples, check the [Examples](EXAMPLES_URL_PLACEHOL
 
 SAETASS solves the following **astroparticle transport equation** for in spherically symmetric geometry:
 
-$$\frac{\partial f}{\partial t} 
+$$\frac{\partial f}{\partial t}
     + \frac{1}{r^2}\frac{\partial}{\partial r}\left(r^2 u_\mathrm{w}f\right)
     + \frac{\partial}{\partial p}\left( \dot{p} f \right)
     = \frac{1}{r^2} \frac{\partial}{\partial r}

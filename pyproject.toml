@@ -1,40 +1,71 @@
 [build-system]
-requires = ["setuptools>=61", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
 
 [project]
 name = "saetass"
-version = "0.1.0"
+dynamic = ["version"]
 description = "A scientific computing package for solving astroparticle transport equation using operator splitting methods and a finite volume approach."
+readme = "README.md"
+license = {text = "BSD 3-Clause"}
 authors = [
-    {name = "J. M. G. Morillo", email = "jmorillo@iaa.es"}
-    ]
+    {name = "J. M. García-Morillo", email = "jmorillo@iaa.es"}
+]
 requires-python = ">=3.10"
-
 dependencies = [
     "numpy>=2.3.0",
     "scipy>=1.16.2",
     "astropy>=7.1.0",
     "numba>=0.62.0",
     "rich>=13.0.0"
-    ]
+]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=9.0.0",
-    "pytest-cov>=7.0.0"
-    ]
+    "pytest-cov>=7.0.0",
+    "ruff>=0.3.0",
+    "pre-commit>=3.6.0"
+]
 plotting = [
     "matplotlib>=3.8.0"
-    ]
+]
 
-[tool.setuptools]
-package-dir = {"" = "src"}
+[project.urls]
+Homepage = "https://github.com/jmgarciamorillo/SAETASS"
+Repository = "https://github.com/jmgarciamorillo/SAETASS.git"
 
-[tool.setuptools.packages.find]
-where = ["src"]
+# --- SPECIFIC CONFIGURATION FOR HATCH ---
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/saetass"]
 
 [tool.pytest.ini_options]
-pythonpath = ["."]
+pythonpath = ["src"]
 testpaths = ["test"]
 addopts = "-ra"
+
+# --- RUFF CONFIGURATION ---
+
+[tool.ruff]
+src = ["src"]
+target-version = "py310"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+# select = ["E", "F", "I", "N", "UP", "D", "B", "NPY"]
+ignore = ["E501"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.ruff.lint.isort]
+known-first-party = ["saetass"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"

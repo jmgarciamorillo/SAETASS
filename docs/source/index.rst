@@ -43,7 +43,7 @@
 
         Examples
         ^^^^^^^^^^^^^^^^^^^^^^^
-        Have a look to a collection of standalone, reproducible scripts demonstrating specific physical setups and complete analysis. 
+        Have a look to a collection of standalone, reproducible scripts demonstrating specific physical setups and complete analysis.
 
     .. grid-item-card::
         :link: api/index

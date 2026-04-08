@@ -9,17 +9,10 @@ Focus areas
    boundary must equal the integral reduction of f.
 """
 
-import pytest
 import numpy as np
-import os
-import sys
+import pytest
 
-parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-if parent_dir not in sys.path:
-    sys.path.insert(0, parent_dir)
-
-from saetass import State, Grid, Solver
-
+from saetass import Grid, Solver, State
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -96,9 +89,9 @@ class TestLossSolverPositivity:
         solver.step(num_t)
         f_final = solver.state.f.flatten()
 
-        assert np.all(
-            f_final >= -1e-14
-        ), f"Negative values in f after loss step: min={f_final.min():.3e}"
+        assert np.all(f_final >= -1e-14), (
+            f"Negative values in f after loss step: min={f_final.min():.3e}"
+        )
 
     def test_gaussian_stays_positive(self):
         """Gaussian IC: a smooth initial condition should stay smooth and positive."""
@@ -121,9 +114,9 @@ class TestLossSolverPositivity:
         solver.step(num_t)
         f_final = solver.state.f.flatten()
 
-        assert np.all(
-            f_final >= -1e-14
-        ), f"Negative values after Gaussian loss run: min={f_final.min():.3e}"
+        assert np.all(f_final >= -1e-14), (
+            f"Negative values after Gaussian loss run: min={f_final.min():.3e}"
+        )
 
 
 class TestLossSolverPhysics:
@@ -192,9 +185,9 @@ class TestLossSolverPhysics:
         f_final = solver.state.f.flatten()
         mass_final = float(np.sum(f_final * dp))
 
-        assert (
-            mass_final <= mass_initial + 1e-10
-        ), f"Total mass increased: {mass_initial:.6g} → {mass_final:.6g}"
+        assert mass_final <= mass_initial + 1e-10, (
+            f"Total mass increased: {mass_initial:.6g} → {mass_final:.6g}"
+        )
 
 
 class TestLossSolverOrder:

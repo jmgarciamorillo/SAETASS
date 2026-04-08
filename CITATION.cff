@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+  - family-names: "García-Morillo"
+    given-names: "José María"
+    orcid: "https://orcid.org/0009-0008-5232-349X"
+    affiliation: "Instituto de Astrofísica de Andalucía (IAA-CSIC)"
+title: "SAETASS: Solver for Astroparticle Equations using Two-step Advection-diffusion Splitting Schemes"
+version: 0.1.0
+doi: 10.5281/zenodo.XXXXXXX # To be updated after the first release
+date-released: 2026-04-08 # Date of the first release
+url: "https://saetass.readthedocs.io/"
+repository-code: "https://github.com/jmgarciamorillo/SAETASS"
+keywords:
+  - astroparticles
+  - cosmic-rays
+  - gamma-ray
+  - transport-equation
+  - finite-volume-method
+  - numerical-simulation
+  - astrophysics
+license: "BSD-3-Clause"
