@@ -1,21 +1,22 @@
 import os
 import sys
-import numpy as np
+
 import matplotlib.pyplot as plt
+import numpy as np
 
 # Apply unified plot style
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from plot_style import (
-    apply_plot_style,
-    get_numerical_style,
-    get_analytical_style,
-    get_quantitative_style,
     add_time_colorbar,
+    apply_plot_style,
+    get_analytical_style,
+    get_numerical_style,
+    get_quantitative_style,
 )
 
-apply_plot_style()
+from saetass import Grid, Solver, State
 
-from saetass import State, Grid, Solver
+apply_plot_style()
 
 
 def run_simulation(
@@ -119,7 +120,7 @@ def validation_time_dependent_advection(
             relL2 = compute_relative_L2(f_num, f_ana)
             errors.append(relL2)
 
-            print(f"    dx={dr:.4e}, steps={Nt-1}, relL2={relL2:.4e}")
+            print(f"    dx={dr:.4e}, steps={Nt - 1}, relL2={relL2:.4e}")
 
             # Save layout plots only for the highest time resolution to avoid spamming plots
             if Nt == t_steps_list[-1]:

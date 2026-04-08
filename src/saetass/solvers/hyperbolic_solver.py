@@ -14,15 +14,16 @@ This class serves as a flexible base for specific hyperbolic problems, such as a
 Thus, :py:class:`~saetass.solvers.advection_solver.AdvectionSolver` and :py:class:`~saetass.solvers.loss_solver.LossSolver` inherit from this base class and implement the problem-specific logic while reusing the core finite volume update mechanism.
 """
 
-import numpy as np
-from typing import Literal
-from ..state import State
-from ..grid import Grid
-from ..solver import SubSolver
+import logging
 from abc import ABC, abstractmethod
+from typing import Literal
+
+import numpy as np
 from numba import njit, prange
 
-import logging
+from ..grid import Grid
+from ..solver import SubSolver
+from ..state import State
 
 logger = logging.getLogger(__name__)
 
@@ -229,21 +230,20 @@ class HyperbolicSolver(SubSolver, ABC):
     # ---------------- internal helpers ----------------
     def _unpack_params(self, params: dict = None) -> None:
         """Unpack and strictly validate parameters."""
-
         # expected keys
-        expected_keys = {
-            "V_centers",
-            "limiter",
-            "cfl",
-            "inflow_value_U",
-            "order",
-            "axis",
-        }
-        provided_keys = set(params.keys())
+        # expected_keys = {
+        #     "V_centers",
+        #     "limiter",
+        #     "cfl",
+        #     "inflow_value_U",
+        #     "order",
+        #     "axis",
+        # }
+        # provided_keys = set(params.keys())
 
         # check missing / extra
-        missing = expected_keys - provided_keys
-        extra = provided_keys - expected_keys
+        # missing = expected_keys - provided_keys
+        # extra = provided_keys - expected_keys
         # if missing:
         #    raise ValueError(f"Missing required params: {missing}")
         # if extra:
@@ -286,7 +286,6 @@ class HyperbolicSolver(SubSolver, ABC):
 
     def _unpack_grid(self, grid: Grid):
         """Unpack and validate grid object."""
-
         self.grid = grid
 
         def _load_axis(name: str) -> bool:
@@ -389,7 +388,6 @@ class HyperbolicSolver(SubSolver, ABC):
 
         Works for both 1D and 2D problems depending on `self.axis`.
         """
-
         # Interpolated velocities at faces along the active axis
         if V_faces is None:
             V_faces = self._face_generalized_velocity_interpolated()
@@ -644,7 +642,6 @@ class HyperbolicSolver(SubSolver, ABC):
         Left boundary (r=0): assume symmetry => flux=0.
         Right boundary (outer face): use last cell's left state and slope for prediction.
         """
-
         size = U.shape[0] if U.ndim > 1 else 1
         flux_L = np.zeros(size, dtype=float)
         if self._main_faces[0] <= 0.0 and self.axis == 1:

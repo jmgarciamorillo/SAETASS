@@ -1,21 +1,22 @@
 import os
 import sys
-import numpy as np
+
 import matplotlib.pyplot as plt
+import numpy as np
 
 # Apply unified plot style
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from plot_style import (
-    apply_plot_style,
-    get_numerical_style,
-    get_analytical_style,
-    get_quantitative_style,
     add_time_colorbar,
+    apply_plot_style,
+    get_analytical_style,
+    get_numerical_style,
+    get_quantitative_style,
 )
 
-apply_plot_style()
+from saetass import Grid, Solver, State
 
-from saetass import State, Grid, Solver
+apply_plot_style()
 
 
 def run_diffusion_simulation(
@@ -118,7 +119,7 @@ def validation_diffusion_source_steady_state(
     )
 
     r_grid = np.linspace(0.0, r_end, N)
-    dr = r_grid[1] - r_grid[0]
+    # dr = r_grid[1] - r_grid[0]
 
     f_initial = np.zeros(N)
 
@@ -189,7 +190,7 @@ def validation_diffusion_source_steady_state(
         ylims = (max(0.0, ymin - padding), ymax + padding)
 
         last_fig = None
-        last_N = None
+        # last_N = None
         for rec in all_results:
             t_final = rec["t_final"]
             r_grid = rec["r_grid"]

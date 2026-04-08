@@ -72,4 +72,3 @@ After running the script, the following figure is generated.
     :width: 100%
     :align: center
     :alt: Multi-energy diffusion comparison output
-

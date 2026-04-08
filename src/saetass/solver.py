@@ -9,14 +9,18 @@ Hence, it serves as the central orchestrator of the simulation workflow, while d
 --------------
 """
 
-import numpy as np
+import logging
 from abc import ABC, abstractmethod
 from enum import StrEnum
-from typing import Any, Dict
-import logging
+from typing import Any
 
-from .state import State
+import numpy as np
+
+from .cli.banner import print_banner
+from .cli.progress import create_progress_bar
 from .grid import Grid
+from .splitting import create_splitting_scheme
+from .state import State
 
 
 class SubSolver(ABC):
@@ -39,7 +43,7 @@ class SubSolver(ABC):
 
     @abstractmethod
     def __init__(
-        self, grid: Grid, t_grid: np.ndarray, params: Dict[str, Any], **kwargs
+        self, grid: Grid, t_grid: np.ndarray, params: dict[str, Any], **kwargs
     ):
         pass
 
@@ -58,13 +62,10 @@ class SubSolver(ABC):
         pass
 
 
-from .solvers.diffusion_solver import DiffusionSolver
-from .solvers.advection_solver import AdvectionSolver
-from .solvers.loss_solver import LossSolver
-from .solvers.source_solver import SourceSolver
-from .splitting import create_splitting_scheme
-from .cli.progress import create_progress_bar
-from .cli.banner import print_banner
+from .solvers.advection_solver import AdvectionSolver  # noqa: E402
+from .solvers.diffusion_solver import DiffusionSolver  # noqa: E402
+from .solvers.loss_solver import LossSolver  # noqa: E402
+from .solvers.source_solver import SourceSolver  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -198,7 +199,6 @@ class Solver:
 
     def _initialize_subsolvers(self, **kwargs):
         """Initialize subsolvers with appropriate t_grids and parameters."""
-
         refined_t_grids = self.splitting_scheme.initialize_t_grid(
             self.operator_list, self.substeps_per_op, self.grid.t_grid
         )
@@ -208,7 +208,6 @@ class Solver:
         )
 
         for i, op in enumerate(self.operator_list):
-
             solver_class = op.solver_class
             t_grid_refined = refined_t_grids[op]
             op_params = self.operator_params.get(op.value, {})
@@ -226,7 +225,6 @@ class Solver:
 
     def _advance(self, n_steps):
         """Advance the solution by n_steps using operator splitting."""
-
         manage_progress = False
         if getattr(self, "_progress", None) is None:
             self._progress = create_progress_bar()

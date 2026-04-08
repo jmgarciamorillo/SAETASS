@@ -11,18 +11,19 @@ The script visualizes the time evolution of the cosmic ray spatial distribution,
 comparing it against theoretical steady-state profiles.
 """
 
-import os
 import logging
 import math
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
-import astropy.units as u
+import os
+
 import astropy.constants as const
+import astropy.units as u
+import matplotlib.colors as mcolors
+import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib.gridspec import GridSpec
 
 # 0. Import SAETASS modules
-from saetass import State, Grid, Solver
+from saetass import Grid, Solver, State
 from saetass.utils.bubble_profiles import BubbleProfileCalculator
 
 # 0.1 Import end
@@ -108,7 +109,6 @@ def plot_simulation_step(
     f_theoretical,
 ):
     """Renders the diffusion curves for a single (energy, diffusion_model) parameter grid point."""
-
     # Negative vmin to avoid pure white at t=0
     cmap = diff_props["cmap"]
     norm = plt.Normalize(vmin=0.0, vmax=1.2)
@@ -172,7 +172,7 @@ def plot_simulation_step(
     # Add energy to top subplots
     if diff_props["row"] == 0:
         if energy >= 1000:
-            ax.set_title(f"$E = {math.floor(energy/1000):.0f}$ TeV")
+            ax.set_title(f"$E = {math.floor(energy / 1000):.0f}$ TeV")
         else:
             ax.set_title(f"$E = {energy}$ GeV")
 
@@ -210,7 +210,6 @@ def finalize_and_save_figure(fig, gs, diffusion_models):
 # ---------------------------------------------------------
 
 if __name__ == "__main__":
-
     fig, gs = setup_figure()
     sample_count = 12
 

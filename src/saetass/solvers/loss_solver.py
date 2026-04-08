@@ -1,10 +1,10 @@
-import numpy as np
-from typing import Dict, Any
-from .hyperbolic_solver import HyperbolicSolver
-from ..state import State
-from ..grid import Grid
-
 import logging
+from typing import Any
+
+import numpy as np
+
+from ..grid import Grid
+from .hyperbolic_solver import HyperbolicSolver
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ class LossSolver(HyperbolicSolver):
         self,
         grid: Grid,
         t_grid: np.ndarray,
-        params: Dict[str, Any],
+        params: dict[str, Any],
         **kwargs,
     ) -> None:
         """Initialize the loss solver."""
@@ -62,10 +62,10 @@ class LossSolver(HyperbolicSolver):
         loss_params["axis"] = 0
 
         # Add adiabatic losses
-        if loss_params["adiabatic_losses"] == True:
+        if loss_params["adiabatic_losses"]:
             try:
                 v_centers_physical = loss_params.pop("v_centers_physical")
-            except:
+            except KeyError:
                 raise ValueError(
                     "If adiabatic_losses is True, v_centers_physical must be provided."
                 )
@@ -85,7 +85,6 @@ class LossSolver(HyperbolicSolver):
                 loss_params["V_centers"] = self._generalized_velocity(P_dot_input, grid)
 
         if "inflow_value_f" in loss_params:
-
             loss_params["inflow_value_U"] = self._generalized_variable(
                 loss_params.pop("inflow_value_f"), grid
             )[-1]
@@ -177,7 +176,6 @@ class LossSolver(HyperbolicSolver):
 
         evaluated cell-by-cell on the spatial grid via a finite-difference approximation of the radial flux divergence.
         """
-
         r_faces = grid.r_faces
         A_face = 4.0 * np.pi * r_faces
         V = (4.0 / 3.0) * np.pi * (r_faces[1:] ** 3 - r_faces[:-1] ** 3)

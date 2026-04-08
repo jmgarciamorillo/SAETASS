@@ -1,10 +1,10 @@
-import numpy as np
 import logging
-from ..state import State
+
+import numpy as np
+
 from ..grid import Grid
-from ..state import State
 from ..solver import SubSolver
-from typing import Callable, Optional
+from ..state import State
 
 logger = logging.getLogger(__name__)
 

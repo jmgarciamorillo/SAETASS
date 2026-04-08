@@ -1,22 +1,25 @@
 import logging
+import sys
+
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.progress import (
-    Progress,
-    TextColumn,
     BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    SpinnerColumn,
+    TextColumn,
     TimeElapsedColumn,
     TimeRemainingColumn,
-    MofNCompleteColumn,
-    SpinnerColumn,
 )
 from rich.theme import Theme
+
 from .palette import (
-    SAETASS_YELLOW,
-    SAETASS_ORANGE,
     SAETASS_BLUE,
-    SAETASS_GREY,
     SAETASS_DARK,
+    SAETASS_GREY,
+    SAETASS_ORANGE,
+    SAETASS_YELLOW,
 )
 
 # SAETASS Theme
@@ -33,8 +36,6 @@ custom_theme = Theme(
         "saetass_dark": SAETASS_DARK,
     }
 )
-
-import sys
 
 width = None if sys.stdout.isatty() else 120
 console = Console(theme=custom_theme, width=width)
@@ -67,7 +68,7 @@ class ProgressBarSingleton:
 
     def __new__(cls, *args, **kwargs):
         if not cls._instance:
-            cls._instance = super(ProgressBarSingleton, cls).__new__(cls)
+            cls._instance = super().__new__(cls)
             cls._instance._ref_count = 0
             cls._instance._progress = None
         return cls._instance

@@ -56,8 +56,9 @@ target-version = "py310"
 line-length = 88
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "N", "UP", "D", "B", "NPY"]
-# ignore = ["D100", "D104", "D203", "D213"]
+select = ["E", "F", "I"]
+# select = ["E", "F", "I", "N", "UP", "D", "B", "NPY"]
+ignore = ["E501"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "numpy"

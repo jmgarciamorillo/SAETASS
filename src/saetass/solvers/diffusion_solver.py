@@ -1,12 +1,11 @@
+import logging
+
 import numpy as np
-import matplotlib.pyplot as plt
-from scipy.sparse import diags
-from scipy.sparse.linalg import spsolve
-from ..state import State
+from numba import njit, prange
+
 from ..grid import Grid
 from ..solver import SubSolver
-import logging
-from numba import njit, prange
+from ..state import State
 
 logger = logging.getLogger(__name__)
 

@@ -1,8 +1,5 @@
-import matplotlib.pyplot as plt
-
-
-import matplotlib.pyplot as plt
 import matplotlib as mpl
+import matplotlib.pyplot as plt
 
 SAETASS_YELLOW = "#F3AC4B"
 SAETASS_ORANGE = "#F3664B"
@@ -60,8 +57,7 @@ def add_time_colorbar(fig, ax, t_min, t_max, cmap_name="Oranges"):
 
     # We create a custom colormap that matches the alpha blending from get_numerical_style
     # get_numerical_style goes from alpha=0.4 to alpha=1.0 using SAETASS_ORANGE
-    from matplotlib.colors import LinearSegmentedColormap
-    from matplotlib.colors import to_rgba
+    from matplotlib.colors import LinearSegmentedColormap, to_rgba
 
     color_rgba = to_rgba(SAETASS_ORANGE)
     color_low_alpha = (color_rgba[0], color_rgba[1], color_rgba[2], 0.4)

@@ -3,14 +3,13 @@ SAETASS: Solver for Astroparticle Equation of Transport Analysis in Spherical Sy
 """
 
 from .grid import Grid
-from .state import State
 from .solver import Solver
-from .splitting import SplittingScheme
-
-from .solvers.diffusion_solver import DiffusionSolver
 from .solvers.advection_solver import AdvectionSolver
+from .solvers.diffusion_solver import DiffusionSolver
 from .solvers.loss_solver import LossSolver
 from .solvers.source_solver import SourceSolver
+from .splitting import SplittingScheme
+from .state import State
 
 __all__ = [
     "Grid",

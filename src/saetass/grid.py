@@ -8,10 +8,10 @@ In the context of the greater solver pipeline, the instantiated :py:class:`~saet
 Furthermore, :py:class:`~saetass.grid.Grid` provides ``@classmethods`` to instantiate uniform, non-uniform and logarithmically spaced grids.
 """
 
-import numpy as np
-from typing import Optional, Tuple, Union, List, Dict, Any
 import logging
 from functools import cached_property
+
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -336,7 +336,7 @@ class Grid:
         num_timesteps: int,
         req_r_pos: bool = False,
         req_p_pos: bool = False,
-    ) -> Tuple[bool, bool, bool]:
+    ) -> tuple[bool, bool, bool]:
         """
         Validates the grid generation boundaries.
 

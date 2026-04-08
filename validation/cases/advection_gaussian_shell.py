@@ -1,21 +1,22 @@
 import os
 import sys
-import numpy as np
+
 import matplotlib.pyplot as plt
+import numpy as np
 
 # Apply unified plot style
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from plot_style import (
-    apply_plot_style,
-    get_numerical_style,
-    get_analytical_style,
-    get_quantitative_style,
     add_time_colorbar,
+    apply_plot_style,
+    get_analytical_style,
+    get_numerical_style,
+    get_quantitative_style,
 )
 
-apply_plot_style()
+from saetass import Grid, Solver, State
 
-from saetass import State, Grid, Solver
+apply_plot_style()
 
 
 def run_advection_simulation(r_grid, t_grid, f_initial, solver_params, sample_count=5):
@@ -151,7 +152,7 @@ def validation_sweep(
         errors.append(relL2)
         dxs.append(dr)
 
-        print(f"  dx={dr:.4e}, steps={len(t_grid)-1}, relL2={relL2:.4e}")
+        print(f"  dx={dr:.4e}, steps={len(t_grid) - 1}, relL2={relL2:.4e}")
 
         # store results for plotting later so all plots use same y-limits
         all_results.append(

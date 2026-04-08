@@ -5,10 +5,12 @@ The :py:class:`~saetass.state.State` object is passed by reference between opera
 """
 
 from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Union
-import numpy as np
+
 import logging
+from dataclasses import dataclass, field
+from typing import Any
+
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +57,7 @@ class State:
     dt: float = 0.0
     stage: int = 0
     stage_name: str = ""
-    history: List[Dict[str, Any]] = field(default_factory=list)
+    history: list[dict[str, Any]] = field(default_factory=list)
 
     def __post_init__(self):
         # Ensure f is a writable float64 numpy array with shape (n_p, n_r)
@@ -183,7 +185,7 @@ class State:
         self.dt = float(t) - self.t
         self.t = float(t)
 
-    def record_substep(self, stage_name: Optional[str] = None) -> None:
+    def record_substep(self, stage_name: str | None = None) -> None:
         """
         Append a snapshot of the current state to the history.
 
@@ -207,7 +209,7 @@ class State:
         }
         self.history.append(entry)
 
-    def restore_substep(self, identifier: Union[int, str]) -> State:
+    def restore_substep(self, identifier: int | str) -> State:
         """
         Restore the state to a previously recorded snapshot.
 
@@ -247,7 +249,7 @@ class State:
         self.stage_name = str(snap.get("stage_name", ""))
         return self
 
-    def get_substep(self, index: int) -> Dict[str, Any]:
+    def get_substep(self, index: int) -> dict[str, Any]:
         """
         Retrieve a copy of a snapshot without modifying the current state.
 
@@ -279,7 +281,7 @@ class State:
         """Remove all recorded snapshots from :py:attr:`history`, leaving the current state intact."""
         self.history.clear()
 
-    def step_stage(self, stage_name: Optional[str] = None) -> None:
+    def step_stage(self, stage_name: str | None = None) -> None:
         """
         Increment the operator-splitting stage counter by one.
 

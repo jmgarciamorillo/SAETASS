@@ -1,10 +1,10 @@
-import numpy as np
-from typing import Dict, Any
-from .hyperbolic_solver import HyperbolicSolver
-from ..state import State
-from ..grid import Grid
-
 import logging
+from typing import Any
+
+import numpy as np
+
+from ..grid import Grid
+from .hyperbolic_solver import HyperbolicSolver
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ class AdvectionSolver(HyperbolicSolver):
         self,
         grid: Grid,
         t_grid: np.ndarray,
-        params: Dict[str, Any],
+        params: dict[str, Any],
         **kwargs,
     ) -> None:
         """Initialize the advection solver."""
