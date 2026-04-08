@@ -30,12 +30,17 @@ jobs:
       - name: Update version in CITATION.cff
         run: |
           TAG=${GITHUB_REF_NAME#v}
+          git checkout main
           sed -i "s/^version: .*/version: $TAG/" CITATION.cff
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
           git add CITATION.cff
-          git commit -m "Update version to $TAG in CITATION.cff"
-          git push
+          if git diff --staged --quiet; then
+            echo "No changes to CITATION.cff"
+          else
+            git commit -m "Update version to $TAG in CITATION.cff [skip ci]"
+            git push origin main
+          fi
 
       - name: Install build tool
         run: pip install build
