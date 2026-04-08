@@ -13,7 +13,7 @@ A Python library for simulating cosmic-ray transport and acceleration in astroph
 
 <!-- ─────────────────────── Badges ─────────────────────── -->
 
-<!-- CI & Code Quality -->
+[![DOI](https://zenodo.org/badge/1037857186.svg)](https://doi.org/10.5281/zenodo.19468484)<!-- CI & Code Quality -->
 [![CI tests](https://img.shields.io/github/actions/workflow/status/jmgarciamorillo/SAETASS/tests.yml?logo=github&logoColor=white&label=CI%20tests&color=F3AC4B)](https://github.com/jmgarciamorillo/SAETASS/actions)
 [![Codecov Placeholder](https://img.shields.io/badge/coverage-100%25-F3AC4B?logo=codecov&logoColor=white)](https://codecov.io/gh/jmgarciamorillo/SAETASS) <!-- [![codecov](https://img.shields.io/codecov/c/github/jmgarciamorillo/SAETASS?logo=codecov&logoColor=white&color=F3AC4B)](https://codecov.io/gh/jmgarciamorillo/SAETASS) -->
 [![Docs Placeholder](https://img.shields.io/badge/docs-passing-F3AC4B?logo=readthedocs&logoColor=white)](YOUR_DOCS_URL_HERE) <!-- [![Docs](https://img.shields.io/readthedocs/saetass?logo=readthedocs&logoColor=white&color=F3AC4B)](DOCS_URL) -->

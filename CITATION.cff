@@ -5,10 +5,10 @@ authors:
     given-names: "José María"
     orcid: "https://orcid.org/0009-0008-5232-349X"
     affiliation: "Instituto de Astrofísica de Andalucía (IAA-CSIC)"
-title: "SAETASS: Solver for Astroparticle Equations using Two-step Advection-diffusion Splitting Schemes"
+title: "SAETASS: Solver for Astroparticle Equation of Transport Analysis in Spherical Symmetry"
 version: 0.1.0
-doi: 10.5281/zenodo.XXXXXXX # To be updated after the first release
-date-released: 2026-04-08 # Date of the first release
+doi: 10.5281/zenodo.19468484
+date-released: 2026-04-08
 url: "https://saetass.readthedocs.io/"
 repository-code: "https://github.com/jmgarciamorillo/SAETASS"
 keywords:
