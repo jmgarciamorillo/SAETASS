@@ -5,6 +5,14 @@ authors:
     given-names: "José María"
     orcid: "https://orcid.org/0009-0008-5232-349X"
     affiliation: "Instituto de Astrofísica de Andalucía (IAA-CSIC)"
+  - family-names: "Menchiari"
+    given-names: "Stefano"
+    orcid: "https://orcid.org/0009-0006-6386-3702"
+    affiliation: "Instituto de Astrofísica de Andalucía (IAA-CSIC)"
+  - family-names: "López-Coto"
+    given-names: "Rubén"
+    orcid: "https://orcid.org/0000-0002-3882-9477"
+    affiliation: "Instituto de Astrofísica de Andalucía (IAA-CSIC)"
 title: "SAETASS: Solver for Astroparticle Equation of Transport Analysis in Spherical Symmetry"
 version: 0.1.0-placeholder
 doi: 10.5281/zenodo.19468484
