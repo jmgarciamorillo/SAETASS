@@ -7,35 +7,34 @@
 
 **Solver for Astroparticle Equation of Transport Analysis in Spherical Symmetry**
 
-A Python library for simulating cosmic-ray transport and acceleration in astrophysical environments using finite volume methods and operator splitting.
+A Python library for simulating cosmic-ray transport in spherically symmetric astrophysical environments using a finite volume method approach.
 
 <br/>
 
 <!-- ─────────────────────── Badges ─────────────────────── -->
 
-[![DOI](https://zenodo.org/badge/1037857186.svg)](https://doi.org/10.5281/zenodo.19468484)<!-- CI & Code Quality -->
-[![CI tests](https://img.shields.io/github/actions/workflow/status/jmgarciamorillo/SAETASS/tests.yml?logo=github&logoColor=white&label=CI%20tests&color=F3AC4B)](https://github.com/jmgarciamorillo/SAETASS/actions)
-[![Codecov Placeholder](https://img.shields.io/badge/coverage-100%25-F3AC4B?logo=codecov&logoColor=white)](https://codecov.io/gh/jmgarciamorillo/SAETASS) <!-- [![codecov](https://img.shields.io/codecov/c/github/jmgarciamorillo/SAETASS?logo=codecov&logoColor=white&color=F3AC4B)](https://codecov.io/gh/jmgarciamorillo/SAETASS) -->
-[![Docs Placeholder](https://img.shields.io/badge/docs-passing-F3AC4B?logo=readthedocs&logoColor=white)](YOUR_DOCS_URL_HERE) <!-- [![Docs](https://img.shields.io/readthedocs/saetass?logo=readthedocs&logoColor=white&color=F3AC4B)](DOCS_URL) -->
-[![PyPI Version Placeholder](https://img.shields.io/badge/PyPI-v0.1.0-F3AC4B?logo=pypi&logoColor=white)](https://pypi.org/project/saetass/) <!-- [![PyPI version](https://img.shields.io/pypi/v/saetass?logo=pypi&logoColor=white&color=F3AC4B)](https://pypi.org/project/saetass/) -->
-[![Python Versions Placeholder](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-F3AC4B?logo=python&logoColor=white)](https://pypi.org/project/saetass/) <!-- [![Python versions](https://img.shields.io/pypi/pyversions/saetass?logo=python&logoColor=white&color=F3AC4B)](https://pypi.org/project/saetass/) -->
-[![Project Status: Active](https://www.repostatus.org/badges/latest/active.svg)](https://www.repostatus.org/#active)
-[![PRs Welcome](https://img.shields.io/badge/PRs-Welcome!-F3AC4B.svg?logo=github&logoColor=white)](CONTRIBUTING.md)
+[![DOI](https://zenodo.org/badge/1037857186.svg)](https://doi.org/10.5281/zenodo.19468484)
+[![CI tests](https://img.shields.io/github/actions/workflow/status/jmgarciamorillo/SAETASS/ci.yml?logo=github&logoColor=white&label=tests)](https://github.com/jmgarciamorillo/SAETASS/actions)
+[![codecov](https://img.shields.io/codecov/c/github/jmgarciamorillo/SAETASS?logo=codecov&logoColor=white)](https://codecov.io/gh/jmgarciamorillo/SAETASS)
+[![Docs](https://img.shields.io/readthedocs/saetass?logo=readthedocs&logoColor=white)](https://saetass.readthedocs.io/en/latest/)
+[![PyPI version](https://img.shields.io/pypi/v/saetass?logo=pypi&logoColor=white&color=007EC6)](https://pypi.org/project/saetass/)<!-- [![Python versions](https://img.shields.io/pypi/pyversions/saetass?logo=python&logoColor=white)](https://pypi.org/project/saetass/) -->
+[![Project Status: Active](https://img.shields.io/badge/project%20status-active-44CC11.svg?logo=github&logoColor=white)](https://www.repostatus.org/#active)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome!-F3AC4B.svg?logo=github&logoColor=white)](CONTRIBUTING.md)
 [![License: BSD-3](https://img.shields.io/badge/license-BSD_3--Clause-F3AC4B.svg?logo=open-source-initiative&logoColor=white)](LICENSE)
-[![Last Commit](https://img.shields.io/github/last-commit/jmgarciamorillo/SAETASS?color=F3AC4B&logo=git&logoColor=white)](https://github.com/jmgarciamorillo/SAETASS/commits/main)
-[![Issues](https://img.shields.io/github/issues/jmgarciamorillo/SAETASS?color=F3AC4B&logo=github&logoColor=white)](https://github.com/jmgarciamorillo/SAETASS/issues)
-[![Stars](https://img.shields.io/github/stars/jmgarciamorillo/SAETASS?color=F3AC4B&logo=github&logoColor=white)](https://github.com/jmgarciamorillo/SAETASS/stargazers)
+[![Last Commit](https://img.shields.io/github/last-commit/jmgarciamorillo/SAETASS?logo=git&logoColor=white)](https://github.com/jmgarciamorillo/SAETASS/commits/main)
+[![Issues](https://img.shields.io/github/issues/jmgarciamorillo/SAETASS?logo=github&logoColor=white)](https://github.com/jmgarciamorillo/SAETASS/issues)
+<!-- [![Stars](https://img.shields.io/github/stars/jmgarciamorillo/SAETASS?logo=github&logoColor=black)](https://github.com/jmgarciamorillo/SAETASS/stargazers) -->
 
 
 </div>
 
 ## Overview
 
-**SAETASS** numerically solves the **astroparticle transport equation** in one-dimensional spherical symmetry; this is, the fundamental equation governing the propagation and energy losses of energetic particles within astrophysical environments such as stellar wind bubbles.
+**SAETASS** numerically solves the **astroparticle transport equation** in spherically symmetric astrophysical environments; this is, the fundamental equation governing the propagation and energy losses of energetic particles within astrophysical environments such as stellar wind bubbles.
 
 The package decomposes the full transport equation into independent physical operators: **diffusion**, **advection**, **energy losses** and **source**. It evolves them via mathematically robust **operator-splitting schemes**. Each operator is implemented as a dedicated finite-volume solver, ensuring modularity, testability and physical transparency.
 
-> **For comprehensive documentation**, visit the [SAETASS Documentation](DOCS_URL_PLACEHOLDER).
+> **For comprehensive documentation**, visit the [SAETASS Documentation](https://saetass.readthedocs.io/en/latest/).
 
 
 <div align="center">
@@ -62,20 +61,20 @@ A quick simple installation to get started using SAETASS can be simply done via 
 pip install saetass
 ```
 
-This will install the latest stable version of SAETASS from [PyPI](PYPI_URL_PLACEHOLDER).
+This will install the latest stable version of SAETASS from [PyPI](https://pypi.org/project/saetass/).
 
-> See the full [Installation Guide](INSTALLATION_GUIDE_URL_PLACEHOLDER) for additional installation options and troubleshooting.
+> See the full [Installation Guide](https://saetass.readthedocs.io/en/latest/installation.html) for additional installation options and troubleshooting.
 
 ## Quickstart
 
-For step-by-step guides to get started with SAETASS, check the [Tutorials](TUTORIALS_URL_PLACEHOLDER) section of the [documentation](DOCS_URL_PLACEHOLDER).
+For step-by-step guides to get started with SAETASS, check the [Tutorials](https://saetass.readthedocs.io/en/latest/tutorials/index.html) section of the [documentation](https://saetass.readthedocs.io/en/latest/).
 
-For complete, more advanced examples, check the [Examples](EXAMPLES_URL_PLACEHOLDER) section of the [documentation](DOCS_URL_PLACEHOLDER).
+For complete, more advanced examples, check the [Examples](https://saetass.readthedocs.io/en/latest/examples/index.html) section of the [documentation](https://saetass.readthedocs.io/en/latest/).
 
 
 ## Mathematical background
 
-SAETASS solves the following **astroparticle transport equation** for in spherically symmetric geometry:
+SAETASS solves the following **astroparticle transport equation** in spherically symmetric geometry:
 
 $$\frac{\partial f}{\partial t}
     + \frac{1}{r^2}\frac{\partial}{\partial r}\left(r^2 u_\mathrm{w}f\right)
@@ -114,17 +113,17 @@ If you use SAETASS in your research, **please cite the technical paper** to ackn
 }
 ```
 
-<!-- TODO: Uncomment when a Zenodo DOI is assigned -->
-For version-specific citations, you may use the **Zenodo DOI** [10.5281/zenodo.XXXXX](https://doi.org/10.5281/zenodo.XXXXX) citation:
+For software-specific citations, you may use the **Zenodo DOI** [10.5281/zenodo.19468484](https://doi.org/10.5281/zenodo.19468484) citation:
 
 ```bibtex
-@software{PLACEHOLDER_FOR_ZENODO_CITATION,
-  author    = {Garcia-Morillo, J. M.},
-  title     = {SAETASS: Solver for Astroparticle Equation of Transport Analysis in Spherical Symmetry},
-  year      = {2026},
-  publisher = {Zenodo},
-  doi       = {10.5281/zenodo.XXXXX},
-  url       = {https://doi.org/10.5281/zenodo.XXXXX}
+@software{saetass_software,
+  author       = {García-Morillo, José María and Menchiari, Stefano and López-Coto, Rubén},
+  title        = "{SAETASS: Solver for Astroparticle Equation of Transport Analysis in Spherical Symmetry}",
+  month        = apr,
+  year         = 2026,
+  publisher    = {Zenodo},
+  doi          = {10.5281/zenodo.19468484},
+  url          = {https://doi.org/10.5281/zenodo.19468484}
 }
 ```
 
@@ -146,8 +145,8 @@ SAETASS is developed within the [**VHEGA**](https://vhega.iaa.es) research group
 
 <br/>
 
-[![Author](https://img.shields.io/badge/Author-J.%20M.%20Garc%C3%ADa%20Morillo-F3AC4B?logo=github&logoColor=white)](https://github.com/jmgarciamorillo)
-[![Email](https://img.shields.io/badge/Email-jmorillo%40iaa.es-D14836?logo=minutemailer&logoColor=white)](mailto:jmorillo@iaa.es)
+[![Author](https://img.shields.io/badge/Author-J.%20M.%20García--Morillo-FFFFFF?logo=github&logoColor=white)](https://github.com/jmgarciamorillo)
+[![Email](https://img.shields.io/badge/Email-jmorillo%40iaa.es-007EC6?logo=minutemailer&logoColor=white)](mailto:jmorillo@iaa.es)
 [![ORCID](https://img.shields.io/badge/ORCID-0009--0008--5232--349X-a6ce39?logo=orcid&logoColor=white)](https://orcid.org/0009-0008-5232-349X)
 
 </div>
