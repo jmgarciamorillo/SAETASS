@@ -89,7 +89,7 @@ def analytical_steady_state(r_grid, D_0, Q_0, eps):
 
 
 def validation_diffusion_source_steady_state(
-    N=1024,
+    n_r=1024,
     r_end=1.0,
     t_min=0.1,
     t_max=3.0,
@@ -115,13 +115,13 @@ def validation_diffusion_source_steady_state(
     t_finals = np.linspace(t_min, t_max, n_times)
 
     print(
-        f"Running steady-state diffusion-source validation for N={N}, t in [{t_min}, {t_max}] ({n_times} points)"
+        f"Running steady-state diffusion-source validation for n_r={n_r}, t in [{t_min}, {t_max}] ({n_times} points)"
     )
 
-    r_grid = np.linspace(0.0, r_end, N)
+    r_grid = np.linspace(0.0, r_end, n_r)
     # dr = r_grid[1] - r_grid[0]
 
-    f_initial = np.zeros(N)
+    f_initial = np.zeros(n_r)
 
     D_values = D_0 * (r_grid + eps) ** 2
     Q_values = Q_0 * r_grid
@@ -170,9 +170,9 @@ def validation_diffusion_source_steady_state(
             label=r"Relative error: $\mathcal{E}_{L_2}$",
             **quant_style,
         )
-        plt.xlabel(r"Final simulation time: $t_\mathrm{end}$")
+        plt.xlabel(r"Final simulation time: $t_\mathrm{end}$ (a. u.)")
         plt.ylabel(r"Relative error: $\mathcal{E}_{L_2}$")
-        plt.grid(alpha=0.3, which="both")
+        plt.grid(True, which="both")
         conv_fig = plt.gcf()
         plt.show()
 
@@ -223,10 +223,10 @@ def validation_diffusion_source_steady_state(
 
             plt.xlim(0, r_end)
             plt.ylim(ylims)
-            plt.xlabel(r"Radial coordinate: $r$")
-            plt.ylabel(r"Solution: $f(r,t)$")
+            plt.xlabel(r"Radial coordinate: $r$ (a. u.)")
+            plt.ylabel(r"Solution: $f(t,r)$ (a. u.)")
             plt.legend()
-            plt.grid(alpha=0.4)
+            plt.grid()
             plt.tight_layout()
             plt.show()
             last_fig = fig
@@ -273,10 +273,10 @@ def validation_diffusion_source_steady_state(
 
                 plt.xlim(0, r_end)
                 plt.ylim(ylims)
-                plt.xlabel(r"Radial coordinate: $r$")
-                plt.ylabel(r"Solution: $f(r,t)$")
+                plt.xlabel(r"Radial coordinate: $r$ (a. u.)")
+                plt.ylabel(r"Solution: $f(t,r)$ (a. u.)")
                 plt.legend()
-                plt.grid(alpha=0.4)
+                plt.grid()
                 plt.tight_layout()
                 plt.show()
                 target_path_pdf = os.path.join(
@@ -305,7 +305,7 @@ def validation_diffusion_source_steady_state(
 if __name__ == "__main__":
     # iterate final times from 0.1 to 2.0 (10 points)
     validation_diffusion_source_steady_state(
-        N=8192,
+        n_r=8192,
         r_end=1.0,
         t_min=0.1,
         t_max=1.7,

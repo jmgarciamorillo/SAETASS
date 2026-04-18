@@ -86,7 +86,7 @@ def validation_time_dependent_advection(
         print(f"--- Running temporal resolution Nt={Nt} ---")
         errors = []
         for N in resolutions:
-            print(f"  Running N={N}")
+            print(f"  Running n_r={N}")
             r_grid = np.linspace(0.0, r_end, N)
             dr = r_grid[1] - r_grid[0]
 
@@ -148,11 +148,11 @@ def validation_time_dependent_advection(
         for idx, Nt in enumerate(t_steps_list):
             errors = np.array(all_errors[Nt])
             style = get_quantitative_style(step_idx=idx, total_steps=len(t_steps_list))
-            plt.loglog(res, errors, label=rf"$N_t={Nt}$", **style)
+            plt.loglog(res, errors, label=rf"$n_t={Nt}$", **style)
 
-        plt.xlabel("Number of radial cells: $N$")
+        plt.xlabel("Number of radial cells: $n_r$")
         plt.ylabel(r"Relative error: $\mathcal{E}_{L_2}$")
-        plt.grid(alpha=0.3, which="both")
+        plt.grid(which="both")
         plt.legend()
         conv_fig = plt.gcf()
         plt.show()
@@ -200,10 +200,10 @@ def validation_time_dependent_advection(
             add_time_colorbar(fig, plt.gca(), t_min=snap_times[0], t_max=snap_times[-1])
             plt.xlim(0, r_end)
             plt.ylim(ylims)
-            plt.xlabel(r"Radial coordinate: $r$")
-            plt.ylabel(r"Solution: $f(r,t)$")
+            plt.xlabel(r"Radial coordinate: $r$ (a. u.)")
+            plt.ylabel(r"Solution: $f(t,r)$ (a. u.)")
             plt.legend()
-            plt.grid(alpha=0.4)
+            plt.grid()
             plt.tight_layout()
             plt.show()
             last_fig = fig
