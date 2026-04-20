@@ -361,10 +361,10 @@ class EnergyLossCalculator:
         E_dot_coulomb : u.Quantity
             Energy loss rate with shape (len(E_grid), len(r_grid)) in GeV/s.
         """
-        if self.particle_species == "hadronic":
-            if n_e is None:
-                n_e = self.n_gas.to(u.cm**-3)
+        if n_e is None:
+            n_e = self.n_gas.to(u.cm**-3)
 
+        if self.particle_species == "hadronic":
             x_m = (3 * np.sqrt(np.pi) / 4) ** (1 / 3) * np.sqrt(
                 2 * const.k_B * T_gas / (const.m_e * const.c**2)
             ).decompose().value
@@ -412,7 +412,7 @@ class EnergyLossCalculator:
                             * self.r_e
                             * const.hbar**2
                             * const.c**2
-                            * self.n_gas[None, :]
+                            * n_e[None, :]
                         )
                     ).decompose()
                 )
@@ -423,7 +423,7 @@ class EnergyLossCalculator:
             prefactor = -2 * np.pi * self.r_e**2 * const.c * const.m_e * const.c**2
 
             E_dot_coulomb = (
-                prefactor * (self.n_gas[None, :] / self.beta[:, None]) * ln_term
+                prefactor * (n_e[None, :] / self.beta[:, None]) * ln_term
             ).to(u.GeV / u.s)
 
         self._E_dot_components["coulomb"] = E_dot_coulomb.to(u.GeV / u.s)

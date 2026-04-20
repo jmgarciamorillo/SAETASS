@@ -83,13 +83,13 @@ class BubbleProfileCalculator:
     def _compute_kinematics(self):
         """Dispatch the kinematics computation based on the model."""
         if self.model in [BubbleModel.WEAVER77, BubbleModel.MORLINO21]:
-            self._compute_Weaver7777_kinematics()
+            self._compute_Weaver77_kinematics()
         else:
             raise NotImplementedError(
                 f"Kinematics for model {self.model} are not implemented."
             )
 
-    def _compute_Weaver7777_kinematics(self):
+    def _compute_Weaver77_kinematics(self):
         """
         Compute baseline parameters for Weaver77/Morlino21 models from wind properties.
         Expected kwargs: L_wind, M_dot, rho_0, t_b
