@@ -44,8 +44,8 @@ plt.rcParams.update(
         "text.usetex": True,
         "font.family": "serif",
         "font.size": 20,
-        "axes.labelsize": 20,
-        "axes.titlesize": 22,
+        "axes.labelsize": 24,
+        "axes.titlesize": 24,
         "legend.fontsize": 14,
         "legend.title_fontsize": 16,
         "xtick.labelsize": 18,
@@ -125,7 +125,7 @@ def plot_simulation_step(
         is_last = i == len(stored_curves[1:]) - 1
         label = f"$t = {t_val:.1f}$ Myr" if is_last else None
         ls = "-" if is_last else "--"
-        lw = 2.0 if is_last else 1.0
+        lw = 3.0 if is_last else 2.0
 
         ax.semilogy(
             r,
@@ -141,7 +141,7 @@ def plot_simulation_step(
         r,
         f_theoretical,
         "k--",
-        lw=1.5,
+        lw=2.5,
         label=("Steady state" if col_idx == 0 else None),
     )
 
@@ -150,14 +150,14 @@ def plot_simulation_step(
         R_TS,
         color="gray",
         linestyle=":",
-        linewidth=1.5,
+        linewidth=2.5,
         label=r"$R_\mathrm{TS}$" if col_idx == 0 else None,
     )
     ax.axvline(
         R_b,
         color="gray",
         linestyle="-.",
-        linewidth=1.5,
+        linewidth=2.5,
         label=r"$R_\mathrm{B}$" if col_idx == 0 else None,
     )
 
@@ -198,7 +198,7 @@ def finalize_and_save_figure(fig, gs, diffusion_models):
             cmap=diff_props["cmap"], norm=plt.Normalize(vmin=0.0, vmax=3.0)
         )
         cbar = fig.colorbar(sm, cax=cbar_ax)
-        cbar.set_label(r"Time: $t$ (Myr)", labelpad=20)
+        cbar.set_label(r"Time: $t$ (Myr)", labelpad=20, fontsize=24)
         cbar.set_ticks([0.0, 0.5, 1.0, 1.5, 2.0, 2.5])
 
     # Removing layout adjustment padding to share axes perfectly
