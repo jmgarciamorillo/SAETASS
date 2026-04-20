@@ -238,8 +238,8 @@ def validation_diffusion_source_steady_state(
                 os.path.join(os.path.dirname(__file__), "..", "figures")
             )
             os.makedirs(out_dir, exist_ok=True)
-            # instead of saving the last-run figure, save the figure for t_end=0.7
-            target_t = 0.7
+            # instead of saving the last-run figure, save the figure for t_end=1.3
+            target_t = 1.3
             # find the recorded run closest to target_t
             rec_target = min(all_results, key=lambda r: abs(r["t_final"] - target_t))
             try:
@@ -314,6 +314,6 @@ if __name__ == "__main__":
         Q_0=4.0,
         eps=0.1,
         t_steps=10000,
-        sample_count=5,
+        sample_count=7,
         plot_results=True,
     )
