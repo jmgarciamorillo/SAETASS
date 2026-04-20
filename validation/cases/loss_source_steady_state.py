@@ -91,7 +91,7 @@ def compute_relative_L2(numerical, analytical, mask=None):
 
 
 def validation_loss_source_steady_state(
-    N=300,
+    n_r=300,
     p_min=1.0,
     p_max=1000.0,
     p0=1.0,
@@ -112,9 +112,9 @@ def validation_loss_source_steady_state(
     compares the numerical final state with the analytical steady state.
     Produces temporal-evolution plots (sampled snapshots) and a residuals-vs-time plot.
     """
-    p_grid = np.logspace(np.log10(p_min), np.log10(p_max), N)
+    p_grid = np.logspace(np.log10(p_min), np.log10(p_max), n_r)
 
-    f_initial = np.zeros(N)
+    f_initial = np.zeros(n_r)
 
     # define source and loss rates following LossValidation1.py
     Q_values = Q0 * (p_grid / p0) ** (-alpha)
@@ -141,7 +141,7 @@ def validation_loss_source_steady_state(
     all_results = []
 
     print(
-        f"Running loss+source steady-state validation on p-grid N={N}, p in [{p_min},{p_max}]"
+        f"Running loss+source steady-state validation on p-grid n_r={n_r}, p in [{p_min},{p_max}]"
     )
 
     for t_final in t_finals:
@@ -183,9 +183,9 @@ def validation_loss_source_steady_state(
             label=r"Relative error: $\mathcal{E}_{L_2}$",
             **quant_style,
         )
-        plt.xlabel(r"Final simulation time: $t_\mathrm{end}$")
+        plt.xlabel(r"Final simulation time: $t_\mathrm{end}$ (a. u.)")
         plt.ylabel(r"Relative error: $\mathcal{E}_{L_2}$")
-        plt.grid(alpha=0.3, which="both")
+        plt.grid(True, which="both")
         conv_fig = plt.gcf()
         plt.show()
         # save residuals/convergence figure
@@ -221,7 +221,7 @@ def validation_loss_source_steady_state(
             snap_times = rec.get("snap_times", [])
             ana_ = rec["ana"]
 
-            fig = plt.figure(figsize=(6, 4))
+            fig = plt.figure(figsize=(9, 6))
             for idx, (s, t) in enumerate(zip(snapshots, snap_times)):
                 is_initial = idx == 0
                 is_final = idx == len(snapshots) - 1
@@ -232,9 +232,7 @@ def validation_loss_source_steady_state(
                     total_steps=len(snapshots),
                 )
                 label = (
-                    "Initial"
-                    if is_initial
-                    else ("Numerical (final)" if is_final else None)
+                    None if is_initial else ("Numerical (final)" if is_final else None)
                 )
                 plt.loglog(p, (p**5) * np.maximum(s, 1e-300), label=label, **style)
 
@@ -250,10 +248,10 @@ def validation_loss_source_steady_state(
 
             plt.xlim(p[0], p[-1])
             plt.ylim(1e-2, 1)
-            plt.xlabel(r"Momentum coordinate: $p$")
-            plt.ylabel(r"Spectrum: $p^5 f(p,t)$")
-            plt.legend()
-            plt.grid(alpha=0.4, which="both")
+            plt.xlabel(r"Momentum coordinate: $p$ (a. u.)")
+            plt.ylabel(r"Spectrum: $p^5 f(t,p)$ (a. u.)")
+            plt.legend(loc="lower left")
+            plt.grid(False)
             plt.tight_layout()
             # store the figure object so we can save exactly the same one later
             try:
@@ -287,7 +285,7 @@ def validation_loss_source_steady_state(
             else:
                 # fallback: re-create the plot (older behavior)
                 try:
-                    fig_target = plt.figure(figsize=(6, 4))
+                    fig_target = plt.figure(figsize=(9, 6))
                     p = rec_target["p_grid"]
                     snapshots = rec_target.get("snapshots", [])
                     snap_times = rec_target.get("snap_times", [])
@@ -320,10 +318,10 @@ def validation_loss_source_steady_state(
                     )
 
                     plt.xlim(p[0], p[-1])
-                    plt.xlabel(r"Momentum coordinate: $p$")
-                    plt.ylabel(r"Spectrum: $p^5 f(p,t)$")
-                    plt.legend()
-                    plt.grid(alpha=0.4, which="both")
+                    plt.xlabel(r"Momentum coordinate: $p$ (a. u.)")
+                    plt.ylabel(r"Spectrum: $p^5 f(t,p)$ (a. u.)")
+                    plt.legend(loc="lower left")
+                    plt.grid(False)
                     try:
                         plt.ylim(ymin, ymax)
                     except Exception:
@@ -339,7 +337,7 @@ def validation_loss_source_steady_state(
 
 if __name__ == "__main__":
     validation_loss_source_steady_state(
-        N=1024,
+        n_r=1024,
         p_min=1.0,
         p_max=1000.0,
         p0=1.0,

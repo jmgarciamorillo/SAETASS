@@ -108,7 +108,7 @@ def validation_pointlike_source(
     all_results = []
 
     for N in resolutions:
-        print(f"Running N={N}")
+        print(f"Running n_r={N}")
         r_grid = np.linspace(0.0, r_end, N)
         dr = r_grid[1] - r_grid[0]
 
@@ -229,12 +229,12 @@ def validation_pointlike_source(
                 y_max_log = pos_vals.max()
                 plt.ylim(y_min_log * 0.8, y_max_log * 1.2)
 
-            plt.xlabel(r"Radial coordinate: $r$")
-            plt.ylabel(r"Solution: $f(r,t)$")
+            plt.xlabel(r"Radial coordinate: $r$ (a. u.)")
+            plt.ylabel(r"Solution: $f(t,r)$ (a. u.)")
             plt.ylim([1e-3, 1e1])
             plt.xlim([source_r_min, r_end])
-            plt.grid(alpha=0.4, which="both")
-            plt.legend()
+            plt.grid(False)
+            plt.legend(loc="upper right")
             plt.tight_layout()
             plt.show()
             last_log_fig = fig_log
@@ -246,10 +246,10 @@ def validation_pointlike_source(
         quant_style = get_quantitative_style()
         slope_errors = np.abs(np.array(slopes) + 2.0)
         plt.loglog(res, slope_errors, label=r"$|\alpha - (-2)|$", **quant_style)
-        plt.xlabel("Number of radial cells: $N$")
+        plt.xlabel("Number of radial cells: $n_r$")
         plt.ylabel(r"Error: $|\alpha - \alpha_{\mathrm{theo}}|$")
 
-        plt.grid(alpha=0.3, which="both")
+        plt.grid(which="both")
         conv_fig = plt.gcf()
         plt.show()
 

@@ -62,10 +62,10 @@ def run_advection_simulation(r_grid, t_grid, f_initial, solver_params, sample_co
 def analytical_spherical_advection(r_grid, f_initial_func, v_const, t_final):
     """
     Analytical solution for spherical radial advection (particles advected outward
-    at constant velocity v_const). For a scalar field f(r,t) representing a
+    at constant velocity v_const). For a scalar field f(t,r) representing a
     density per unit volume (or per radial coordinate with spherical dilution
     accounted by factor r^2), the transported profile obeys:
-        f(r,t) = (r_shifted / r)**2 * f_initial(r_shifted)
+        f(t,r) = (r_shifted / r)**2 * f_initial(r_shifted)
     where r_shifted = r - v * t and valid for r_shifted > 0 and r > 0.
 
     We avoid r=0 by returning 0 there.
@@ -117,7 +117,7 @@ def validation_sweep(
     all_results = []
 
     for N in resolutions:
-        print(f"Running N={N}")
+        print(f"Running n_r={N}")
         r_grid = np.linspace(0.0, r_end, N)
         dr = r_grid[1] - r_grid[0]
 
@@ -200,9 +200,9 @@ def validation_sweep(
         #     yfit = np.exp(coeffs[1]) * xfit**slope
         #     plt.loglog(xfit, yfit, "--", label=f"slope {slope:.2f}")
 
-        plt.xlabel("Number of radial cells: $N$")
+        plt.xlabel("Number of radial cells: $n_r$")
         plt.ylabel(r"Relative error: $\mathcal{E}_{L_2}$")
-        plt.grid(alpha=0.3, which="both")
+        plt.grid(which="both")
         # capture convergence figure
         conv_fig = plt.gcf()
         plt.show()
@@ -245,10 +245,10 @@ def validation_sweep(
 
             plt.xlim(0, r_end)
             plt.ylim(ylims)
-            plt.xlabel("Radial coordinate: $r$")
-            plt.ylabel("Solution: $f(r)$")
+            plt.xlabel("Radial coordinate: $r$ (a. u.)")
+            plt.ylabel("Solution: $f(t,r)$ (a. u.)")
             plt.legend()
-            plt.grid(alpha=0.4)
+            plt.grid()
             plt.tight_layout()
             plt.show()
             last_fig = fig

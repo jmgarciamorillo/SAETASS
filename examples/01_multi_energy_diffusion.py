@@ -24,6 +24,7 @@ from matplotlib.gridspec import GridSpec
 
 # 0. Import SAETASS modules
 from saetass import Grid, Solver, State
+from saetass.cli.palette import SAETASS_BLUE, SAETASS_GREEN, SAETASS_ORANGE
 from saetass.utils.bubble_profiles import BubbleProfileCalculator
 
 # 0.1 Import end
@@ -43,8 +44,8 @@ plt.rcParams.update(
         "text.usetex": True,
         "font.family": "serif",
         "font.size": 20,
-        "axes.labelsize": 20,
-        "axes.titlesize": 22,
+        "axes.labelsize": 24,
+        "axes.titlesize": 24,
         "legend.fontsize": 14,
         "legend.title_fontsize": 16,
         "xtick.labelsize": 18,
@@ -53,31 +54,35 @@ plt.rcParams.update(
 )
 
 
-def get_truncated_cmap(cmap, min_val=0.25, max_val=1.0):
-    """Truncate a colormap to avoid its lightest colors."""
-    colors = cmap(np.linspace(min_val, max_val, 256))
-    return mcolors.LinearSegmentedColormap.from_list(f"trunc_{cmap.name}", colors)
+def get_alpha_cmap(hex_color):
+    """Create a colormap that builds opacity from 0.2 to 1.0 of the given color."""
+    color_rgba = mcolors.to_rgba(hex_color)
+    color_low_alpha = (color_rgba[0], color_rgba[1], color_rgba[2], 0.2)
+    color_high_alpha = (color_rgba[0], color_rgba[1], color_rgba[2], 1.0)
+    return mcolors.LinearSegmentedColormap.from_list(
+        "custom_cmap", [color_low_alpha, color_high_alpha]
+    )
 
 
 # Define diffusion models with their properties
 diffusion_models = {
     "kolmogorov": {
         "name": "Kolmogorov",
-        "cmap": get_truncated_cmap(plt.cm.Reds),
+        "cmap": get_alpha_cmap(SAETASS_ORANGE),
         "row": 0,
         "extra_num_timesteps": 0,
     },
     "kraichnan": {
         "name": "Kraichnan",
-        "cmap": get_truncated_cmap(plt.cm.Greens),
+        "cmap": get_alpha_cmap(SAETASS_GREEN),
         "row": 1,
         "extra_num_timesteps": 4000,
     },
     "bohm": {
         "name": "Bohm",
-        "cmap": get_truncated_cmap(plt.cm.Blues),
+        "cmap": get_alpha_cmap(SAETASS_BLUE),
         "row": 2,
-        "extra_num_timesteps": 100000,
+        "extra_num_timesteps": 140000,
     },
 }
 
@@ -120,7 +125,7 @@ def plot_simulation_step(
         is_last = i == len(stored_curves[1:]) - 1
         label = f"$t = {t_val:.1f}$ Myr" if is_last else None
         ls = "-" if is_last else "--"
-        lw = 2.0 if is_last else 1.0
+        lw = 3.0 if is_last else 2.0
 
         ax.semilogy(
             r,
@@ -136,7 +141,7 @@ def plot_simulation_step(
         r,
         f_theoretical,
         "k--",
-        lw=1.5,
+        lw=2.5,
         label=("Steady state" if col_idx == 0 else None),
     )
 
@@ -145,29 +150,30 @@ def plot_simulation_step(
         R_TS,
         color="gray",
         linestyle=":",
-        linewidth=1.5,
+        linewidth=2.5,
         label=r"$R_\mathrm{TS}$" if col_idx == 0 else None,
     )
     ax.axvline(
         R_b,
         color="gray",
         linestyle="-.",
-        linewidth=1.5,
+        linewidth=2.5,
         label=r"$R_\mathrm{B}$" if col_idx == 0 else None,
     )
 
     # Set plot limits and labels
     ax.set_xlim(0, 250)
+    ax.set_xticks([0, 50, 100, 150, 200])
     ax.set_ylim(1e-4, 2)
 
-    # Add labels only to the left and bottom subplots
+    # Identify boundary positions to place labels, let label_outer() handle internally
     if col_idx == 0:
-        ax.set_ylabel(r"Norm. dist.: $f(r,t)/f_\mathrm{TS}$")
-    else:
-        ax.set_yticklabels([])  # Remove yticks from internal subplots
+        ax.set_ylabel(r"Norm. dist.: $f(t,r)/f_\mathrm{TS}$")
 
     if diff_props["row"] == 2:
         ax.set_xlabel(r"Radial coordinate: $r$ (pc)")
+
+    ax.label_outer()
 
     # Add energy to top subplots
     if diff_props["row"] == 0:
@@ -189,13 +195,15 @@ def finalize_and_save_figure(fig, gs, diffusion_models):
     for diff_model_name, diff_props in diffusion_models.items():
         cbar_ax = fig.add_subplot(gs[diff_props["row"], 4])
         sm = plt.cm.ScalarMappable(
-            cmap=diff_props["cmap"], norm=plt.Normalize(vmin=0.0, vmax=1.2)
+            cmap=diff_props["cmap"], norm=plt.Normalize(vmin=0.0, vmax=3.0)
         )
         cbar = fig.colorbar(sm, cax=cbar_ax)
-        cbar.set_label(r"Time: $t$ (Myr)", rotation=270, labelpad=20)
+        cbar.set_label(r"Time: $t$ (Myr)", labelpad=20, fontsize=24)
+        cbar.set_ticks([0.0, 0.5, 1.0, 1.5, 2.0, 2.5])
 
+    # Removing layout adjustment padding to share axes perfectly
     plt.tight_layout()
-    plt.subplots_adjust(hspace=0.3, wspace=0.1)
+    plt.subplots_adjust(hspace=0, wspace=0)
 
     output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "outputs")
     os.makedirs(output_dir, exist_ok=True)
@@ -212,29 +220,40 @@ def finalize_and_save_figure(fig, gs, diffusion_models):
 if __name__ == "__main__":
     fig, gs = setup_figure()
     sample_count = 12
+    base_ax = None
 
     for diff_model_name, diff_props in diffusion_models.items():
         for col_idx, energy in enumerate(energies):
             print(f"Processing {diff_model_name} with E = {energy} GeV")
-            ax = fig.add_subplot(gs[diff_props["row"], col_idx])
+
+            if base_ax is None:
+                ax = fig.add_subplot(gs[diff_props["row"], col_idx])
+                base_ax = ax
+            else:
+                ax = fig.add_subplot(
+                    gs[diff_props["row"], col_idx], sharex=base_ax, sharey=base_ax
+                )
 
             # 1. Generate Physical Setup Parameters
             # Calculate number of timesteps
             E_k = energy * u.GeV
             num_timesteps = (
-                int(6000 + 6000 * np.log10(energy) + diff_props["extra_num_timesteps"])
+                int(6000 + 9000 * np.log10(energy) + diff_props["extra_num_timesteps"])
                 if diff_model_name != "bohm"
                 else 120000
             )  # Special care needs to be taken in num_timesteps choice due to stability contraints of this specific system
 
             # We use the new BubbleProfileCalculator from saetass.utils.bubble_profiles
-            t_b = 1 * u.Myr
+            t_b = 3 * u.Myr
+            L_wind = 2 * 1e38 * u.erg / u.s
+            M_dot = 1e-4 * const.M_sun / u.yr
+            rho_0 = 20 * const.m_p / u.cm**3
             calculator = BubbleProfileCalculator(
-                r_grid=np.linspace(0.0, 300.0, 800) * u.pc,
+                r_grid=np.linspace(0.0, 300.0, 600) * u.pc,
                 model="Morlino21",
-                L_wind=1e38 * u.erg / u.s,
-                M_dot=1e-4 * const.M_sun / u.yr,
-                rho_0=const.m_p / u.cm**3,
+                L_wind=L_wind,
+                M_dot=M_dot,
+                rho_0=rho_0,
                 t_b=t_b,
             )
 
@@ -245,7 +264,15 @@ if __name__ == "__main__":
             r = setup["r_grid"].to("pc").value
             R_TS = setup["R_TS"]
             R_b = setup["R_b"]
-            t_end = 1.2 * t_b  # 1 Myr from t_b
+            print(f"R_TS = {R_TS}")
+            print(f"R_b = {R_b}")
+            print(f"L_wind = {L_wind}")
+            print(f"M_dot = {M_dot}")
+            t_adv = (4 * R_TS / 3 * np.sqrt(M_dot / (2 * L_wind))) * (
+                (R_b**3) / (R_TS**3) - 1
+            )
+            print(f"t_adv = {t_adv.to('Myr')}")
+            t_end = 3.0  # 3.0 Myr in dimensionless scale
 
             # 2. Create Solver arguments
             t_grid = np.linspace(0, t_end, num_timesteps)
@@ -275,7 +302,7 @@ if __name__ == "__main__":
             solver = Solver(
                 grid=grid,
                 state=State(f_values),
-                problem_type="advection-diffusion-source",
+                problem_type="advection-source-diffusion",
                 operator_params=op_params,
                 substeps={"advection": 1, "diffusion": 1, "source": 1},
             )
