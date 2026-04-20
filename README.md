@@ -12,8 +12,7 @@ A Python library for simulating cosmic-ray transport in spherically symmetric as
 <br/>
 
 <!-- ─────────────────────── Badges ─────────────────────── -->
-
-[![DOI](https://zenodo.org/badge/1037857186.svg)](https://doi.org/10.5281/zenodo.19468484)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19468484.svg)](https://doi.org/10.5281/zenodo.19468484)
 [![CI tests](https://img.shields.io/github/actions/workflow/status/jmgarciamorillo/SAETASS/ci.yml?logo=github&logoColor=white&label=tests)](https://github.com/jmgarciamorillo/SAETASS/actions)
 [![codecov](https://img.shields.io/codecov/c/github/jmgarciamorillo/SAETASS?logo=codecov&logoColor=white)](https://codecov.io/gh/jmgarciamorillo/SAETASS)
 [![Docs](https://img.shields.io/readthedocs/saetass?logo=readthedocs&logoColor=white)](https://saetass.readthedocs.io/en/latest/)
