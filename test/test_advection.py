@@ -209,6 +209,70 @@ class Test2DEnergyRadiusAdvection:
         assert np.allclose(f_final_low_E, f_final_high_E, atol=1e-7)
 
 
+class TestAdvectionSolverExceptionsAndEdges:
+    def test_invalid_parameters(self):
+        grid = Grid(
+            r_centers=np.array([1.0, 2.0]), is_p_log=False, t_grid=np.array([0.0, 1.0])
+        )
+        state = State(np.ones((2,)))
+        # missing cfl
+        params = {
+            "v_centers": np.array([[1.0, 1.0]]),
+            "limiter": "minmod",
+            "order": 1,
+            "inflow_value_U": 0.0,
+        }
+        with pytest.raises(ValueError, match="cfl must be"):
+            Solver(
+                grid=grid,
+                state=state,
+                problem_type="advection",
+                operator_params={"advection": params},
+                substeps={"advection": 1},
+            )
+
+        # invalid limiter
+        params["cfl"] = 0.5
+        params["limiter"] = "invalid_limiter"
+        with pytest.raises(ValueError, match="limiter must be"):
+            Solver(
+                grid=grid,
+                state=state,
+                problem_type="advection",
+                operator_params={"advection": params},
+                substeps={"advection": 1},
+            )
+
+    def test_other_limiters(self):
+        grid = Grid(
+            r_centers=np.array([1.0, 3.0]),
+            p_centers=np.array([1.0]),
+            is_p_log=False,
+            t_grid=np.array([0.0, 1.0]),
+        )
+        f_init = np.array([[1.0, 2.0]])
+        state = State(f_init)
+
+        for limiter in ["vanleer", "mc"]:
+            params = {
+                "v_centers": np.array([[1.0, 1.0]]),
+                "limiter": limiter,
+                "order": 2,
+                "cfl": 0.5,
+                "inflow_value_U": 0.0,
+            }
+            solver = Solver(
+                grid=grid,
+                state=state.clone(),
+                problem_type="advection",
+                operator_params={"advection": params},
+                substeps={"advection": 1},
+            )
+            solver.step(1)
+            # Just test it executes successfully
+            assert np.any(solver.state.f)
+
+
 if __name__ == "__main__":
     # This block runs only when the script is executed directly.
     # It calls pytest and passes the --plot flag to enable plotting.
