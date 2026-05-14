@@ -64,9 +64,6 @@ class EnergyLossCalculator:
     ):
         # Validate parameters
         self._check_parameters(E_grid, r_grid, n_gas, particle)
-        self.E_grid = E_grid.to(u.GeV)
-        self.r_grid = r_grid.to(u.pc)
-        self.n_gas = n_gas.to(u.cm**-3)
 
         # Precompute kinematic quantities
         self._compute_kinematics()
@@ -114,24 +111,30 @@ class EnergyLossCalculator:
         particle: Particle | str,
     ):
         """Validate input parameters and convert to proper units if needed."""
-        if isinstance(E_grid, u.Quantity) and not E_grid.unit.is_equivalent(u.GeV):
-            raise ValueError("E_grid must have units equivalent to GeV")
+        if isinstance(E_grid, u.Quantity):
+            if not E_grid.unit.is_equivalent(u.GeV):
+                raise ValueError("E_grid must have units equivalent to GeV")
+            self.E_grid = E_grid.to(u.GeV)
         elif isinstance(E_grid, np.ndarray):
-            E_grid = E_grid * u.GeV  # Assume GeV if no units provided
+            self.E_grid = E_grid * u.GeV  # Assume GeV if no units provided
         else:
             raise TypeError("E_grid must be an astropy Quantity or numpy ndarray")
 
-        if isinstance(r_grid, u.Quantity) and not r_grid.unit.is_equivalent(u.pc):
-            raise ValueError("r_grid must have units equivalent to pc")
+        if isinstance(r_grid, u.Quantity):
+            if not r_grid.unit.is_equivalent(u.pc):
+                raise ValueError("r_grid must have units equivalent to pc")
+            self.r_grid = r_grid.to(u.pc)
         elif isinstance(r_grid, np.ndarray):
-            r_grid = r_grid * u.pc  # Assume pc if no units provided
+            self.r_grid = r_grid * u.pc  # Assume pc if no units provided
         else:
             raise TypeError("r_grid must be an astropy Quantity or numpy ndarray")
 
-        if isinstance(n_gas, u.Quantity) and not n_gas.unit.is_equivalent(u.cm**-3):
-            raise ValueError("n_gas must have units equivalent to cm^-3")
+        if isinstance(n_gas, u.Quantity):
+            if not n_gas.unit.is_equivalent(u.cm**-3):
+                raise ValueError("n_gas must have units equivalent to cm^-3")
+            self.n_gas = n_gas.to(u.cm**-3)
         elif isinstance(n_gas, np.ndarray):
-            n_gas = n_gas * u.cm**-3  # Assume cm^-3 if no units provided
+            self.n_gas = n_gas * u.cm**-3  # Assume cm^-3 if no units provided
         else:
             raise TypeError("n_gas must be an astropy Quantity or numpy ndarray")
 
