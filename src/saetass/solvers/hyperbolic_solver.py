@@ -472,8 +472,8 @@ class HyperbolicSolver(SubSolver, ABC):
         F_centers = V_centers * U  # flux at cell centers (for predictor step)
         slopes_F = self._compute_slopes(F_centers)
         # 3) predictor to t^{n+1/2}
-        # ULh, URh = self._predictor_states(UL, UR, V_centers, slopes_U, dt)
-        ULh, URh = self._predictor_states_v2(UL, UR, slopes_F, dt)
+
+        ULh, URh = self._predictor_states(UL, UR, slopes_F, dt)
         # 4) compute V at internal faces and fluxes by upwind using sign of V_face
         flux_int = np.where(
             V_faces >= 0.0, V_faces * ULh[..., 1:-1], V_faces * URh[..., 1:-1]
@@ -484,7 +484,6 @@ class HyperbolicSolver(SubSolver, ABC):
         F[..., 0], F[..., -1] = self._boundary_fluxes(
             U, ULh, URh, V_centers, slopes_U, dt
         )
-        # F[..., 0], F[..., -1] = self._boundary_fluxes_v2(ULh, URh, V_faces)
 
         return F
 
@@ -593,8 +592,7 @@ class HyperbolicSolver(SubSolver, ABC):
         self,
         UL: np.ndarray,
         UR: np.ndarray,
-        V_centers: np.ndarray,
-        slopes: np.ndarray,
+        slopes_F: np.ndarray,
         dt: float,
     ) -> tuple[np.ndarray, np.ndarray]:
         """
@@ -604,27 +602,10 @@ class HyperbolicSolver(SubSolver, ABC):
         """
         ULh = UL.copy()
         URh = UR.copy()
-        if self.N > 1:
-            # UL* (state coming from cell i) uses v_i and slope_i
-            ULh[..., 1:] -= 0.5 * dt * V_centers * slopes
-            # UR* (state coming from cell i-1) uses v_{i-1} and slope_{i-1}
-            URh[..., :-1] -= 0.5 * dt * V_centers * slopes
-
-        return ULh, URh
-
-    def _predictor_states_v2(
-        self,
-        UL,
-        UR,
-        slopes_F,
-        dt,
-    ):
-        ULh = UL.copy()
-        URh = UR.copy()
 
         if self.N > 1:
-            ULh[..., 1:] -= 0.5 * dt * slopes_F
-            URh[..., :-1] -= 0.5 * dt * slopes_F
+            ULh[..., 1:] -= 0.5 * dt * slopes_F  # UL* (state coming from right cell)
+            URh[..., :-1] -= 0.5 * dt * slopes_F  # UR* (state coming from left cell)
 
         return ULh, URh
 
@@ -678,16 +659,6 @@ class HyperbolicSolver(SubSolver, ABC):
             self.inflow_value_U,
         )
 
-        return flux_L, flux_R
-
-    def _boundary_fluxes_v2(self, ULh, URh, V_faces):
-
-        flux_L = np.where(V_faces[..., 0] >= 0.0, 0.0, V_faces[..., 0] * URh[..., 0])
-        flux_R = np.where(
-            V_faces[..., -1] >= 0.0,
-            V_faces[..., -1] * ULh[..., -1],
-            self.inflow_value_U * V_faces[..., -1],
-        )
         return flux_L, flux_R
 
     @abstractmethod

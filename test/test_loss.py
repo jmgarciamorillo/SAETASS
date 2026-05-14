@@ -267,5 +267,121 @@ class TestLossSolverOrder:
         )
 
 
+class TestLossSolverExceptionsAndEdges:
+    def test_missing_v_centers_for_adiabatic(self):
+        grid = Grid(
+            p_centers=np.array([5.0, 10.0]), is_p_log=False, t_grid=np.array([0.0, 1.0])
+        )
+        params = {"P_dot": np.array([-1.0, -1.0]), "adiabatic_losses": True}
+        state = State(np.ones(2))
+        with pytest.raises(ValueError, match="v_centers_physical must be provided"):
+            Solver(
+                grid=grid,
+                state=state,
+                problem_type="loss",
+                operator_params={"loss": params},
+                substeps={"loss": 1},
+            )
+
+    def test_callable_P_dot(self):
+        grid = Grid(
+            p_centers=np.array([50.0, 100.0]),
+            is_p_log=True,
+            t_grid=np.array([0.0, 1.0]),
+        )
+
+        def p_dot_func(t):
+            return np.array([-0.1 * t, -0.1 * t])
+
+        params = {
+            "P_dot": p_dot_func,
+            "adiabatic_losses": False,
+            "limiter": "minmod",
+            "order": 1,
+            "cfl": 0.5,
+            "inflow_value_f": 0.0,
+        }
+        state = State(np.ones(2))
+        solver = Solver(
+            grid=grid,
+            state=state,
+            problem_type="loss",
+            operator_params={"loss": params},
+            substeps={"loss": 1},
+        )
+        assert solver.operator_subsolvers[0] is not None
+
+    def test_2D_and_adiabatic(self):
+        grid = Grid(
+            r_centers=np.array([1.0, 2.0]),
+            p_centers=np.array([50.0, 100.0]),
+            is_p_log=True,
+            t_grid=np.array([0.0, 1.0]),
+        )
+        params = {
+            "P_dot": np.full((2, 2), -0.1),
+            "adiabatic_losses": True,
+            "v_centers_physical": np.ones((2, 2)),
+            "limiter": "minmod",
+            "order": 1,
+            "cfl": 0.5,
+            "inflow_value_f": 0.0,
+        }
+        state = State(np.ones((2, 2)))
+        solver = Solver(
+            grid=grid,
+            state=state,
+            problem_type="loss",
+            operator_params={"loss": params},
+            substeps={"loss": 1},
+        )
+        # Should initialize successfully
+        assert hasattr(solver.operator_subsolvers[0], "P_dot_adiabatic")
+
+    def test_inverse_generalized_errors(self):
+        grid = Grid(
+            p_centers=np.array([50.0, 100.0]),
+            is_p_log=True,
+            t_grid=np.array([0.0, 1.0]),
+        )
+        params = {
+            "P_dot": np.array([-1.0, -1.0]),
+            "adiabatic_losses": False,
+            "limiter": "minmod",
+            "order": 1,
+            "cfl": 0.5,
+            "inflow_value_f": 0.0,
+        }
+        state = State(np.ones(2))
+        solver = Solver(
+            grid=grid,
+            state=state,
+            problem_type="loss",
+            operator_params={"loss": params},
+            substeps={"loss": 1},
+        )
+        ls = solver.operator_subsolvers[0]
+
+        # 1D mismatch
+        with pytest.raises(ValueError, match="Shape mismatch"):
+            ls._inverse_generalized_variable(np.ones(3), grid)
+
+        # 2D mismatch
+        with pytest.raises(ValueError, match="Expected U.shape"):
+            ls._inverse_generalized_variable(np.ones((2, 3)), grid)
+
+        # 3D
+        with pytest.raises(ValueError, match="only supports 1D or 2D"):
+            ls._inverse_generalized_variable(np.ones((2, 2, 2)), grid)
+
+        # non-positive p (mock grid physical)
+        grid._p_centers_phys = np.array([-1.0, 1.0])
+        with pytest.raises(ValueError, match="non-positive values"):
+            ls._inverse_generalized_variable(np.ones(2), grid)
+
+        with pytest.raises(ValueError, match="non-positive values"):
+            ls._inverse_generalized_variable(np.ones((2, 2)), grid)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

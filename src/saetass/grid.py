@@ -138,7 +138,7 @@ class Grid:
                     self.p_centers[-1] - self.p_centers[-2]
                 )
                 if left_face <= 0:
-                    ValueError("Momentum faces must be positive values.")
+                    raise ValueError("Momentum faces must be positive values.")
                 else:
                     left_face = left_face  # np.finfo(float).tiny
                 self.p_faces = np.concatenate(
