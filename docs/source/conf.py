@@ -25,13 +25,12 @@ extensions = [
     "sphinx.ext.viewcode",
     "sphinx.ext.mathjax",
     "sphinx_tabs.tabs",
-    "myst_parser",
+    "myst_nb",
     "sphinxcontrib.bibtex",
     "sphinx_design",
-    "nbsphinx",
 ]
 
-nbsphinx_allow_errors = True
+nb_execution_allow_errors = True
 
 bibtex_bibfiles = ["references.bib"]
 
