@@ -39,15 +39,17 @@ examples/outputs/
 *.npz
 *.pkl
 
-# Exception: track documentation assets
+# Exception: track documentation assets and test datasets
 !docs/assets/*.png
 !docs/assets/*.gif
 !docs/assets/*.svg
+!test/data/*.npz
 
 # =========================================================
 # Temporary / scratch files
 # =========================================================
 untitled*
+test/debug/
 
 # =========================================================
 # Private or local development folders
