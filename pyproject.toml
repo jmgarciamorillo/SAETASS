@@ -17,15 +17,18 @@ dependencies = [
     "scipy>=1.16.2",
     "astropy>=7.1.0",
     "numba>=0.62.0",
-    "rich>=13.0.0"
+    "rich>=13.0.0",
+    "aafragpy",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=9.0.0",
     "pytest-cov>=7.0.0",
+    "pytest-benchmark>=5.0.0",
     "ruff>=0.3.0",
-    "pre-commit>=3.6.0"
+    "pre-commit>=3.6.0",
+    "naima"
 ]
 plotting = [
     "matplotlib>=3.8.0"
@@ -50,6 +53,10 @@ packages = ["src/saetass"]
 pythonpath = ["src"]
 testpaths = ["test"]
 addopts = "-ra"
+filterwarnings = [
+    "ignore:.*Conversion of an array with ndim > 0 to a scalar is deprecated.*:DeprecationWarning:aafragpy.*",
+    "ignore:.*LUT .* not found, reverting to useLUT = False.*:UserWarning:naima.*",
+]
 
 # --- RUFF CONFIGURATION ---
 

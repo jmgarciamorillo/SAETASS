@@ -12,3 +12,4 @@ These tutorials are written as Jupyter Notebooks, allowing you to see the code, 
    tutorials_folder/02_running_simulations
    tutorials_folder/03_physics_features
    tutorials_folder/04_energy_losses
+   tutorials_folder/05_emissions
