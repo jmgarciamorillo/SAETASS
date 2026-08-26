@@ -249,9 +249,10 @@ class TestAdvectionSource:
         # Initial condition: zero everywhere
         f_initial = np.zeros(num_r)
 
-        # Velocity field: v ~ 1/r^2, with a cap at small r
-        v_field = np.where(r_grid < 0.1, 1 / 0.1**2, 1 / r_grid**2)
-        v_field[0] = 0  # Ensure velocity is zero at the origin
+        # Velocity field: v ~ 1/r^2, with a cap at small r (protect against division by zero at r=0)
+        r_safe = np.maximum(r_grid, 0.1)
+        v_field = 1.0 / (r_safe**2)
+        v_field[0] = 0.0  # Ensure velocity is zero at the origin
 
         # Source term: a spike at r=[0.9, 1.1]
         source_r_min, source_r_max = 0.9, 1.1
