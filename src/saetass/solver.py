@@ -142,6 +142,8 @@ class Solver:
 
         self.grid = grid
         self.state = state
+        if getattr(self.state, "grid", None) is None:
+            self.state.grid = self.grid
         self.problem_type = problem_type.lower()
 
         # Store operator parameters (nested dict)
@@ -240,13 +242,13 @@ class Solver:
         for _ in range(n_steps):
             self.global_step += 1
 
-            f_max = np.max(self.state.f)
-            f_min = np.min(self.state.f)
+            val_max = np.max(self.state._values)
+            val_min = np.min(self.state._values)
 
             self._progress.update(
                 self._task_id,
                 completed=self.global_step,
-                metrics=f"max={f_max:.4g} min={f_min:.4g}",
+                metrics=f"max={val_max:.4g} min={val_min:.4g}",
             )
 
             self.splitting_scheme.apply(
@@ -257,7 +259,7 @@ class Solver:
             )
 
         logger.debug(
-            f"Advance finished | max(f)={np.max(self.state.f):.4g} min(f)={np.min(self.state.f):.4g}"
+            f"Advance finished | max(psi)={np.max(self.state._values):.4g} min(psi)={np.min(self.state._values):.4g}"
         )
 
         if manage_progress or self.global_step >= self.total_steps:

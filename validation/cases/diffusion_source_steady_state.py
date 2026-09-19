@@ -14,16 +14,16 @@ from plot_style import (
     get_quantitative_style,
 )
 
-from saetass import Grid, Solver, State
+from saetass import Grid, Particle, Solver, State
 
 apply_plot_style()
 
 
 def run_diffusion_simulation(
-    r_grid, t_grid, f_initial, operator_params, sample_count=0
+    r_grid, t_grid, psi_initial, operator_params, sample_count=0
 ):
     grid = Grid(r_centers=r_grid, t_grid=t_grid, p_centers=None)
-    state = State(f_initial)
+    state = State(psi_p=psi_initial, grid=grid, particle=Particle.PROTON)
 
     # Decide problem_type depending on whether a source operator is present
     if "source" in operator_params:
@@ -43,7 +43,7 @@ def run_diffusion_simulation(
     num_timesteps = len(t_grid) - 1
 
     # sampled snapshot collection (include initial and final)
-    snapshots = [np.copy(state.f.flatten())]
+    snapshots = [np.copy(state.psi_p.flatten())]
     times = [t_grid[0]]
 
     if sample_count > 0 and num_timesteps > 0:
@@ -58,10 +58,10 @@ def run_diffusion_simulation(
         if steps_to_advance > 0:
             solver.step(steps_to_advance)
             current_step = next_step
-        snapshots.append(np.copy(solver.state.f.flatten()))
+        snapshots.append(np.copy(solver.state.psi_p.flatten()))
         times.append(t_grid[current_step])
 
-    return solver.state.f.flatten(), snapshots, times, solver
+    return solver.state.psi_p.flatten(), snapshots, times, solver
 
 
 def compute_relative_L2(numerical, analytical, mask=None):
@@ -82,10 +82,10 @@ def analytical_steady_state(r_grid, D_0, Q_0, eps):
     # Analytical steady-state used in tests (see test_multiple_operator.py)
     C1 = 1 - 2 * eps * np.log(eps + 1) - eps**2 / (eps + 1)
     term = r_grid - 2 * eps * np.log(eps + r_grid) - eps**2 / (eps + r_grid)
-    f = (Q_0 / (4 * D_0)) * (C1 - term)
+    psi = (Q_0 / (4 * D_0)) * (C1 - term)
     # enforce boundary condition at last point
-    f[-1] = 0.0
-    return f
+    psi[-1] = 0.0
+    return psi
 
 
 def validation_diffusion_source_steady_state(
@@ -119,9 +119,8 @@ def validation_diffusion_source_steady_state(
     )
 
     r_grid = np.linspace(0.0, r_end, n_r)
-    # dr = r_grid[1] - r_grid[0]
 
-    f_initial = np.zeros(n_r)
+    psi_initial = np.zeros(n_r)
 
     D_values = D_0 * (r_grid + eps) ** 2
     Q_values = Q_0 * r_grid
@@ -135,11 +134,11 @@ def validation_diffusion_source_steady_state(
         print(f"Running t_final={t_final:.4g}")
         t_grid = np.linspace(0.0, t_final, t_steps)
 
-        f_num, snapshots, snap_times, solver = run_diffusion_simulation(
-            r_grid, t_grid, f_initial, operator_params, sample_count=sample_count
+        psi_num, snapshots, snap_times, solver = run_diffusion_simulation(
+            r_grid, t_grid, psi_initial, operator_params, sample_count=sample_count
         )
 
-        relL2 = compute_relative_L2(f_num, ana)
+        relL2 = compute_relative_L2(psi_num, ana)
         errors.append(relL2)
         times_list.append(t_final)
 
@@ -149,7 +148,7 @@ def validation_diffusion_source_steady_state(
             {
                 "t_final": t_final,
                 "r_grid": r_grid,
-                "f_num": f_num,
+                "psi_num": psi_num,
                 "ana": ana,
                 "relL2": relL2,
                 "snapshots": snapshots,
@@ -182,15 +181,14 @@ def validation_diffusion_source_steady_state(
         for rec in all_results:
             ymin = min(ymin, np.min(rec["ana"]))
             ymax = max(ymax, np.max(rec["ana"]))
-            ymin = min(ymin, np.min(rec["f_num"]))
-            ymax = max(ymax, np.max(rec["f_num"]))
+            ymin = min(ymin, np.min(rec["psi_num"]))
+            ymax = max(ymax, np.max(rec["psi_num"]))
         if not np.isfinite(ymin) or not np.isfinite(ymax):
             ymin, ymax = 0.0, 1.0
         padding = 0.05 * (ymax - ymin) if (ymax - ymin) > 0 else 0.1
         ylims = (max(0.0, ymin - padding), ymax + padding)
 
         last_fig = None
-        # last_N = None
         for rec in all_results:
             t_final = rec["t_final"]
             r_grid = rec["r_grid"]
@@ -224,7 +222,7 @@ def validation_diffusion_source_steady_state(
             plt.xlim(0, r_end)
             plt.ylim(ylims)
             plt.xlabel(r"Radial coordinate: $r$ (a. u.)")
-            plt.ylabel(r"Solution: $f(t,r)$ (a. u.)")
+            plt.ylabel(r"Solution: $\psi(t,r)$ (a. u.)")
             plt.legend()
             plt.grid()
             plt.tight_layout()
@@ -274,7 +272,7 @@ def validation_diffusion_source_steady_state(
                 plt.xlim(0, r_end)
                 plt.ylim(ylims)
                 plt.xlabel(r"Radial coordinate: $r$ (a. u.)")
-                plt.ylabel(r"Solution: $f(t,r)$ (a. u.)")
+                plt.ylabel(r"Solution: $\psi(t,r)$ (a. u.)")
                 plt.legend()
                 plt.grid()
                 plt.tight_layout()

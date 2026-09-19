@@ -14,18 +14,18 @@ from plot_style import (
     get_quantitative_style,
 )
 
-from saetass import Grid, Solver, State
+from saetass import Grid, Particle, Solver, State
 
 apply_plot_style()
 
 
-def run_loss_simulation(p_grid, t_grid, f_initial, operator_params, sample_count=0):
+def run_loss_simulation(p_grid, t_grid, psi_initial, operator_params, sample_count=0):
     """
     Run a loss+source simulation on the momentum axis (p_grid) and collect
-    sampled snapshots. Returns final f, snapshots list, snapshot times, and solver.
+    sampled snapshots. Returns final psi, snapshots list, snapshot times, and solver.
     """
     grid = Grid(r_centers=None, t_grid=t_grid, p_centers=p_grid)
-    state = State(f_initial)
+    state = State(psi_p=psi_initial, grid=grid, particle=Particle.PROTON)
 
     # decide problem type
     if "source" in operator_params:
@@ -44,7 +44,7 @@ def run_loss_simulation(p_grid, t_grid, f_initial, operator_params, sample_count
 
     num_timesteps = len(t_grid) - 1
 
-    snapshots = [np.copy(state.f.flatten())]
+    snapshots = [np.copy(state.psi_p.flatten())]
     times = [t_grid[0]]
 
     if sample_count > 0 and num_timesteps > 0:
@@ -59,21 +59,21 @@ def run_loss_simulation(p_grid, t_grid, f_initial, operator_params, sample_count
         if steps_to_advance > 0:
             solver.step(steps_to_advance)
             current_step = next_step
-        snapshots.append(np.copy(solver.state.f.flatten()))
+        snapshots.append(np.copy(solver.state.psi_p.flatten()))
         times.append(t_grid[current_step])
 
-    return solver.state.f.flatten(), snapshots, times, solver
+    return solver.state.psi_p.flatten(), snapshots, times, solver
 
 
 def analytical_steady_state_loss(p_grid, Q0, b0, alpha, beta, p0, p_end):
     """
     Analytical steady-state for the loss+source model used in LossValidation1.py:
-    f(p) = [Q0 * p0 / (1-alpha) / b0] * ( (p_end/p0)^(1-alpha) - (p/p0)^(1-alpha) ) * (p/p0)^(-beta)
+    \psi(p) = [Q0 * p0 / (1-alpha) / b0] * ( (p_end/p0)^(1-alpha) - (p/p0)^(1-alpha) ) * (p/p0)^(-beta)
     """
     pref = Q0 * p0 / (1.0 - alpha) / b0
     term = (p_end / p0) ** (1.0 - alpha) - (p_grid / p0) ** (1.0 - alpha)
-    f = pref * term * (p_grid / p0) ** (-beta)
-    return f
+    psi = pref * term * (p_grid / p0) ** (-beta)
+    return psi
 
 
 def compute_relative_L2(numerical, analytical, mask=None):
@@ -114,7 +114,7 @@ def validation_loss_source_steady_state(
     """
     p_grid = np.logspace(np.log10(p_min), np.log10(p_max), n_r)
 
-    f_initial = np.zeros(n_r)
+    psi_initial = np.zeros(n_r)
 
     # define source and loss rates following LossValidation1.py
     Q_values = Q0 * (p_grid / p0) ** (-alpha)
@@ -148,11 +148,11 @@ def validation_loss_source_steady_state(
         print(f"Running t_final={t_final:.4g}")
         t_grid = np.linspace(0.0, t_final, t_steps)
 
-        f_num, snapshots, snap_times, solver = run_loss_simulation(
-            p_grid, t_grid, f_initial, operator_params, sample_count=sample_count
+        psi_num, snapshots, snap_times, solver = run_loss_simulation(
+            p_grid, t_grid, psi_initial, operator_params, sample_count=sample_count
         )
 
-        relL2 = compute_relative_L2(f_num, ana)
+        relL2 = compute_relative_L2(psi_num, ana)
         residuals.append(relL2)
         times_list.append(t_final)
 
@@ -162,7 +162,7 @@ def validation_loss_source_steady_state(
             {
                 "t_final": t_final,
                 "p_grid": p_grid,
-                "f_num": f_num,
+                "psi_num": psi_num,
                 "ana": ana,
                 "relL2": relL2,
                 "snapshots": snapshots,
@@ -200,14 +200,14 @@ def validation_loss_source_steady_state(
         except Exception as e:
             print(f"Warning: could not save residuals figure: {e}")
 
-        # compute y-limits for p^5 * f plotting (similar to LossValidation1)
+        # compute y-limits for p^5 * \psi plotting
         ymin = np.inf
         ymax = -np.inf
         for rec in all_results:
             p = rec["p_grid"]
-            fnum = rec["f_num"]
+            psinum = rec["psi_num"]
             ana_ = rec["ana"]
-            vals = (p**5) * np.maximum(fnum, 1e-300)
+            vals = (p**5) * np.maximum(psinum, 1e-300)
             vals_ana = (p**5) * np.maximum(ana_, 1e-300)
             ymin = min(ymin, np.min(vals))
             ymax = max(ymax, np.max(vals_ana))
@@ -232,7 +232,9 @@ def validation_loss_source_steady_state(
                     total_steps=len(snapshots),
                 )
                 label = (
-                    None if is_initial else ("Numerical (final)" if is_final else None)
+                    "Initial"
+                    if is_initial
+                    else ("Numerical (final)" if is_final else None)
                 )
                 plt.loglog(p, (p**5) * np.maximum(s, 1e-300), label=label, **style)
 
@@ -249,7 +251,7 @@ def validation_loss_source_steady_state(
             plt.xlim(p[0], p[-1])
             plt.ylim(1e-2, 1)
             plt.xlabel(r"Momentum coordinate: $p$ (a. u.)")
-            plt.ylabel(r"Spectrum: $p^5 f(t,p)$ (a. u.)")
+            plt.ylabel(r"Spectrum: $p^5 \psi(t,p)$ (a. u.)")
             plt.legend(loc="lower left")
             plt.grid(False)
             plt.tight_layout()
@@ -283,7 +285,6 @@ def validation_loss_source_steady_state(
                 except Exception as e:
                     print(f"Warning: could not save target figure from stored fig: {e}")
             else:
-                # fallback: re-create the plot (older behavior)
                 try:
                     fig_target = plt.figure(figsize=(9, 6))
                     p = rec_target["p_grid"]
@@ -299,12 +300,15 @@ def validation_loss_source_steady_state(
                             step_idx=idx,
                             total_steps=len(snapshots),
                         )
-                        plt.loglog(
-                            p,
-                            (p**5) * np.maximum(s, 1e-300),
-                            label=f"$t={t:.3f}$",
-                            **style,
+                        label = (
+                            "Initial"
+                            if is_initial
+                            else ("Numerical (final)" if is_final else None)
                         )
+                        plt.loglog(
+                            p, (p**5) * np.maximum(s, 1e-300), label=label, **style
+                        )
+
                     ana_style = get_analytical_style()
                     plt.loglog(
                         p,
@@ -318,21 +322,22 @@ def validation_loss_source_steady_state(
                     )
 
                     plt.xlim(p[0], p[-1])
+                    plt.ylim(1e-2, 1)
                     plt.xlabel(r"Momentum coordinate: $p$ (a. u.)")
-                    plt.ylabel(r"Spectrum: $p^5 f(t,p)$ (a. u.)")
+                    plt.ylabel(r"Spectrum: $p^5 \psi(t,p)$ (a. u.)")
                     plt.legend(loc="lower left")
                     plt.grid(False)
-                    try:
-                        plt.ylim(ymin, ymax)
-                    except Exception:
-                        pass
-                    fig_target.va(target_path_pdf, dpi=200, bbox_inches="tight")
+                    plt.tight_layout()
+                    plt.show()
+                    target_path_pdf = os.path.join(
+                        out_dir, "loss_source_steady_tend0p4.pdf"
+                    )
+                    fig_target.savefig(target_path_pdf, dpi=200, bbox_inches="tight")
                     print(f"Saved t_end=0.4 simulation figure to: {target_path_pdf}")
                 except Exception as e:
-                    print(f"Warning: could not save target figure: {e}")
-
+                    print(f"Error saving fallback target plot: {e}")
         except Exception as e:
-            print(f"Warning: could not save target figure: {e}")
+            print(f"Warning: could not save loss-source figures: {e}")
 
 
 if __name__ == "__main__":

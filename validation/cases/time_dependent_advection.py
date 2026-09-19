@@ -14,16 +14,16 @@ from plot_style import (
     get_quantitative_style,
 )
 
-from saetass import Grid, Solver, State
+from saetass import Grid, Particle, Solver, State
 
 apply_plot_style()
 
 
 def run_simulation(
-    r_grid, t_grid, f_initial, solver_params, source_params, sample_count=0
+    r_grid, t_grid, psi_initial, solver_params, source_params, sample_count=0
 ):
     grid = Grid(r_centers=r_grid, t_grid=t_grid, p_centers=None)
-    state = State(f_initial)
+    state = State(psi_p=psi_initial, grid=grid, particle=Particle.PROTON)
 
     solver = Solver(
         grid=grid,
@@ -36,7 +36,7 @@ def run_simulation(
 
     num_timesteps = len(t_grid) - 1
 
-    snapshots = [np.copy(state.f.flatten())]
+    snapshots = [np.copy(state.psi_p.flatten())]
     times = [t_grid[0]]
 
     if sample_count > 0 and num_timesteps > 0:
@@ -51,10 +51,10 @@ def run_simulation(
         if steps_to_advance > 0:
             solver.step(steps_to_advance)
             current_step = next_step
-        snapshots.append(np.copy(solver.state.f.flatten()))
+        snapshots.append(np.copy(solver.state.psi_p.flatten()))
         times.append(t_grid[current_step])
 
-    return solver.state.f.flatten(), snapshots, times
+    return solver.state.psi_p.flatten(), snapshots, times
 
 
 def compute_relative_L2(numerical, analytical):
@@ -70,16 +70,16 @@ def validation_time_dependent_advection(
 ):
     """
     Validation of 1D radial advection with space-time dependence.
-    Eq: df/dt + (1/r^2)*d/dr(r^2 * u_w * f) = Q(r,t)
+    Eq: d\psi/dt + (1/r^2)*d/dr(r^2 * u_w * \psi) = Q(r,t)
     u_w(r,t) = r/(1+t)
-    f_exact(r,t) = (2+cos(t))*exp(-r)
+    \psi_exact(r,t) = (2+cos(t))*exp(-r)
     Q(r,t) = exp(-r) * [ -sin(t) + ((2+cos(t))/(1+t)) * (3-r) ]
     Sweep resolutions for different time steps, measure relative L2 error and plot convergence.
     """
     all_errors = {}
     layout_results = []
 
-    def f_exact(r, t):
+    def psi_exact(r, t):
         return (2.0 + np.cos(t)) * np.exp(-r)
 
     for Nt in t_steps_list:
@@ -91,7 +91,7 @@ def validation_time_dependent_advection(
             dr = r_grid[1] - r_grid[0]
 
             t_grid = np.linspace(0.0, t_final, Nt)
-            f_initial = f_exact(r_grid, 0.0)
+            psi_initial = psi_exact(r_grid, 0.0)
 
             def u_w_func(t):
                 return r_grid / (1.0 + t)
@@ -111,13 +111,18 @@ def validation_time_dependent_advection(
 
             source_params = {"source": Q_src_func}
 
-            f_num, snapshots, snap_times = run_simulation(
-                r_grid, t_grid, f_initial, solver_params, source_params, sample_count=7
+            psi_num, snapshots, snap_times = run_simulation(
+                r_grid,
+                t_grid,
+                psi_initial,
+                solver_params,
+                source_params,
+                sample_count=7,
             )
 
-            f_ana = f_exact(r_grid, t_final)
+            psi_ana = psi_exact(r_grid, t_final)
 
-            relL2 = compute_relative_L2(f_num, f_ana)
+            relL2 = compute_relative_L2(psi_num, psi_ana)
             errors.append(relL2)
 
             print(f"    dx={dr:.4e}, steps={Nt - 1}, relL2={relL2:.4e}")
@@ -128,9 +133,9 @@ def validation_time_dependent_advection(
                     {
                         "N": N,
                         "r_grid": r_grid,
-                        "f_initial": f_initial,
-                        "f_num": f_num,
-                        "f_ana": f_ana,
+                        "psi_initial": psi_initial,
+                        "psi_num": psi_num,
+                        "psi_ana": psi_ana,
                         "relL2": relL2,
                         "snapshots": snapshots,
                         "snap_times": snap_times,
@@ -162,10 +167,10 @@ def validation_time_dependent_advection(
 
         ymin, ymax = np.inf, -np.inf
         for rec in layout_results:
-            ymin = min(ymin, np.min(rec["f_initial"]))
-            ymax = max(ymax, np.max(rec["f_initial"]))
-            ymin = min(ymin, np.min(rec["f_num"]))
-            ymax = max(ymax, np.max(rec["f_num"]))
+            ymin = min(ymin, np.min(rec["psi_initial"]))
+            ymax = max(ymax, np.max(rec["psi_initial"]))
+            ymin = min(ymin, np.min(rec["psi_num"]))
+            ymax = max(ymax, np.max(rec["psi_num"]))
 
         padding = 0.05 * (ymax - ymin) if (ymax - ymin) > 0 else 0.1
         ylims = (max(0.0, ymin - padding), ymax + padding)
@@ -173,7 +178,7 @@ def validation_time_dependent_advection(
         for rec in layout_results:
             N = rec["N"]
             r_grid = rec["r_grid"]
-            f_ana = rec["f_ana"]
+            psi_ana = rec["psi_ana"]
             snapshots = rec["snapshots"]
             snap_times = rec["snap_times"]
 
@@ -195,13 +200,13 @@ def validation_time_dependent_advection(
                 plt.plot(r_grid, s, label=label, **style)
 
             ana_style = get_analytical_style()
-            plt.plot(r_grid, f_ana, label="Analytical (final)", **ana_style)
+            plt.plot(r_grid, psi_ana, label="Analytical (final)", **ana_style)
 
             add_time_colorbar(fig, plt.gca(), t_min=snap_times[0], t_max=snap_times[-1])
             plt.xlim(0, r_end)
             plt.ylim(ylims)
             plt.xlabel(r"Radial coordinate: $r$ (a. u.)")
-            plt.ylabel(r"Solution: $f(t,r)$ (a. u.)")
+            plt.ylabel(r"Solution: $\psi(t,r)$ (a. u.)")
             plt.legend()
             plt.grid()
             plt.tight_layout()

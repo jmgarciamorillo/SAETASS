@@ -23,7 +23,7 @@ import numpy as np
 from matplotlib.gridspec import GridSpec
 
 # 0. Import SAETASS modules
-from saetass import Grid, Solver, State
+from saetass import Grid, Particle, Solver, State
 from saetass.cli.palette import SAETASS_BLUE, SAETASS_GREEN, SAETASS_ORANGE
 from saetass.utils.bubble_profiles import BubbleProfileCalculator
 
@@ -168,7 +168,7 @@ def plot_simulation_step(
 
     # Identify boundary positions to place labels, let label_outer() handle internally
     if col_idx == 0:
-        ax.set_ylabel(r"Norm. dist.: $f(t,r)/f_\mathrm{TS}$")
+        ax.set_ylabel(r"Norm. dens.: $\psi(t,r)/\psi_\mathrm{TS}$")
 
     if diff_props["row"] == 2:
         ax.set_xlabel(r"Radial coordinate: $r$ (pc)")
@@ -301,7 +301,7 @@ if __name__ == "__main__":
             # We then instantiate Solver class
             solver = Solver(
                 grid=grid,
-                state=State(f_values),
+                state=State(psi_p=f_values, grid=grid, particle=Particle.PROTON),
                 problem_type="advection-source-diffusion",
                 operator_params=op_params,
                 substeps={"advection": 1, "diffusion": 1, "source": 1},
@@ -316,7 +316,7 @@ if __name__ == "__main__":
                 )
             )
 
-            stored_curves = [solver.state.f.copy()[0]]
+            stored_curves = [solver.state.psi_p.copy()[0]]
             stored_times = [t_grid[0]]
 
             # 5. Simulation loop
@@ -327,7 +327,7 @@ if __name__ == "__main__":
                     solver.step(steps_to_advance)  # SIMULATION CORE
                     current_step = next_step
 
-                stored_curves.append(solver.state.f.copy()[0])
+                stored_curves.append(solver.state.psi_p.copy()[0])
                 stored_times.append(t_grid[current_step])
 
             # 6. Result Normalization

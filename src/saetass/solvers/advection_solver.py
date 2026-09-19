@@ -17,9 +17,9 @@ class AdvectionSolver(HyperbolicSolver):
 
     .. math::
 
-        \\frac{\\partial f}{\\partial t} + \\frac{1}{r^2}\\frac{\\partial}{\\partial r}\\bigl(v(t,r)\\,r^2 f\\bigr) = 0,
+        \\frac{\\partial \psi}{\\partial t} + \\frac{1}{r^2}\\frac{\\partial}{\\partial r}\\bigl(v(t,r)\\,r^2 \psi\\bigr) = 0,
 
-    by introducing the conservative variable :math:`U = r^2 f`, :math:`V(t,y) = v(t,r)` and :math:`y = r`, and delegating the finite volume update to the base class across the spatial (:math:`r`) axis.
+    by introducing the conservative variable :math:`U = r^2 \psi`, :math:`V(t,y) = v(t,r)` and :math:`y = r`, and delegating the finite volume update to the base class across the spatial (:math:`r`) axis.
 
     Parameters
     ----------
@@ -70,7 +70,7 @@ class AdvectionSolver(HyperbolicSolver):
 
     def _generalized_variable(self, f: np.ndarray, grid: Grid) -> np.ndarray:
         """
-        Map the primitive distribution function to the conservative variable.
+        Map the primitive differential density to the conservative variable.
         """
         self._check_grid_state_consistency(grid, f)
 
@@ -83,7 +83,7 @@ class AdvectionSolver(HyperbolicSolver):
         grid: Grid,
     ) -> np.ndarray:
         """
-        Map the conservative variable back to the primitive distribution function.
+        Map the conservative variable back to the primitive differential density.
         """
         self._check_grid_state_consistency(grid, U)
 

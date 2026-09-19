@@ -75,15 +75,15 @@ For complete, more advanced examples, check the [Examples](https://saetass.readt
 
 SAETASS solves the following **astroparticle transport equation** in spherically symmetric geometry:
 
-$$\frac{\partial f}{\partial t}
-    + \frac{1}{r^2}\frac{\partial}{\partial r}\left(r^2 u_\mathrm{w}f\right)
-    + \frac{\partial}{\partial p}\left( \dot{p} f \right)
+$$\frac{\partial \psi}{\partial t}
+    + \frac{1}{r^2}\frac{\partial}{\partial r}\left(r^2 u_\mathrm{w}\psi\right)
+    + \frac{\partial}{\partial p}\left( \dot{p} \psi \right)
     = \frac{1}{r^2} \frac{\partial}{\partial r}
-    \left(r^2 D\frac{\partial f}{\partial r}\right)
+    \left(r^2 D\frac{\partial \psi}{\partial r}\right)
     + Q.$$
 
 Where:
-- $f(t,r, p)$ is the particle distribution function,
+- $\psi(t, r, p)$ is the differential (in momentum) density function ($\psi = 4\pi p^2 f_\mathrm{ps}$),
 - $u_\mathrm{w}(t,r,p)$ is the advection (wind) velocity,
 - $\dot{p}(t, r, p)$ is the rate of energy loss,
 - $D(t, r, p)$ is the spatial diffusion coefficient,

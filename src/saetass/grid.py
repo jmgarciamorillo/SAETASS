@@ -1,6 +1,6 @@
-"""
+r"""
 The grid module defines the :py:class:`~saetass.grid.Grid` class, which manages spatial, momentum and temporal discretization for simulations initialization.
-The :py:class:`~saetass.grid.Grid` serves as the foundational data structure describing the discrete domain upon which the distribution function :math:`f(r, p, t)` evolves.
+The :py:class:`~saetass.grid.Grid` serves as the foundational data structure describing the discrete domain upon which the differential density function :math:`\psi_p(t, r, p)` evolves.
 It is natively responsible for caching and providing access to the geometrical properties of the space and momentum domains, as well as the discrete time steps.
 
 In the context of the greater solver pipeline, the instantiated :py:class:`~saetass.grid.Grid` object is shared globally between the parent orchestrator, :py:class:`~saetass.solver.Solver`, and the individual physics operators, i.e. any instance of :py:class:`~saetass.solver.SubSolver`.

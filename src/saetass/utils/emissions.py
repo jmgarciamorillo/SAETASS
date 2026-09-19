@@ -236,19 +236,19 @@ class EmissionCalculator:
         else:
             return sigma_matrix * u.cm**2 / u.GeV
 
-    def _convert_fp_to_dndE(self, f_p: np.ndarray) -> np.ndarray:
+    def _convert_psip_to_dndE(self, psi_p: np.ndarray) -> np.ndarray:
         r"""
-        Convert SAETASS momentum-space distribution function :math:`f(p)` to energy-space differential density :math:`\frac{dn}{dE}`.
+        Convert SAETASS momentum-space differential density :math:`\psi(p)` to energy-space differential density :math:`\frac{dn}{dE}`.
 
-        The SAETASS state stores the distribution function as :math:`f(p) = N(p)` in computational units of :math:`\mathrm{cm^{-3}\,(GeV/c)^{-1}}`. This method converts it to physical differential number density :math:`\frac{dn}{dE} = f(p)\,\frac{dp}{dE}` in units of :math:`\mathrm{cm^{-3}\,GeV^{-1}}` using the relativistic Jacobian:
+        The SAETASS state stores the differential density as :math:`\psi(p) = \frac{dn}{dp} = 4\pi p^2 f_\mathrm{ps}(p)` in computational units of :math:`\mathrm{cm^{-3}\,(GeV/c)^{-1}}`. This method converts it to physical differential number density :math:`\frac{dn}{dE} = \psi(p)\,\frac{dp}{dE}` in units of :math:`\mathrm{cm^{-3}\,GeV^{-1}}` using the relativistic Jacobian:
 
         .. math::
             \frac{dp}{dE} = \frac{E_{\mathrm{tot}}}{p\,c^2} = \frac{E + m\,c^2}{c\,\sqrt{E^2 + 2\,E\,m\,c^2}}
 
         Parameters
         ----------
-        f_p : np.ndarray
-            2D array representing the cosmic ray distribution function with shape ``(len(E_cr_grid), len(r_grid))`` in units of :math:`\mathrm{cm^{-3}\,(GeV/c)^{-1}}`.
+        psi_p : np.ndarray
+            2D array representing the cosmic ray differential density with shape ``(len(E_cr_grid), len(r_grid))`` in units of :math:`\mathrm{cm^{-3}\,(GeV/c)^{-1}}`.
 
         Returns
         -------
@@ -271,13 +271,15 @@ class EmissionCalculator:
         # 4. Kinematic Jacobian dp/dE = E_tot / (p * c^2)
         dp_dE = E_tot / (p * const.c**2)
 
-        # 5. Multiply f(p) (shape N_cr, N_r) by the 1D Jacobian (shape N_cr, 1)
-        # Note: f(p) is passed in units of cm^-3 (GeV/c)^-1.
+        # 5. Multiply psi(p) (shape N_cr, N_r) by the 1D Jacobian (shape N_cr, 1)
+        # Note: psi(p) is passed in units of cm^-3 (GeV/c)^-1.
         # dp/dE has units of c^-1, equivalent to (GeV/c) / GeV.
         dp_dE_val = dp_dE.to_value(1 / const.c)
-        dn_dE = f_p * dp_dE_val[:, np.newaxis]
+        dn_dE = psi_p * dp_dE_val[:, np.newaxis]
 
         return dn_dE
+
+    _convert_fp_to_dndE = _convert_psip_to_dndE
 
     def _compute_gas_density_dependent_emission(
         self, state: State, diff_cross_section: u.Quantity, component_name: str
@@ -293,7 +295,7 @@ class EmissionCalculator:
         Parameters
         ----------
         state : :py:class:`~saetass.state.State`
-            Cosmic ray simulation state containing the distribution function :math:`f(p)`.
+            Cosmic ray simulation state containing the differential density :math:`\psi(p)`.
         diff_cross_section : u.Quantity
             Differential cross-section matrix with shape ``(len(E_out_grid), len(E_cr_grid))`` in units of :math:`\mathrm{cm^2\,GeV^{-1}}`.
         component_name : str
@@ -307,16 +309,20 @@ class EmissionCalculator:
         Raises
         ------
         ValueError
-            If the shape of ``state.get_f()`` does not match ``(len(E_cr_grid), len(r_grid))``.
+            If the shape of ``state.psi_p`` does not match ``(len(E_cr_grid), len(r_grid))``.
         """
-        f_cr = state.get_f()  # Shape: (N_cr, N_r)
+        psi_cr = (
+            state.psi_p.to_value(u.cm**-3 / (u.GeV / const.c))
+            if hasattr(state.psi_p, "to_value")
+            else np.asarray(state.psi_p, dtype=float)
+        )  # Shape: (N_cr, N_r)
         expected_shape = (len(self.E_cr_grid), len(self.r_grid))
-        if f_cr.shape != expected_shape:
+        if psi_cr.shape != expected_shape:
             raise ValueError(
-                f"Shape mismatch in cosmic ray State: expected {expected_shape}, got {f_cr.shape}."
+                f"Shape mismatch in cosmic ray State: expected {expected_shape}, got {psi_cr.shape}."
             )
 
-        dn_dE = self._convert_fp_to_dndE(f_cr)
+        dn_dE = self._convert_psip_to_dndE(psi_cr)
 
         # 1. Extract raw numerical values for high-performance vectorized operations
         sigma_val = diff_cross_section.to_value(u.cm**2 / u.GeV)  # Shape: (N_out, N_cr)
@@ -353,7 +359,7 @@ class EmissionCalculator:
         Parameters
         ----------
         state : :py:class:`~saetass.state.State`
-            Cosmic ray simulation state containing the distribution function :math:`f(p)`.
+            Cosmic ray simulation state containing the differential density :math:`\psi(p)`.
         emission_rate_kernel : u.Quantity
             Differential emission rate kernel with shape ``(len(E_out_grid), len(E_cr_grid))`` in units of :math:`\mathrm{s^{-1}\,GeV^{-1}}`.
         component_name : str
@@ -367,16 +373,20 @@ class EmissionCalculator:
         Raises
         ------
         ValueError
-            If the shape of ``state.get_f()`` does not match ``(len(E_cr_grid), len(r_grid))``.
+            If the shape of ``state.psi_p`` does not match ``(len(E_cr_grid), len(r_grid))``.
         """
-        f_cr = state.get_f()  # Shape: (N_cr, N_r)
+        psi_cr = (
+            state.psi_p.to_value(u.cm**-3 / (u.GeV / const.c))
+            if hasattr(state.psi_p, "to_value")
+            else np.asarray(state.psi_p, dtype=float)
+        )  # Shape: (N_cr, N_r)
         expected_shape = (len(self.E_cr_grid), len(self.r_grid))
-        if f_cr.shape != expected_shape:
+        if psi_cr.shape != expected_shape:
             raise ValueError(
-                f"Shape mismatch in cosmic ray State: expected {expected_shape}, got {f_cr.shape}."
+                f"Shape mismatch in cosmic ray State: expected {expected_shape}, got {psi_cr.shape}."
             )
 
-        dn_dE = self._convert_fp_to_dndE(f_cr)
+        dn_dE = self._convert_psip_to_dndE(psi_cr)
 
         # 1. Extract raw numerical values for high-performance vectorized operations
         kernel_val = emission_rate_kernel.to_value(

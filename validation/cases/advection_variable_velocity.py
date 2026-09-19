@@ -14,7 +14,7 @@ from plot_style import (
     get_quantitative_style,
 )
 
-from saetass import Grid, Solver, State
+from saetass import Grid, Particle, Solver, State
 
 apply_plot_style()
 
@@ -23,39 +23,33 @@ def compute_relative_L2(numerical, analytical, mask=None):
     if mask is None:
         mask = np.ones_like(numerical, dtype=bool)
     num = numerical[mask]
-    theo = analytical[mask]
-
-    sum_diff_sq = np.sum((num - theo) ** 2)
-    sum_theo_sq = np.sum(theo**2)
-
-    if sum_theo_sq == 0:
-        return np.sqrt(sum_diff_sq)
-    return np.sqrt(sum_diff_sq / sum_theo_sq)
+    ana = analytical[mask]
+    return np.sqrt(np.mean((num - ana) ** 2)) / (np.sqrt(np.mean(ana**2)) + 1e-300)
 
 
 def get_steady_state_analytical(r_grid, r_c, v_c, r_a, r_b, Q0):
     """
-    Calcula la solución analítica exacta en estado estacionario
-    para el perfil de velocidad por tramos.
+    Calculates the exact steady-state analytical solution
+    for the piecewise velocity profile.
     """
-    f_ss = np.zeros_like(r_grid)
+    psi_ss = np.zeros_like(r_grid)
 
     mask_source = (r_grid >= r_a) & (r_grid <= r_b)
     mask_out = r_grid > r_b
 
     factor = Q0 / (3.0 * v_c * (r_c**2))
 
-    f_ss[mask_source] = factor * (r_grid[mask_source] ** 3 - r_a**3)
-    f_ss[mask_out] = factor * (r_b**3 - r_a**3)
+    psi_ss[mask_source] = factor * (r_grid[mask_source] ** 3 - r_a**3)
+    psi_ss[mask_out] = factor * (r_b**3 - r_a**3)
 
-    return f_ss
+    return psi_ss
 
 
 def run_advection_simulation(
-    r_grid, t_grid, f_initial, solver_params, source_params=None, sample_count=0
+    r_grid, t_grid, psi_initial, solver_params, source_params=None, sample_count=0
 ):
     grid = Grid(r_centers=r_grid, t_grid=t_grid, p_centers=None)
-    state = State(f_initial)
+    state = State(psi_p=psi_initial, grid=grid, particle=Particle.PROTON)
 
     operator_params = {"advection": solver_params}
     if source_params is not None:
@@ -74,7 +68,7 @@ def run_advection_simulation(
     )
 
     num_timesteps = len(t_grid) - 1
-    snapshots = [np.copy(state.f.flatten())]
+    snapshots = [np.copy(state.psi_p.flatten())]
     times = [t_grid[0]]
 
     if sample_count > 0 and num_timesteps > 0:
@@ -89,10 +83,10 @@ def run_advection_simulation(
         if steps_to_advance > 0:
             solver.step(steps_to_advance)
             current_step = next_step
-        snapshots.append(np.copy(solver.state.f.flatten()))
+        snapshots.append(np.copy(solver.state.psi_p.flatten()))
         times.append(t_grid[current_step])
 
-    return solver.state.f.flatten(), snapshots, times
+    return solver.state.psi_p.flatten(), snapshots, times
 
 
 def validation_piecewise_velocity(
@@ -121,7 +115,7 @@ def validation_piecewise_velocity(
 
         t_grid = np.linspace(0.0, t_final, 2000)
 
-        f_initial = np.zeros(N)
+        psi_initial = np.zeros(N)
 
         Q_values = np.zeros(N)
         source_mask = (r_grid >= source_r_min) & (r_grid <= source_r_max)
@@ -138,23 +132,23 @@ def validation_piecewise_velocity(
             "inflow_value_U": 0.0,
         }
 
-        f_num, snapshots, snap_times = run_advection_simulation(
+        psi_num, snapshots, snap_times = run_advection_simulation(
             r_grid,
             t_grid,
-            f_initial,
+            psi_initial,
             solver_params,
             source_params={"source": Q_values},
             sample_count=8,
         )
 
-        f_ana = get_steady_state_analytical(
+        psi_ana = get_steady_state_analytical(
             r_grid, r_c, v_c, source_r_min, source_r_max, source_strength
         )
 
         dr = r_grid[1] - r_grid[0]
         # Calculate relL2 error where analytical > 0 and where r < source_r_max + 1
-        mask = (f_ana > 0) & (r_grid < source_r_max + 4.5)
-        relL2 = compute_relative_L2(f_num, f_ana, mask) if np.any(mask) else 0.0
+        mask = (psi_ana > 0) & (r_grid < source_r_max + 4.5)
+        relL2 = compute_relative_L2(psi_num, psi_ana, mask) if np.any(mask) else 0.0
         errors.append(relL2)
         dxs.append(dr)
 
@@ -164,8 +158,8 @@ def validation_piecewise_velocity(
             {
                 "N": N,
                 "r_grid": r_grid,
-                "f_num": f_num,
-                "f_ana": f_ana,
+                "psi_num": psi_num,
+                "psi_ana": psi_ana,
                 "snapshots": snapshots,
                 "snap_times": snap_times,
             }
@@ -197,7 +191,7 @@ def validation_piecewise_velocity(
         for rec in all_results:
             N, r_grid = rec["N"], rec["r_grid"]
             snapshots, snap_times = rec["snapshots"], rec["snap_times"]
-            f_ana = rec["f_ana"]
+            psi_ana = rec["psi_ana"]
 
             fig_log = plt.figure(figsize=(6, 4))
             ax = fig_log.add_subplot(111)
@@ -223,12 +217,12 @@ def validation_piecewise_velocity(
                     )
                     ax.loglog(r_grid[mask_pos], s[mask_pos], label=label, **style)
 
-            mask_ana = f_ana > 0
+            mask_ana = psi_ana > 0
             if np.any(mask_ana):
                 ana_style = get_analytical_style()
                 ax.loglog(
                     r_grid[mask_ana],
-                    f_ana[mask_ana],
+                    psi_ana[mask_ana],
                     label="Analytical SS",
                     **ana_style,
                 )
@@ -236,8 +230,8 @@ def validation_piecewise_velocity(
             add_time_colorbar(fig_log, ax, t_min=snap_times[0], t_max=snap_times[-1])
 
             ax.set_xlabel(r"Radial coordinate: $r$ (a. u.)")
-            ax.set_ylabel(r"Solution: $f(t,r)$ (a. u.)")
-            ax.set_xlim([source_r_min, r_end])
+            ax.set_ylabel(r"Solution: $\psi(t,r)$ (a. u.)")
+            ax.set_xlim([1.0, r_end])
             ax.set_ylim([1e-1, 1e3])
             ax.grid(False)
             ax.legend()

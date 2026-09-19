@@ -14,23 +14,22 @@ from plot_style import (
     get_quantitative_style,
 )
 
-from saetass import Grid, Solver, State
+from saetass import Grid, Particle, Solver, State
 
 apply_plot_style()
 
 
 def run_advection_simulation(
-    r_grid, t_grid, f_initial, solver_params, source_params=None, sample_count=0
+    r_grid, t_grid, psi_initial, solver_params, source_params=None, sample_count=0
 ):
     """
     Create and run an advection (+ optional source) Solver for the provided grids and params.
-    Collect snapshots by advancing the solver in chunks to a set of sampled timesteps
-    (same approach used in `multiEnergyGiovanniTest.py`).
+    Collect snapshots by advancing the solver in chunks to a set of sampled timesteps.
 
     Returns the final distribution (numpy array), a list of snapshots and their times.
     """
     grid = Grid(r_centers=r_grid, t_grid=t_grid, p_centers=None)
-    state = State(f_initial)
+    state = State(psi_p=psi_initial, grid=grid, particle=Particle.PROTON)
 
     operator_params = {"advection": solver_params}
     if source_params is not None:
@@ -51,7 +50,7 @@ def run_advection_simulation(
     num_timesteps = len(t_grid) - 1
 
     # Prepare snapshots: always include initial state at index 0
-    snapshots = [np.copy(state.f.flatten())]
+    snapshots = [np.copy(state.psi_p.flatten())]
     times = [t_grid[0]]
 
     # Determine which timestep indices to sample (include 0 and final)
@@ -68,22 +67,22 @@ def run_advection_simulation(
         if steps_to_advance > 0:
             solver.step(steps_to_advance)
             current_step = next_step
-        snapshots.append(np.copy(solver.state.f.flatten()))
+        snapshots.append(np.copy(solver.state.psi_p.flatten()))
         times.append(t_grid[current_step])
 
     # Return final flattened array plus snapshots and times
-    return solver.state.f.flatten(), snapshots, times
+    return solver.state.psi_p.flatten(), snapshots, times
 
 
-def compute_plume_slope(r_grid, f_values, source_r_max, min_points=10):
+def compute_plume_slope(r_grid, psi_values, source_r_max, min_points=10):
     """
-    Compute slope of log(f) vs log(r) in the plume region (r > source_r_max).
+    Compute slope of log(\psi) vs log(r) in the plume region (r > source_r_max).
     Returns slope and the mask used.
     """
     # Select only points between 1.5*source_r_max and r_grid = 6
     mask = (r_grid > 10 * source_r_max) & (r_grid < 20)
     x = np.log(r_grid[mask])
-    y = np.log(f_values[mask])
+    y = np.log(psi_values[mask])
     slope, intercept = np.polyfit(x, y, 1)
     return slope, mask
 
@@ -101,7 +100,7 @@ def validation_pointlike_source(
     """
     Validation of point-like source advected with constant speed. The steady
     downstream profile should follow ~1/r^2. We run a sweep over spatial
-    resolutions and measure the fitted slope of log(f) vs log(r) in the plume.
+    resolutions and measure the fitted slope of log(\psi) vs log(r) in the plume.
     """
     slopes = []
     dxs = []
@@ -116,7 +115,7 @@ def validation_pointlike_source(
         t_grid = np.linspace(0.0, t_final, 10000)
 
         # initial condition: zero everywhere
-        f_initial = np.zeros(N)
+        psi_initial = np.zeros(N)
 
         # Source: spike between source_r_min and source_r_max
         Q_values = np.zeros(N)
@@ -134,17 +133,17 @@ def validation_pointlike_source(
         }
 
         # capture intermediate snapshots for time evolution (include initial and final)
-        f_num, snapshots, snap_times = run_advection_simulation(
+        psi_num, snapshots, snap_times = run_advection_simulation(
             r_grid,
             t_grid,
-            f_initial,
+            psi_initial,
             solver_params,
             source_params={"source": Q_values},
             sample_count=7,
         )
 
         # compute slope in plume region
-        slope, mask = compute_plume_slope(r_grid, f_num, source_r_max)
+        slope, mask = compute_plume_slope(r_grid, psi_num, source_r_max)
         slopes.append(slope)
         dxs.append(dr)
 
@@ -155,8 +154,8 @@ def validation_pointlike_source(
             {
                 "N": N,
                 "r_grid": r_grid,
-                "f_initial": f_initial,
-                "f_num": f_num,
+                "psi_initial": psi_initial,
+                "psi_num": psi_num,
                 "slope": slope,
                 "snapshots": snapshots,
                 "snap_times": snap_times,
@@ -230,9 +229,9 @@ def validation_pointlike_source(
                 plt.ylim(y_min_log * 0.8, y_max_log * 1.2)
 
             plt.xlabel(r"Radial coordinate: $r$ (a. u.)")
-            plt.ylabel(r"Solution: $f(t,r)$ (a. u.)")
+            plt.ylabel(r"Solution: $\psi(t,r)$ (a. u.)")
             plt.ylim([1e-3, 1e1])
-            plt.xlim([source_r_min, r_end])
+            plt.xlim([1.0, r_end])
             plt.grid(False)
             plt.legend(loc="upper right")
             plt.tight_layout()
@@ -283,7 +282,6 @@ def validation_pointlike_source(
             )
             conv_fig.savefig(conv_path_pdf, dpi=200, bbox_inches="tight")
             print(f"Saved convergence figure to: {conv_path_pdf}")
-
         except Exception as e:
             print(f"Warning: could not save figures: {e}")
 

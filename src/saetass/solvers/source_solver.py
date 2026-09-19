@@ -10,10 +10,10 @@ logger = logging.getLogger(__name__)
 
 
 class SourceSolver(SubSolver):
-    """
+    r"""
     Explicit Euler operator for a source term, inheriting from :py:class:`~saetass.solver.SubSolver`.
 
-    Advances the distribution function according to:
+    Advances the differential density according to:
 
     .. math::
 
@@ -38,7 +38,7 @@ class SourceSolver(SubSolver):
         source : ndarray or callable
             Source term, :math:`Q`.
             If callable, the signature must be ``source(r_centers, p_centers, t) -> ndarray``, where either ``r_centers`` or ``p_centers`` may be ``None`` for 1D problems.
-            If an array, its shape must match the :py:class:`~saetass.state.State` distribution function.
+            If an array, its shape must match the :py:class:`~saetass.state.State` differential density array.
     """
 
     def __init__(self, grid: Grid, t_grid: np.ndarray, params: dict, **kwargs):
@@ -87,7 +87,7 @@ class SourceSolver(SubSolver):
         n_steps : int
             Number of time steps to advance.
         state : :py:class:`~saetass.state.State`
-            Current simulation state. The distribution function is updated in-place at the end of the call.
+            Current simulation state. The differential density is updated in-place at the end of the call.
         """
         total_dt = float(n_steps) * np.diff(self.t_grid)[0]
 
@@ -98,13 +98,13 @@ class SourceSolver(SubSolver):
             S = self.source_static
 
         # Ensure shape compatibility
-        if S.shape != state.get_f().shape:
+        if S.shape != state._get_values().shape:
             raise ValueError(
-                f"Source shape {S.shape} does not match state shape {state.f.shape}"
+                f"Source shape {S.shape} does not match state shape {state._values.shape}"
             )
 
         # Explicit update
-        f_new = state.f + total_dt * S
-        state.update_f(f_new)
+        values_new = state._values + total_dt * S
+        state._update_values(values_new)
 
         logger.debug(f"Advanced source operator by {n_steps} steps (dt={total_dt})")

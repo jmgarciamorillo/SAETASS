@@ -17,9 +17,9 @@ class LossSolver(HyperbolicSolver):
 
     .. math::
 
-        \\frac{\\partial f}{\\partial t} + \\frac{\\partial}{\\partial p}\\bigl(\\dot{p}(t,p)\\,f\\bigr) = 0,
+        \\frac{\\partial \psi}{\\partial t} + \\frac{\\partial}{\\partial p}\\bigl(\\dot{p}(t,p)\\,\psi\\bigr) = 0,
 
-    where :math:`\\dot{p} = dp/dt \\leq 0` is the (signed) momentum loss rate. The solver uses the conservative variable :math:`U = p f` and, also, :math:`V(t,y) = \\frac{\\dot{p}}{p\\ln(10)}` and :math:`y = \\log_{10}(p)`.
+    where :math:`\\dot{p} = dp/dt \\leq 0` is the (signed) momentum loss rate. The solver uses the conservative variable :math:`U = p \psi` and, also, :math:`V(t,y) = \\frac{\\dot{p}}{p\\ln(10)}` and :math:`y = \\log_{10}(p)`.
     The finite volume update is delegated to the base class across the momentum (p) axis.
 
     Parameters
@@ -84,9 +84,15 @@ class LossSolver(HyperbolicSolver):
             else:
                 loss_params["V_centers"] = self._generalized_velocity(P_dot_input, grid)
 
-        if "inflow_value_f" in loss_params:
+        inflow_input = loss_params.pop("inflow_value", None)
+        if inflow_input is None:
+            inflow_input = loss_params.pop("inflow_value_psi", None)
+        if inflow_input is None:
+            inflow_input = loss_params.pop("inflow_value_f", None)
+
+        if inflow_input is not None:
             loss_params["inflow_value_U"] = self._generalized_variable(
-                loss_params.pop("inflow_value_f"), grid
+                inflow_input, grid
             )[-1]
 
         # Initialize the base class
@@ -94,14 +100,14 @@ class LossSolver(HyperbolicSolver):
 
     def _generalized_variable(self, f: np.ndarray, grid: Grid) -> np.ndarray:
         """
-        Map the primitive distribution function to the conservative variable.
+        Map the primitive differential density to the conservative variable.
         """
         p_centers = grid._p_centers_phys
         return p_centers * f
 
     def _inverse_generalized_variable(self, U: np.ndarray, grid: Grid) -> np.ndarray:
         """
-        Map the conservative variable back to the primitive distribution function.
+        Map the conservative variable back to the primitive differential density.
         """
         p = np.asarray(grid._p_centers_phys).flatten()
 

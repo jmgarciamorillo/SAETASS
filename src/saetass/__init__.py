@@ -10,11 +10,13 @@ from .solvers.loss_solver import LossSolver
 from .solvers.source_solver import SourceSolver
 from .splitting import SplittingScheme
 from .state import State
+from .utils.energy_losses import Particle
 
 __all__ = [
     "Grid",
     "State",
     "Solver",
+    "Particle",
     "SplittingScheme",
     "DiffusionSolver",
     "AdvectionSolver",

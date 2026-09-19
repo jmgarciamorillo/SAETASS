@@ -14,12 +14,14 @@ from plot_style import (
     get_quantitative_style,
 )
 
-from saetass import Grid, Solver, State
+from saetass import Grid, Particle, Solver, State
 
 apply_plot_style()
 
 
-def run_diffusion_simulation(r_grid, t_grid, f_initial, solver_params, sample_count=0):
+def run_diffusion_simulation(
+    r_grid, t_grid, psi_initial, solver_params, sample_count=0
+):
     """
     Create and run a diffusion Solver for the provided grids and params.
     Collect sampled snapshots by advancing the solver in chunks to sampled
@@ -29,7 +31,7 @@ def run_diffusion_simulation(r_grid, t_grid, f_initial, solver_params, sample_co
     the corresponding snapshot times.
     """
     grid = Grid(r_centers=r_grid, t_grid=t_grid, p_centers=None)
-    state = State(f_initial)
+    state = State(psi_p=psi_initial, grid=grid, particle=Particle.PROTON)
 
     solver = Solver(
         grid=grid,
@@ -43,7 +45,7 @@ def run_diffusion_simulation(r_grid, t_grid, f_initial, solver_params, sample_co
     num_timesteps = len(t_grid) - 1
 
     # snapshots: include initial
-    snapshots = [np.copy(state.f.flatten())]
+    snapshots = [np.copy(state.psi_p.flatten())]
     times = [t_grid[0]]
 
     if sample_count > 0 and num_timesteps > 0:
@@ -58,10 +60,10 @@ def run_diffusion_simulation(r_grid, t_grid, f_initial, solver_params, sample_co
         if steps_to_advance > 0:
             solver.step(steps_to_advance)
             current_step = next_step
-        snapshots.append(np.copy(solver.state.f.flatten()))
+        snapshots.append(np.copy(solver.state.psi_p.flatten()))
         times.append(t_grid[current_step])
 
-    return solver.state.f.flatten(), snapshots, times
+    return solver.state.psi_p.flatten(), snapshots, times
 
 
 def compute_relative_L2(numerical, analytical, mask=None):
@@ -87,7 +89,7 @@ def validation_diffusion_analytic(
 ):
     """
     Validation of 1D radial diffusion with a sinc-like initial profile.
-    Analytical decay: f(r,t) = f_initial(r) * exp(-pi^2 * D_const * t).
+    Analytical decay: \psi(r,t) = \psi_initial(r) * exp(-pi^2 * D_const * t).
     Sweep resolutions, measure relative L2 error and save figures to ../figures.
     """
     errors = []
@@ -102,18 +104,18 @@ def validation_diffusion_analytic(
         t_grid = np.linspace(0.0, t_final, 10000)
 
         # sinc-like initial condition (as in tests)
-        f_initial = (np.pi / 2.0) * np.sinc(r_grid)
+        psi_initial = (np.pi / 2.0) * np.sinc(r_grid)
 
         solver_params = {"D_values": np.full(N, D_const), "f_end": 0.0}
 
-        f_num, snapshots, snap_times = run_diffusion_simulation(
-            r_grid, t_grid, f_initial, solver_params, sample_count=6
+        psi_num, snapshots, snap_times = run_diffusion_simulation(
+            r_grid, t_grid, psi_initial, solver_params, sample_count=6
         )
 
         # analytical solution at t_final
-        f_ana = f_initial * np.exp(-(np.pi**2) * D_const * t_final)
+        psi_ana = psi_initial * np.exp(-(np.pi**2) * D_const * t_final)
 
-        relL2 = compute_relative_L2(f_num, f_ana)
+        relL2 = compute_relative_L2(psi_num, psi_ana)
         errors.append(relL2)
         dxs.append(dr)
 
@@ -123,9 +125,9 @@ def validation_diffusion_analytic(
             {
                 "N": N,
                 "r_grid": r_grid,
-                "f_initial": f_initial,
-                "f_num": f_num,
-                "f_ana": f_ana,
+                "psi_initial": psi_initial,
+                "psi_num": psi_num,
+                "psi_ana": psi_ana,
                 "relL2": relL2,
                 "snapshots": snapshots,
                 "snap_times": snap_times,
@@ -141,10 +143,10 @@ def validation_diffusion_analytic(
         ymin = np.inf
         ymax = -np.inf
         for rec in all_results:
-            ymin = min(ymin, np.min(rec["f_initial"]))
-            ymax = max(ymax, np.max(rec["f_initial"]))
-            ymin = min(ymin, np.min(rec["f_num"]))
-            ymax = max(ymax, np.max(rec["f_num"]))
+            ymin = min(ymin, np.min(rec["psi_initial"]))
+            ymax = max(ymax, np.max(rec["psi_initial"]))
+            ymin = min(ymin, np.min(rec["psi_num"]))
+            ymax = max(ymax, np.max(rec["psi_num"]))
 
         if not np.isfinite(ymin) or not np.isfinite(ymax):
             ymin, ymax = 0.0, 1.0
@@ -169,10 +171,10 @@ def validation_diffusion_analytic(
         for rec in all_results:
             N = rec["N"]
             r_grid = rec["r_grid"]
-            f_initial = rec["f_initial"]
-            f_num = rec["f_num"]
-            f_ana = rec["f_ana"]
-            snapshots = rec.get("snapshots", [f_num])
+            psi_initial = rec["psi_initial"]
+            psi_num = rec["psi_num"]
+            psi_ana = rec["psi_ana"]
+            snapshots = rec.get("snapshots", [psi_num])
             snap_times = rec.get("snap_times", [t_final])
 
             fig = plt.figure(figsize=(6, 4))
@@ -196,14 +198,14 @@ def validation_diffusion_analytic(
 
             # analytical solution (final)
             ana_style = get_analytical_style()
-            plt.plot(r_grid, f_ana, label="Analytical (final)", **ana_style)
+            plt.plot(r_grid, psi_ana, label="Analytical (final)", **ana_style)
 
             add_time_colorbar(fig, plt.gca(), t_min=snap_times[0], t_max=snap_times[-1])
 
             plt.xlim(0, r_end)
             plt.ylim(ylims)
             plt.xlabel(r"Radial coordinate: $r$ (a. u.)")
-            plt.ylabel(r"Solution: $f(t,r)$ (a. u.)")
+            plt.ylabel(r"Solution: $\psi(t,r)$ (a. u.)")
             plt.legend()
             plt.grid()
             plt.tight_layout()

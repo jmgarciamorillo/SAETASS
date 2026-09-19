@@ -120,7 +120,7 @@ class SplittingScheme(ABC):
         Apply exactly one global macro-step of the splitting scheme.
 
         Sequentially commands the provided ``operator_subsolvers`` to integrate their independent
-        physical phenomena on the phase-space. Implementations must call ``self._advance_global_time(state)``
+        physical phenomena on the transport domain. Implementations must call ``self._advance_global_time(state)``
         as their final action.
 
         Parameters
@@ -132,7 +132,7 @@ class SplittingScheme(ABC):
         substeps_per_op : dict
             Dictionary mapping operators to their sub-step configuration.
         state : :py:class:`~saetass.state.State`
-            The global distribution state object to consecutively mutate inplace.
+            The global state object to consecutively mutate inplace.
         """
         pass
 
@@ -211,9 +211,9 @@ class StrangSplitting(SplittingScheme):
         state : :py:class:`~saetass.state.State`
             State wrapper passed in-place down the subsolver chain.
         """
-        if np.min(state.f) < 0:
+        if np.min(state._values) < 0:
             logger.warning(
-                "Strang splitting: Negative values detected in state.f before applying operators."
+                "Strang splitting: Negative values detected in state._values before applying operators."
             )
 
         # First half-step for all but the last operator

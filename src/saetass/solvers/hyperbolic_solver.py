@@ -177,13 +177,13 @@ class HyperbolicSolver(SubSolver, ABC):
         n_steps : int
             Number of time steps to advance.
         state : :py:class:`~saetass.state.State`
-            Current simulation state. The distribution function is updated in-place at the end of the call.
+            Current simulation state. The differential density is updated in-place at the end of the call.
         """
-        f = np.asarray(state.get_f(), dtype=float)
+        values = np.asarray(state._get_values(), dtype=float)
         if self.axis == 0:
-            f = f.T
+            values = values.T
 
-        U = self._generalized_variable(f, self.grid)
+        U = self._generalized_variable(values, self.grid)
 
         dx = self.dx if self.M is None else self.dx[None, :]
 
@@ -218,14 +218,14 @@ class HyperbolicSolver(SubSolver, ABC):
             total_time -= dt_step
             t_local += dt_step
 
-        f_new = self._inverse_generalized_variable(U, self.grid)
+        values_new = self._inverse_generalized_variable(U, self.grid)
 
         # Positivity floor: MUSCL-Hancock is TVD but not strictly positive-definite;
         # clip machine-precision negatives that arise at steep gradient fronts.
-        f_new = np.maximum(f_new, 0.0)
-        state.update_f(f_new.T if self.axis == 0 else f_new)
+        values_new = np.maximum(values_new, 0.0)
+        state._update_values(values_new.T if self.axis == 0 else values_new)
 
-        logger.debug(f"max(|f|) after step: {np.max(np.abs(f_new)):.4g}")
+        logger.debug(f"max(|values|) after step: {np.max(np.abs(values_new)):.4g}")
 
     # ---------------- internal helpers ----------------
     def _unpack_params(self, params: dict = None) -> None:
@@ -310,7 +310,8 @@ class HyperbolicSolver(SubSolver, ABC):
             centers = getattr(self, f"{name}_centers")
             faces = getattr(self, f"{name}_faces")
             self.N = len(centers)
-            self.dx = getattr(grid, f"d{name}", None)  # for compatibility (dr or dp)
+            dx = getattr(grid, f"d{name}", None)  # for compatibility (dr or dp)
+            self.dx = np.asarray(dx, dtype=float) if dx is not None else None
             self.dx_c = centers[1:] - centers[:-1]  # Δ between centers
             self.dx_R = faces[1:] - centers  # distance center to right face
             self.dx_L = centers - faces[:-1]  # distance center to left face
