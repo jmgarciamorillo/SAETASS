@@ -13,14 +13,14 @@ logger = logging.getLogger(__name__)
 
 
 class AdvectionSolver(HyperbolicSolver):
-    """
+    r"""
     Finite volume solver for spherical advection, inheriting from :py:class:`~saetass.solvers.hyperbolic_solver.HyperbolicSolver`.
 
     Solves the spherical advection equation in conservative form,
 
     .. math::
 
-        \\frac{\\partial \psi}{\\partial t} + \\frac{1}{r^2}\\frac{\\partial}{\\partial r}\\bigl(v(t,r)\\,r^2 \psi\\bigr) = 0,
+        \frac{\partial \psi}{\partial t} + \frac{1}{r^2}\frac{\partial}{\partial r}\bigl(v(t,r)\,r^2 \psi\bigr) = 0,
 
     by introducing the conservative variable :math:`U = r^2 \psi`, :math:`V(t,y) = v(t,r)` and :math:`y = r`, and delegating the finite volume update to the base class across the spatial (:math:`r`) axis.
 
@@ -28,19 +28,19 @@ class AdvectionSolver(HyperbolicSolver):
     ----------
     grid : :py:class:`~saetass.grid.Grid`
         :py:class:`~saetass.grid.Grid` containing at least ``r_centers`` and ``r_faces``; optionally ``p_centers`` and ``p_faces`` for 2D problems.
-    t_grid : ndarray
+    t_grid : numpy.ndarray
         Subproblem time grid. In the standard SAETASS workflow this is already subrefined during :py:class:`~saetass.solver.Solver` initialization.
     params : dict
         Solver configuration, already converted to canonical floats by :py:meth:`~saetass.solver.SubSolver.convert_params`. Accepted keys (and the units required at the :py:class:`~saetass.solver.Solver` level) are:
 
-        v_centers : Quantity or callable
-            Advection velocity at cell centers (velocity). A callable must have signature ``v_centers(t: Quantity) -> Quantity``.
+        v_centers : astropy.units.Quantity or callable
+            Advection velocity at cell centers. Units compatible with :py:data:`~saetass.units.VELOCITY`. A callable must have signature ``v_centers(t: Quantity) -> Quantity``.
         limiter : ``{'minmod', 'vanleer', 'mc'}``
             Slope limiter used for second-order schemes.
         cfl : float
             CFL number for the adaptive sub-step calculation.
-        inflow_value_U : Quantity
-            Value of the conservative variable :math:`U = r^2 \\psi` at the outer boundary when the flow is directed inward (inflow condition), in units of area times differential density.
+        inflow_value_U : astropy.units.Quantity
+            Value of the conservative variable :math:`U = r^2 \psi` at the outer boundary when the flow is directed inward (inflow condition). Units compatible with :py:data:`~saetass.units.AREA` times :py:data:`~saetass.units.PSI_P`.
         order : ``{1, 2}``
             Order of the numerical scheme.
     """

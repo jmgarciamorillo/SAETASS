@@ -1,9 +1,9 @@
-"""
+r"""
 The :py:class:`~saetass.solvers.hyperbolic_solver.HyperbolicSolver` class implements a finite volume method for solving hyperbolic PDEs of the general form
 
 .. math::
 
-    \\frac{\\partial U}{\\partial t} + \\frac{\\partial}{\\partial y}\\big(V(t,y)\\, U\\big) = 0,
+    \frac{\partial U}{\partial t} + \frac{\partial}{\partial y}\big(V(t,y)\, U\big) = 0,
 
 where :math:`V(t,y)` is a generalized velocity that can depend on time and on the variable :math:`y`.
 It supports both first-order upwind and second-order MUSCL-Hancock schemes with various slope limiters (minmod, van Leer, MC) to ensure stability and non-oscillatory behavior.
@@ -66,24 +66,24 @@ class HyperbolicSolver(SubSolver, ABC):
 
     Parameters
     ----------
-    grid : :class:`~saetass.grid.Grid`
+    grid : :py:class:`~saetass.grid.Grid`
         A grid object containing both spatial and momentum grids.
-    t_grid : ndarray
-        Time grid for integration.
-        In the standard SAETASS workflow, this is typically subrefined during :class:`~saetass.solver.Solver` initialization.
+    t_grid : numpy.ndarray
+        Time grid for integration, in canonical :py:data:`~saetass.units.TIME` units.
+        In the standard SAETASS workflow, this is typically subrefined during :py:class:`~saetass.solver.Solver` initialization.
     params : dict
-        A dictionary of solver configuration parameters:
+        Solver configuration as bare floats in canonical units. Accepted keys are:
 
-        V_centers : ndarray
+        V_centers : numpy.ndarray or callable
             Generalized velocities at cell centers. Shape must match
-            grid dimensions.
+            grid dimensions. A callable must have signature ``V_centers(t: float) -> numpy.ndarray``.
         limiter : ``{'minmod', 'vanleer', 'mc'}``
             Slope limiter used for second-order schemes.
         cfl : float
             CFL (Courant-Friedrichs-Lewy) number for stable time
             step calculation.
-        inflow_value_U : float
-            Value of the conservative variable $U$ at the outer boundary
+        inflow_value_U : float or numpy.ndarray
+            Value of the conservative variable :math:`U` at the outer boundary
             for inflow conditions.
         order : ``{1, 2}``
             Order of the numerical scheme:
@@ -355,7 +355,7 @@ class HyperbolicSolver(SubSolver, ABC):
 
         Returns
         -------
-        V_face : np.ndarray
+        V_face : numpy.ndarray
             Interpolated generalized velocities at faces, length N-1.
         """
         if self.N <= 1:

@@ -20,7 +20,7 @@ class DiffusionSolver(SubSolver):
 
     .. math::
 
-        \\frac{\\partial \psi}{\\partial t} = \\frac{1}{r^2}\\frac{\\partial}{\\partial r}\\!\\left(D(t,r,p)\\,r^2\\frac{\\partial \psi}{\\partial r}\\right),
+        \frac{\partial \psi}{\partial t} = \frac{1}{r^2}\frac{\partial}{\partial r}\!\left(D(t,r,p)\,r^2\frac{\partial \psi}{\partial r}\right),
 
     using a fully implicit Crank-Nicolson scheme with a batched tridiagonal Thomas solver, so that all momentum slices are advanced simultaneously without any loop over :math:`p`.
 
@@ -28,7 +28,7 @@ class DiffusionSolver(SubSolver):
 
     .. math::
 
-        D_{i+1/2} = \\frac{h_L + h_R}{h_L / D_i + h_R / D_{i+1}},
+        D_{i+1/2} = \frac{h_L + h_R}{h_L / D_i + h_R / D_{i+1}},
 
     where :math:`h_L` and :math:`h_R` are the distances from the face to the
     left and right cell centres respectively. At :math:`r = 0` a symmetry (zero-flux) condition is always enforced.
@@ -38,18 +38,18 @@ class DiffusionSolver(SubSolver):
     grid : :py:class:`~saetass.grid.Grid`
         :py:class:`~saetass.grid.Grid` containing at least ``r_centers`` and ``r_faces``.  The first centre must be at :math:`r = 0`.
         Optionally includes ``p_centers`` and ``p_faces`` for 2D problems.
-    t_grid : ndarray
+    t_grid : numpy.ndarray
         Subproblem time grid.
         In the standard SAETASS workflow this is already subrefined during :py:class:`~saetass.solver.Solver` initialization.
     params : dict
         Solver configuration, already converted to canonical floats by :py:meth:`~saetass.solver.SubSolver.convert_params`. Accepted keys (and the units required at the :py:class:`~saetass.solver.Solver` level) are:
 
-        D_values : Quantity or callable
-            Diffusion coefficient at cell centres (area per time).  Shape must match the grid (``(nr,)`` for 1D or ``(np, nr)`` for 2D).  A callable must have signature ``D_values(t: Quantity) -> Quantity``.
+        D_values : astropy.units.Quantity or callable
+            Diffusion coefficient at cell centres. Units compatible with :py:data:`~saetass.units.DIFFUSION_COEFFICIENT`. Shape must match the grid (``(nr,)`` for 1D or ``(np, nr)`` for 2D).  A callable must have signature ``D_values(t: Quantity) -> Quantity``.
         boundary_condition : ``{'dirichlet', 'neumann', 'outflow'}``, optional
-            Outer boundary condition (default: ``'dirichlet'``).
-        psi_end : Quantity or callable, optional
-            Differential density :math:`\psi` at the outer boundary for the Dirichlet condition (default: 0). A callable must have signature ``psi_end(t: Quantity) -> Quantity``.
+            Outer boundary condition. Default is ``'dirichlet'``.
+        psi_end : astropy.units.Quantity or callable, optional
+            Differential density :math:`\psi` at the outer boundary for the Dirichlet condition. Units compatible with :py:data:`~saetass.units.PSI_P`. A callable must have signature ``psi_end(t: Quantity) -> Quantity``. Default is zero.
     """
 
     PARAM_SPECS = MappingProxyType(

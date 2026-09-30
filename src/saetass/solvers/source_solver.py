@@ -19,7 +19,7 @@ class SourceSolver(SubSolver):
 
     .. math::
 
-        \\frac{\\partial f}{\\partial t} = Q(t, r, p),
+        \frac{\partial \psi}{\partial t} = Q(t, r, p),
 
     using a single first-order explicit Euler step over the total requested
     time ``n_steps * dt``.
@@ -31,14 +31,14 @@ class SourceSolver(SubSolver):
     ----------
     grid : :py:class:`~saetass.grid.Grid`
         :py:class:`~saetass.grid.Grid` providing ``r_centers`` and/or ``p_centers`` depending on the problem dimension.
-    t_grid : ndarray
+    t_grid : numpy.ndarray
         Subproblem time grid.
         In the standard SAETASS workflow this is already subrefined during :py:class:`~saetass.solver.Solver` initialization.
     params : dict
         Solver configuration, already converted to canonical floats by :py:meth:`~saetass.solver.SubSolver.convert_params`. Accepted keys (and the units required at the :py:class:`~saetass.solver.Solver` level) are:
 
-        source : Quantity or callable
-            Source term, :math:`Q`, in units of differential density per time.
+        source : astropy.units.Quantity or callable
+            Source term, :math:`Q`. Units compatible with :py:data:`~saetass.units.SOURCE_PSI_P`.
             If callable, the signature must be ``source(r, p, t) -> Quantity``, where ``r`` and ``p`` are the physical cell-center coordinates (either may be ``None`` for 1D problems) and ``t`` is the time, all as Quantities.
             Its shape must match the :py:class:`~saetass.state.State` differential density array.
     """

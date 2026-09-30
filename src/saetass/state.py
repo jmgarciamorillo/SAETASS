@@ -37,27 +37,27 @@ class State:
     ----------
     grid : :py:class:`~saetass.grid.Grid`
         The associated spatial/momentum simulation grid.
-    f_ps : :py:class:`astropy.units.Quantity`, optional
+    f_ps : astropy.units.Quantity, optional
         Phase-space distribution in momentum space :math:`f_\mathrm{ps}(r, p)`.
-        Must have physical dimensions compatible with :math:`\mathrm{pc^{-3}\,(GeV/c)^{-3}}`.
-    psi_p : :py:class:`astropy.units.Quantity`, optional
+        Units compatible with :py:data:`~saetass.units.F_PS`.
+    psi_p : astropy.units.Quantity, optional
         Differential density in momentum :math:`\psi_p(r, p) = \frac{dn}{dp} = 4\pi p^2 f_\mathrm{ps}`.
-        Must have physical dimensions compatible with :math:`\mathrm{pc^{-3}\,(GeV/c)^{-1}}`.
-    psi_E : :py:class:`astropy.units.Quantity`, optional
+        Units compatible with :py:data:`~saetass.units.PSI_P`.
+    psi_E : astropy.units.Quantity, optional
         Differential number density in kinetic energy :math:`\psi_E(r, E) = \frac{dn}{dE} = \frac{dp}{dE} \psi_p`.
-        Must have physical dimensions compatible with :math:`\mathrm{pc^{-3}\,GeV^{-1}}`.
+        Units compatible with :py:data:`~saetass.units.PSI_E`.
     particle : Particle or str, optional
-        The cosmic ray particle species (default: ``Particle.PROTON``).
+        The cosmic ray particle species. Default is ``Particle.PROTON``.
     t : astropy.units.Quantity, optional
-        Initial simulation time (default: ``0.0 * su.TIME``).
+        Initial simulation time. Units compatible with :py:data:`~saetass.units.TIME`. Default is ``0.0 * su.TIME``.
     dt : astropy.units.Quantity, optional
-        Time step used in the last update (default: ``0.0 * su.TIME``).
+        Time step used in the last update. Units compatible with :py:data:`~saetass.units.TIME`. Default is ``0.0 * su.TIME``.
     stage : int, optional
-        Current operator-splitting stage index (default: ``0``).
+        Current operator-splitting stage index. Default is ``0``.
     stage_name : str, optional
-        Descriptive label for the current operator-splitting stage (default: ``''``).
+        Descriptive label for the current operator-splitting stage. Default is ``''``.
     history : list of dict, optional
-        Pre-populated snapshot history (default: empty list).
+        Pre-populated snapshot history. Default is an empty list.
 
     Attributes
     ----------
@@ -113,7 +113,7 @@ class State:
 
     @property
     def t(self) -> u.Quantity:
-        """Current simulation time (in canonical TIME)."""
+        """Current simulation time. Units compatible with :py:data:`~saetass.units.TIME`."""
         return self._t * su.TIME
 
     @t.setter
@@ -122,7 +122,7 @@ class State:
 
     @property
     def dt(self) -> u.Quantity:
-        """Time step of the last update (in canonical TIME)."""
+        """Time step of the last update. Units compatible with :py:data:`~saetass.units.TIME`."""
         return self._dt * su.TIME
 
     @dt.setter
@@ -131,7 +131,7 @@ class State:
 
     @property
     def t_val(self) -> float:
-        """Physical simulation time as pure float in canonical TIME units (Myr)."""
+        """Current simulation time as a bare float in canonical :py:data:`~saetass.units.TIME` units."""
         return self._t
 
     @staticmethod
@@ -323,16 +323,16 @@ class State:
     # -------------------------------------------------------------------------
 
     def _get_values(self) -> np.ndarray:
-        """
-        Internal numerical method: return the raw canonical :math:`\\psi_p` array in its natural dimensionality.
+        r"""
+        Internal numerical method: return the raw canonical :math:`\psi_p` array in its natural dimensionality.
 
         For 1D problems (``ndim == 1``) returns a 1D array of shape ``(n,)``;
         for 2D problems returns the full 2D array of shape ``(n_p, n_r)``.
 
         Returns
         -------
-        ndarray
-            The current numerical differential density array in canonical units of :math:`\\mathrm{pc^{-3}\\,(GeV/c)^{-1}}`.
+        numpy.ndarray
+            The current numerical differential density array, in canonical :py:data:`~saetass.units.PSI_P` units.
         """
         if self.ndim == 1:
             return self._values[0]
@@ -347,8 +347,8 @@ class State:
 
         Parameters
         ----------
-        new_values : ndarray
-            New values. Must have shape ``(n_p, n_r)`` or, for 1D states, ``(n_r,)``.
+        new_values : numpy.ndarray
+            New values, in canonical :py:data:`~saetass.units.PSI_P` units. Must have shape ``(n_p, n_r)`` or, for 1D states, ``(n_r,)``.
 
         Raises
         ------
@@ -395,12 +395,12 @@ class State:
     @cached_property
     def E_tot(self) -> u.Quantity:
         r"""
-        Total energy :math:`E_\mathrm{tot} = \sqrt{p^2 c^2 + (m c^2)^2}` at momentum cell centers (in GeV).
+        Total energy :math:`E_\mathrm{tot} = \sqrt{p^2 c^2 + (m c^2)^2}` at momentum cell centers.
 
         Returns
         -------
-        Quantity
-            Array of total energies in GeV with shape ``(n_p,)``.
+        astropy.units.Quantity
+            Array of total energies with shape ``(n_p,)``. Units compatible with :py:data:`~saetass.units.ENERGY`.
         """
         p_val = self._get_p_coords()
         p = p_val * su.MOMENTUM
@@ -411,12 +411,12 @@ class State:
     @cached_property
     def E(self) -> u.Quantity:
         r"""
-        Kinetic energy :math:`E = E_\mathrm{tot} - m c^2` at momentum cell centers (in GeV).
+        Kinetic energy :math:`E = E_\mathrm{tot} - m c^2` at momentum cell centers.
 
         Returns
         -------
-        Quantity
-            Array of kinetic energies in GeV with shape ``(n_p,)``.
+        astropy.units.Quantity
+            Array of kinetic energies with shape ``(n_p,)``. Units compatible with :py:data:`~saetass.units.ENERGY`.
         """
         m_energy = (self.particle.mass * const.c**2).to(su.ENERGY)
         return self.E_tot - m_energy
@@ -424,11 +424,11 @@ class State:
     @cached_property
     def gamma(self) -> np.ndarray:
         r"""
-        Lorentz factor :math:`\gamma = \frac{E_\mathrm{tot}}{m c^2}` at momentum cell centers (dimensionless).
+        Lorentz factor :math:`\gamma = \frac{E_\mathrm{tot}}{m c^2}` at momentum cell centers.
 
         Returns
         -------
-        ndarray
+        numpy.ndarray
             Array of Lorentz factors with shape ``(n_p,)``.
         """
         m_energy = (self.particle.mass * const.c**2).to(su.ENERGY)
@@ -441,7 +441,7 @@ class State:
 
         Returns
         -------
-        ndarray
+        numpy.ndarray
             Array of dimensionless velocities with shape ``(n_p,)``.
         """
         p = self._get_p_coords() * su.MOMENTUM
@@ -451,24 +451,24 @@ class State:
     @cached_property
     def v(self) -> u.Quantity:
         r"""
-        Particle velocity :math:`v = \beta c` at momentum cell centers (in canonical VELOCITY).
+        Particle velocity :math:`v = \beta c` at momentum cell centers.
 
         Returns
         -------
-        Quantity
-            Array of velocities in pc/Myr with shape ``(n_p,)``.
+        astropy.units.Quantity
+            Array of velocities with shape ``(n_p,)``. Units compatible with :py:data:`~saetass.units.VELOCITY`.
         """
         return (self.beta * const.c).to(su.VELOCITY)
 
     @cached_property
     def dp_dE(self) -> np.ndarray:
         r"""
-        Jacobian conversion factor :math:`\frac{dp}{dE} = \frac{E_\mathrm{tot}}{p c^2}` relating kinetic energy and momentum differentials (in :math:`(\mathrm{GeV}/c)/\mathrm{GeV}`).
+        Jacobian conversion factor :math:`\frac{dp}{dE} = \frac{E_\mathrm{tot}}{p c^2}` relating kinetic energy and momentum differentials.
 
         Returns
         -------
-        ndarray
-            Array of :math:`dp/dE` with shape ``(n_p,)``.
+        numpy.ndarray
+            Array of :math:`dp/dE` with shape ``(n_p,)``, in :math:`(\mathrm{GeV}/c)\,\mathrm{GeV^{-1}}`.
         """
         p = self._get_p_coords() * su.MOMENTUM
         p_energy = (p * const.c).to(su.ENERGY)
@@ -477,12 +477,12 @@ class State:
     @cached_property
     def dE_dp(self) -> np.ndarray:
         r"""
-        Jacobian conversion factor :math:`\frac{dE}{dp} = \beta c = \frac{p c^2}{E_\mathrm{tot}}` relating kinetic energy and momentum differentials (in :math:`\mathrm{GeV}/(\mathrm{GeV}/c)`).
+        Jacobian conversion factor :math:`\frac{dE}{dp} = \beta c = \frac{p c^2}{E_\mathrm{tot}}` relating kinetic energy and momentum differentials.
 
         Returns
         -------
-        ndarray
-            Array of :math:`dE/dp` with shape ``(n_p,)``.
+        numpy.ndarray
+            Array of :math:`dE/dp` with shape ``(n_p,)``, in :math:`\mathrm{GeV}\,(\mathrm{GeV}/c)^{-1}`.
         """
         return 1.0 / self.dp_dE
 
@@ -492,7 +492,7 @@ class State:
 
     @property
     def psi_p(self) -> u.Quantity:
-        """Differential density in momentum space :math:`\\psi_p(r, p) = \\frac{dn}{dp}`."""
+        r"""Differential density in momentum space :math:`\psi_p(r, p) = \frac{dn}{dp}`."""
         return self.to_psi_p()
 
     @psi_p.setter
@@ -501,7 +501,7 @@ class State:
 
     @property
     def f_ps(self) -> u.Quantity:
-        """Phase-space distribution function in momentum space :math:`f_\\mathrm{ps}(r, p)`."""
+        r"""Phase-space distribution function in momentum space :math:`f_\mathrm{ps}(r, p)`."""
         return self.to_f_ps()
 
     @f_ps.setter
@@ -510,7 +510,7 @@ class State:
 
     @property
     def psi_E(self) -> u.Quantity:
-        """Differential number density in energy space :math:`\\psi_E(r, E) = \\frac{dn}{dE}`."""
+        r"""Differential number density in energy space :math:`\psi_E(r, E) = \frac{dn}{dE}`."""
         return self.to_psi_E()
 
     @psi_E.setter
@@ -519,7 +519,7 @@ class State:
 
     @property
     def dndE(self) -> u.Quantity:
-        """Differential number density in energy space :math:`\\frac{dn}{dE}` (alias for :py:attr:`psi_E`)."""
+        r"""Differential number density in energy space :math:`\frac{dn}{dE}` (alias for :py:attr:`psi_E`)."""
         return self.to_psi_E()
 
     @dndE.setter
@@ -543,10 +543,10 @@ class State:
 
         Parameters
         ----------
-        psi_p : :py:class:`astropy.units.Quantity`
-            New momentum differential density array.
-        dt : :py:class:`astropy.units.Quantity`, optional
-            Elapsed time step for this update.
+        psi_p : astropy.units.Quantity
+            New momentum differential density array. Units compatible with :py:data:`~saetass.units.PSI_P`.
+        dt : astropy.units.Quantity, optional
+            Elapsed time step for this update. Units compatible with :py:data:`~saetass.units.TIME`.
         stage : int, optional
             Operator-splitting stage index.
         stage_name : str, optional
@@ -569,10 +569,10 @@ class State:
 
         Parameters
         ----------
-        f_ps : :py:class:`astropy.units.Quantity`
-            New phase-space distribution array.
-        dt : :py:class:`astropy.units.Quantity`, optional
-            Elapsed time step for this update.
+        f_ps : astropy.units.Quantity
+            New phase-space distribution array. Units compatible with :py:data:`~saetass.units.F_PS`.
+        dt : astropy.units.Quantity, optional
+            Elapsed time step for this update. Units compatible with :py:data:`~saetass.units.TIME`.
         stage : int, optional
             Operator-splitting stage index.
         stage_name : str, optional
@@ -595,10 +595,10 @@ class State:
 
         Parameters
         ----------
-        psi_E : :py:class:`astropy.units.Quantity`
-            New energy differential density array.
-        dt : :py:class:`astropy.units.Quantity`, optional
-            Elapsed time step for this update.
+        psi_E : astropy.units.Quantity
+            New energy differential density array. Units compatible with :py:data:`~saetass.units.PSI_E`.
+        dt : astropy.units.Quantity, optional
+            Elapsed time step for this update. Units compatible with :py:data:`~saetass.units.TIME`.
         stage : int, optional
             Operator-splitting stage index.
         stage_name : str, optional
@@ -630,14 +630,14 @@ class State:
 
         Parameters
         ----------
-        f_ps : :py:class:`astropy.units.Quantity`, optional
-            Phase-space distribution in momentum space.
-        psi_p : :py:class:`astropy.units.Quantity`, optional
-            Differential density in momentum space.
-        psi_E : :py:class:`astropy.units.Quantity`, optional
-            Differential number density in kinetic energy.
-        dt : :py:class:`astropy.units.Quantity`, optional
-            Elapsed time step for this update.
+        f_ps : astropy.units.Quantity, optional
+            Phase-space distribution in momentum space. Units compatible with :py:data:`~saetass.units.F_PS`.
+        psi_p : astropy.units.Quantity, optional
+            Differential density in momentum space. Units compatible with :py:data:`~saetass.units.PSI_P`.
+        psi_E : astropy.units.Quantity, optional
+            Differential number density in kinetic energy. Units compatible with :py:data:`~saetass.units.PSI_E`.
+        dt : astropy.units.Quantity, optional
+            Elapsed time step for this update. Units compatible with :py:data:`~saetass.units.TIME`.
         stage : int, optional
             Operator-splitting stage index.
         stage_name : str, optional
@@ -657,18 +657,18 @@ class State:
     # -------------------------------------------------------------------------
 
     def to_psi_p(self, unit: u.Unit | None = None) -> u.Quantity:
-        """
-        Return differential density in momentum space :math:`\\psi_p(r, p) = \\frac{dn}{dp} = 4\\pi p^2 f_\\mathrm{ps}`.
+        r"""
+        Return differential density in momentum space :math:`\psi_p(r, p) = \frac{dn}{dp} = 4\pi p^2 f_\mathrm{ps}`.
 
         Parameters
         ----------
-        unit : :py:class:`astropy.units.Unit`, optional
-            Target unit for output. If ``None``, returns Quantity in canonical units of :math:`\\mathrm{pc^{-3}\\,(GeV/c)^{-1}}`.
+        unit : astropy.units.Unit, optional
+            Target unit for the output. If ``None``, the canonical :py:data:`~saetass.units.PSI_P` is used. Default is ``None``.
 
         Returns
         -------
-        Quantity
-            Differential density in momentum space.
+        astropy.units.Quantity
+            Differential density in momentum space. Units compatible with :py:data:`~saetass.units.PSI_P`.
         """
         vals = self._get_values()
         target_unit = unit if unit is not None else su.PSI_P
@@ -680,13 +680,13 @@ class State:
 
         Parameters
         ----------
-        unit : :py:class:`astropy.units.Unit`, optional
-            Target unit for output. If ``None``, returns Quantity in canonical units of :math:`\mathrm{pc^{-3}\,(GeV/c)^{-3}}`.
+        unit : astropy.units.Unit, optional
+            Target unit for the output. If ``None``, the canonical :py:data:`~saetass.units.F_PS` is used. Default is ``None``.
 
         Returns
         -------
-        Quantity
-            Phase-space distribution array in the specified units.
+        astropy.units.Quantity
+            Phase-space distribution array in the specified units. Units compatible with :py:data:`~saetass.units.F_PS`.
         """
         four_pi_p2 = self.grid.four_pi_p2
         if four_pi_p2 is None:
@@ -714,13 +714,13 @@ class State:
 
         Parameters
         ----------
-        unit : :py:class:`astropy.units.Unit`, optional
-            Target unit for output. If ``None``, returns Quantity in canonical units of :math:`\mathrm{pc^{-3}\,GeV^{-1}}`.
+        unit : astropy.units.Unit, optional
+            Target unit for the output. If ``None``, the canonical :py:data:`~saetass.units.PSI_E` is used. Default is ``None``.
 
         Returns
         -------
-        Quantity
-            Differential number density in kinetic energy.
+        astropy.units.Quantity
+            Differential number density in kinetic energy. Units compatible with :py:data:`~saetass.units.PSI_E`.
         """
         p_factor_dim = slice(None) if self.ndim == 1 else (slice(None), np.newaxis)
         psi_E_arr = self._values * self.dp_dE[p_factor_dim]
@@ -743,7 +743,7 @@ class State:
         Parameters
         ----------
         copy_history : bool, optional
-            If ``True``, deep-copy the full snapshot history as well (default: ``False``).
+            If ``True``, deep-copy the full snapshot history as well. Default is ``False``.
 
         Returns
         -------
@@ -786,8 +786,8 @@ class State:
 
         Parameters
         ----------
-        t : :py:class:`astropy.units.Quantity` or float
-            Exact time value to assign (in canonical TIME if float).
+        t : astropy.units.Quantity or float
+            Exact time value to assign. A float is interpreted in canonical :py:data:`~saetass.units.TIME` units.
         """
         # Hot path (called every global step by the splitting schemes): floats only.
         t_new = float(t.to_value(su.TIME)) if isinstance(t, u.Quantity) else float(t)
@@ -909,7 +909,7 @@ class State:
         Parameters
         ----------
         stage_name : str, optional
-            Descriptive label for the new stage (default: ``None``, which resets :py:attr:`stage_name` to ``''``).
+            Descriptive label for the new stage. If ``None``, :py:attr:`stage_name` is reset to ``''``. Default is ``None``.
         """
         self.stage += 1
         if stage_name is not None:

@@ -71,14 +71,14 @@ class EnergyLossCalculator:
 
     Parameters
     ----------
-    E_grid : u.Quantity
-        Energy grid for particles (with energy dimensions, e.g. GeV)
-    r_grid : u.Quantity
-        Radial grid for spatial variation (with length dimensions, e.g. pc)
-    n_gas : u.Quantity
-        Gas density profile (with number density dimensions, e.g. cm^-3)
+    E_grid : astropy.units.Quantity
+        Kinetic energy grid of the particles. Units compatible with :py:data:`~saetass.units.ENERGY`.
+    r_grid : astropy.units.Quantity
+        Radial grid for spatial variation. Units compatible with :py:data:`~saetass.units.LENGTH`.
+    n_gas : astropy.units.Quantity
+        Gas number density profile with shape ``(len(r_grid),)``. Units compatible with :py:data:`~saetass.units.NUMBER_DENSITY`.
     particle : Particle or str
-        Chosen between "proton" or "electron".
+        Particle species, either ``"proton"`` or ``"electron"``.
     """
 
     @u.quantity_input(
@@ -178,8 +178,8 @@ class EnergyLossCalculator:
 
         Returns
         -------
-        E_dot_ion : u.Quantity
-            Energy loss rate with shape (len(E_grid), len(r_grid)) in GeV/s.
+        E_dot_ion : astropy.units.Quantity
+            Energy loss rate with shape ``(len(E_grid), len(r_grid))``. Units compatible with :py:data:`~saetass.units.ENERGY_LOSS_RATE`.
         """
         if self.particle_species == "hadronic":
             IH = 19.0 * u.eV
@@ -232,8 +232,8 @@ class EnergyLossCalculator:
 
         Returns
         -------
-        E_dot_pion : u.Quantity
-            Energy loss rate with shape (len(E_grid), len(r_grid)) in GeV/s.
+        E_dot_pion : astropy.units.Quantity
+            Energy loss rate with shape ``(len(E_grid), len(r_grid))``. Units compatible with :py:data:`~saetass.units.ENERGY_LOSS_RATE`.
         """
         E_grid_norm = self.E_grid.to("GeV").value
         n_gas_norm = self.n_gas.to("cm**-3").value
@@ -262,22 +262,21 @@ class EnergyLossCalculator:
     def compute_sychrotron_losses(
         self, B_field: u.Quantity = None, U_B: u.Quantity = None
     ) -> u.Quantity:
-        """
+        r"""
         Compute synchrotron energy loss rate using standard expressions
         (:cite:ct:`Ginzburg1979`).
 
         Parameters
         ----------
-        B_field : u.Quantity
-            Magnetic field strength with shape (len(r_grid)).
-        U_B : u.Quantity
-            Magnetic energy density with shape (len(r_grid)). If B_field is provided,
-            U_B is ignored.
+        B_field : astropy.units.Quantity, optional
+            Magnetic field strength with shape ``(len(r_grid),)``. Units compatible with :py:data:`~saetass.units.MAGNETIC_FIELD`.
+        U_B : astropy.units.Quantity, optional
+            Magnetic energy density with shape ``(len(r_grid),)``, ignored if ``B_field`` is provided. Units compatible with :math:`\mathrm{erg\,cm^{-3}}`.
 
         Returns
         -------
-        E_dot_synchrotron : u.Quantity
-            Energy loss rate with shape (len(E_grid), len(r_grid)) in GeV/s.
+        E_dot_synchrotron : astropy.units.Quantity
+            Energy loss rate with shape ``(len(E_grid), len(r_grid))``. Units compatible with :py:data:`~saetass.units.ENERGY_LOSS_RATE`.
         """
         # Convert B_field to U_B if provided
         if B_field is not None:
@@ -316,8 +315,8 @@ class EnergyLossCalculator:
 
         Parameters
         ----------
-        ionised_mask : np.ndarray of bool
-            Boolean array with shape (num_r,) indicating which radial points correspond
+        ionised_mask : numpy.ndarray of bool
+            Boolean array with shape ``(len(r_grid),)`` indicating which radial points correspond
             to ionised gas.
 
              - For ionised gas, ``True``, the loss rate is computed using the weak-shielded formula (:cite:ct:`Ginzburg1979`).
@@ -326,8 +325,8 @@ class EnergyLossCalculator:
 
         Returns
         -------
-        E_dot_brems : u.Quantity
-            Energy loss rate with shape (len(E_grid), len(r_grid)) in GeV/s.
+        E_dot_brems : astropy.units.Quantity
+            Energy loss rate with shape ``(len(E_grid), len(r_grid))``. Units compatible with :py:data:`~saetass.units.ENERGY_LOSS_RATE`.
         """
         n_gas_norm = self.n_gas.to(u.cm**-3).value
         E_grid_norm = self.E_grid.to(u.GeV).value
@@ -387,8 +386,8 @@ class EnergyLossCalculator:
 
         Returns
         -------
-        E_dot_coulomb : u.Quantity
-            Energy loss rate with shape (len(E_grid), len(r_grid)) in GeV/s.
+        E_dot_coulomb : astropy.units.Quantity
+            Energy loss rate with shape ``(len(E_grid), len(r_grid))``. Units compatible with :py:data:`~saetass.units.ENERGY_LOSS_RATE`.
         """
         if n_e is None:
             n_e = self.n_gas.to(u.cm**-3)
@@ -466,29 +465,28 @@ class EnergyLossCalculator:
         dn_deps: u.Quantity,
         num_q: int = 120,
     ) -> u.Quantity:
-        """
+        r"""
         Compute inverse Compton energy loss rate using the full Klein-Nishina cross section (:cite:ct:`BlumenthalGould1970`).
 
         .. note::
-            The correct physical input is the photon number density spectrum :math:`\\frac{dn}{d\\epsilon}` (number of photons per unit volume per unit energy) rather than the energy density.
+            The correct physical input is the photon number density spectrum :math:`\frac{dn}{d\epsilon}` (number of photons per unit volume per unit energy) rather than the energy density.
             The integration is performed using a vectorized algorithm over the photon energy grid and the kinematic :math:`q`-variable grid.
 
         Parameters
         ----------
-        eps_grid : u.Quantity
-            Photon energy grid with energy units, shape (n_eps).
+        eps_grid : astropy.units.Quantity
+            Photon energy grid with shape ``(n_eps,)``. Units compatible with :py:data:`~saetass.units.ENERGY`.
             Should be positive and log-spaced for accuracy, covering the expected photon fields (e.g., CMB, infrared, optical, UV).
-        dn_deps : u.Quantity
-            Photon spectral number density with shape (n_eps, n_r).
-            Units must be compatible with, for example, cm^(-3) eV^(-1).
+        dn_deps : astropy.units.Quantity
+            Photon spectral number density with shape ``(n_eps, len(r_grid))``. Units compatible with :math:`\mathrm{cm^{-3}\,eV^{-1}}`.
         num_q : int, optional
             Number of points for integration over the Klein-Nishina phase space parameter :math:`q`.
-            Default is 120.
+            Default is ``120``.
 
         Returns
         -------
-        E_dot_IC : u.Quantity
-            Energy loss rate with shape (n_E, n_r) in GeV/s.
+        E_dot_IC : astropy.units.Quantity
+            Energy loss rate with shape ``(len(E_grid), len(r_grid))``. Units compatible with :py:data:`~saetass.units.ENERGY_LOSS_RATE`.
         """
         # Validate shapes
         if eps_grid.ndim != 1:
@@ -559,8 +557,8 @@ class EnergyLossCalculator:
 
         Returns
         -------
-        E_dot_total : u.Quantity
-            Total energy loss rate with shape (num_E, num_r) in GeV/s.
+        E_dot_total : astropy.units.Quantity
+            Total energy loss rate with shape ``(len(E_grid), len(r_grid))``. Units compatible with :py:data:`~saetass.units.ENERGY_LOSS_RATE`.
         """
         if not self._E_dot_components:
             raise RuntimeError("No energy loss mechanisms have been computed.")
@@ -583,7 +581,8 @@ class EnergyLossCalculator:
 
         Returns
         -------
-            P_dot_total: Momentum loss rate with shape (num_E, num_r).
+        P_dot_total : astropy.units.Quantity
+            Momentum loss rate with shape ``(len(E_grid), len(r_grid))``. Units compatible with :py:data:`~saetass.units.MOMENTUM_LOSS_RATE`.
         """
         # Compute total energy losses if not already done
         if self._E_dot_total is None:
@@ -607,14 +606,13 @@ class EnergyLossCalculator:
 
         Parameters
         ----------
-        r_index : Optional[int]
-            Radial index to compute timescales (if ``None``, returns 2D array).
+        r_index : int, optional
+            Radial index at which to compute the timescales. If ``None``, they are computed on the whole radial grid. Default is ``None``.
 
         Returns
         -------
-        timescales : Dict[str, np.ndarray]
-            Dictionary with timescales in years for each loss mechanism and total,
-            with shape (num_E,) if r_index is provided, or (num_E, num_r) if r_index is None.
+        timescales : dict of str to astropy.units.Quantity
+            Timescale of each loss mechanism and of the total losses, with shape ``(len(E_grid),)`` if ``r_index`` is provided or ``(len(E_grid), len(r_grid))`` otherwise. Units compatible with :py:data:`~saetass.units.TIME`.
         """
         timescales = {}
 

@@ -34,15 +34,15 @@ class Grid:
     Parameters
     ----------
     r_centers : astropy.units.Quantity, optional
-        1D Quantity array containing the centroid coordinates of the spatial grid cells (in units of length).
+        1D array containing the centroid coordinates of the spatial grid cells. Units compatible with :py:data:`~saetass.units.LENGTH`.
     r_faces : astropy.units.Quantity, optional
-        1D Quantity array containing the boundary (interface) coordinates of the spatial grid cells. Length is one greater than ``r_centers``.
+        1D array containing the boundary (interface) coordinates of the spatial grid cells. Length is one greater than ``r_centers``. Units compatible with :py:data:`~saetass.units.LENGTH`.
     p_centers : astropy.units.Quantity, optional
-        1D Quantity array containing the centroid coordinates of the momentum grid cells (in units of momentum).
+        1D array containing the centroid coordinates of the momentum grid cells. Units compatible with :py:data:`~saetass.units.MOMENTUM`.
     p_faces : astropy.units.Quantity, optional
-        1D Quantity array containing the boundary (interface) coordinates of the momentum grid cells. Length is one greater than ``p_centers``.
+        1D array containing the boundary (interface) coordinates of the momentum grid cells. Length is one greater than ``p_centers``. Units compatible with :py:data:`~saetass.units.MOMENTUM`.
     t_grid : astropy.units.Quantity, optional
-        1D Quantity array defining the discrete macro-timesteps over which the simulation will globally advance (in units of time).
+        1D array defining the discrete macro-timesteps over which the simulation will globally advance. Units compatible with :py:data:`~saetass.units.TIME`.
     is_p_log : bool, optional
         Flag dictating whether numerical operations inside solvers should treat the momentum grid internally in logarithmic spacing :math:`\log_{10}(p)`. Default is ``True``.
     """
@@ -193,8 +193,8 @@ class Grid:
 
         Returns
         -------
-        Quantity or None
-            Array of spatial cell widths in canonical LENGTH, or None if spatial grid not initialized.
+        astropy.units.Quantity or None
+            Array of spatial cell widths, or ``None`` if the spatial grid is not initialized. Units compatible with :py:data:`~saetass.units.LENGTH`.
         """
         if self.r_faces is not None:
             return self.r_faces[1:] - self.r_faces[:-1]
@@ -202,13 +202,13 @@ class Grid:
 
     @cached_property
     def dp(self) -> u.Quantity | np.ndarray | None:
-        """
+        r"""
         Momentum cell widths.
 
         Returns
         -------
-        Quantity, ndarray or None
-            Array of momentum cell widths, or None if the momentum grid is not initialized.
+        astropy.units.Quantity, numpy.ndarray or None
+            Array of momentum cell widths, or ``None`` if the momentum grid is not initialized. For logarithmic grids, it is a bare array of widths in :math:`\log_{10}(p)`; otherwise, units compatible with :py:data:`~saetass.units.MOMENTUM`.
         """
         if self.p_faces is not None:
             return self.p_faces[1:] - self.p_faces[:-1]
@@ -216,14 +216,14 @@ class Grid:
 
     @property
     def p_centers_phys(self) -> u.Quantity | None:
-        """Physical momentum coordinates at cell centers (in canonical MOMENTUM)."""
+        """Physical momentum coordinates at cell centers. Units compatible with :py:data:`~saetass.units.MOMENTUM`."""
         if getattr(self, "is_log_p", False) and hasattr(self, "_p_centers_phys"):
             return self._p_centers_phys
         return self.p_centers
 
     @property
     def p_faces_phys(self) -> u.Quantity | None:
-        """Physical momentum coordinates at cell faces (in canonical MOMENTUM)."""
+        """Physical momentum coordinates at cell faces. Units compatible with :py:data:`~saetass.units.MOMENTUM`."""
         if getattr(self, "is_log_p", False) and hasattr(self, "_p_faces_phys"):
             return self._p_faces_phys
         return self.p_faces
@@ -235,8 +235,8 @@ class Grid:
 
         Returns
         -------
-        Quantity or None
-            Array of :math:`4\pi p^2` in canonical MOMENTUM^2, or None if momentum grid not initialized.
+        astropy.units.Quantity or None
+            Array of :math:`4\pi p^2`, or ``None`` if the momentum grid is not initialized. Units compatible with the square of :py:data:`~saetass.units.MOMENTUM`.
         """
         if self.p_centers is not None:
             p = self.p_centers_phys
@@ -250,8 +250,8 @@ class Grid:
 
         Returns
         -------
-        Quantity or None
-            Array of cell volumes in canonical VOLUME (pc^3), or None if spatial grid not initialized.
+        astropy.units.Quantity or None
+            Array of cell volumes assuming spherical shells, or ``None`` if the spatial grid is not initialized. Units compatible with :py:data:`~saetass.units.VOLUME`.
         """
         if self.r_faces is not None:
             volumes = (4.0 * np.pi / 3.0) * (
@@ -267,8 +267,8 @@ class Grid:
 
         Returns
         -------
-        Quantity or None
-            Array of face areas in canonical AREA (pc^2), or None if spatial grid not initialized.
+        astropy.units.Quantity or None
+            Array of face areas assuming spherical shells, or ``None`` if the spatial grid is not initialized. Units compatible with :py:data:`~saetass.units.AREA`.
         """
         if self.r_faces is not None:
             return 4.0 * np.pi * self.r_faces**2
@@ -347,7 +347,7 @@ class Grid:
             raise ValueError("No grid dimensions are defined.")
 
     def _p_to_y(self, p: u.Quantity | np.ndarray) -> np.ndarray:
-        """Convert momentum p to logarithmic variable y = log10(p / su.MOMENTUM)."""
+        r"""Convert momentum p to the logarithmic variable :math:`y = \log_{10}(p / \mathrm{GeV}\,c^{-1})`."""
         val = (
             p.to_value(su.MOMENTUM)
             if isinstance(p, u.Quantity)
@@ -356,7 +356,7 @@ class Grid:
         return np.log10(val)
 
     def _y_to_p(self, y: np.ndarray) -> u.Quantity:
-        """Convert logarithmic variable y = log10(p) back to momentum p Quantity."""
+        """Convert the logarithmic variable :math:`y` back to the momentum :math:`p`, as a Quantity."""
         return (10.0**y) * su.MOMENTUM
 
     def post_process_calculations(self):
@@ -385,7 +385,7 @@ class Grid:
 
         Parameters
         ----------
-        array : np.ndarray
+        array : numpy.ndarray
             The array to check for shape compatibility.
 
         Returns
@@ -419,7 +419,37 @@ class Grid:
         req_p_pos: bool = False,
     ) -> tuple[bool, bool, bool]:
         """
-        Validates the grid generation boundaries.
+        Validate the grid generation boundaries.
+
+        Parameters
+        ----------
+        r_min, r_max : astropy.units.Quantity, optional
+            Spatial grid bounds. Units compatible with :py:data:`~saetass.units.LENGTH`.
+        num_r_cells : int, optional
+            Number of spatial cells.
+        p_min, p_max : astropy.units.Quantity, optional
+            Momentum grid bounds. Units compatible with :py:data:`~saetass.units.MOMENTUM`.
+        num_p_cells : int, optional
+            Number of momentum cells.
+        t_min, t_max : astropy.units.Quantity, optional
+            Temporal grid bounds. Units compatible with :py:data:`~saetass.units.TIME`.
+        num_timesteps : int, optional
+            Number of timesteps.
+        req_r_pos : bool, optional
+            Whether ``r_min`` must be strictly positive (for log spaces). Default is ``False``.
+        req_p_pos : bool, optional
+            Whether ``p_min`` must be strictly positive (for log spaces). Default is ``False``.
+
+        Returns
+        -------
+        has_r, has_p, has_t : tuple of bool
+            Boolean flags indicating which configurations are correctly fully specified.
+
+        Raises
+        ------
+        ValueError
+            If invalid parameter sets are given, such as min bounding over max,
+            or required groupings of values are incompletely filled.
         """
         has_r = False
         if not (r_min is None and r_max is None and num_r_cells is None):
@@ -495,6 +525,40 @@ class Grid:
     ):
         """
         Create a uniform grid linearly spaced.
+
+        At least one space (:math:`r`) or momentum (:math:`p`) grid must be fully specified with
+        its respective (min, max, cells) triplet.
+
+        Parameters
+        ----------
+        r_min : astropy.units.Quantity, optional
+            Minimum radius (must be >= 0). Units compatible with :py:data:`~saetass.units.LENGTH`.
+        r_max : astropy.units.Quantity, optional
+            Maximum radius. Units compatible with :py:data:`~saetass.units.LENGTH`.
+        num_r_cells : int, optional
+            Number of spatial cells.
+        p_min : astropy.units.Quantity, optional
+            Minimum momentum (must be >= 0). Units compatible with :py:data:`~saetass.units.MOMENTUM`.
+        p_max : astropy.units.Quantity, optional
+            Maximum momentum. Units compatible with :py:data:`~saetass.units.MOMENTUM`.
+        num_p_cells : int, optional
+            Number of momentum cells.
+        t_min : astropy.units.Quantity, optional
+            Minimum time. Units compatible with :py:data:`~saetass.units.TIME`.
+        t_max : astropy.units.Quantity, optional
+            Maximum time. Units compatible with :py:data:`~saetass.units.TIME`.
+        num_timesteps : int, optional
+            Number of timesteps.
+
+        Returns
+        -------
+        Grid
+            A uniform :py:class:`~saetass.grid.Grid` object linearly spaced.
+
+        Raises
+        ------
+        ValueError
+            If bounds are invalid, negative minimums are provided, maximums are lower than minimums, or incomplete parameter sets are given.
         """
         has_r, has_p, has_t = cls._validate_grid_params(
             r_min=r_min,
@@ -560,6 +624,40 @@ class Grid:
     ):
         """
         Create a non-uniform grid with clustering around a specific spatial point.
+
+        Requires full specification of the spatial parameters. Momentum grid construction
+        is explicitly unused in this classmethod.
+
+        Parameters
+        ----------
+        r_min : astropy.units.Quantity
+            Minimum radius (must be >= 0). Units compatible with :py:data:`~saetass.units.LENGTH`.
+        r_max : astropy.units.Quantity
+            Maximum radius. Units compatible with :py:data:`~saetass.units.LENGTH`.
+        num_r_cells : int
+            Number of spatial cells.
+        cluster_center : astropy.units.Quantity
+            Center of the clustering region. Units compatible with :py:data:`~saetass.units.LENGTH`.
+        cluster_width : astropy.units.Quantity
+            Width of the clustering region. Units compatible with :py:data:`~saetass.units.LENGTH`.
+        cluster_strength : float, optional
+            Strength of clustering between 0 and 1. Default is ``0.9``.
+        t_min : astropy.units.Quantity, optional
+            Minimum time. Units compatible with :py:data:`~saetass.units.TIME`.
+        t_max : astropy.units.Quantity, optional
+            Maximum time. Units compatible with :py:data:`~saetass.units.TIME`.
+        num_timesteps : int, optional
+            Number of timesteps.
+
+        Returns
+        -------
+        Grid
+            A non-uniform :py:class:`~saetass.grid.Grid` object with cell clustering.
+
+        Raises
+        ------
+        ValueError
+            If bounds are invalid, negative minimums are provided, maximums are lower than minimums, or incomplete parameter sets are given.
         """
         has_r, _, has_t = cls._validate_grid_params(
             r_min=r_min,
@@ -632,6 +730,39 @@ class Grid:
     ):
         """
         Create a logarithmically spaced grid.
+
+        At least one space (:math:`r`) or momentum (:math:`p`) grid must be fully specified with its respective (min, max, cells) triplet.
+
+        Parameters
+        ----------
+        r_min : astropy.units.Quantity, optional
+            Minimum radius (must be > 0 if provided). Units compatible with :py:data:`~saetass.units.LENGTH`.
+        r_max : astropy.units.Quantity, optional
+            Maximum radius. Units compatible with :py:data:`~saetass.units.LENGTH`.
+        num_r_cells : int, optional
+            Number of spatial cells.
+        p_min : astropy.units.Quantity, optional
+            Minimum momentum (must be > 0 if provided). Units compatible with :py:data:`~saetass.units.MOMENTUM`.
+        p_max : astropy.units.Quantity, optional
+            Maximum momentum. Units compatible with :py:data:`~saetass.units.MOMENTUM`.
+        num_p_cells : int, optional
+            Number of momentum cells.
+        t_min : astropy.units.Quantity, optional
+            Minimum time. Units compatible with :py:data:`~saetass.units.TIME`.
+        t_max : astropy.units.Quantity, optional
+            Maximum time. Units compatible with :py:data:`~saetass.units.TIME`.
+        num_timesteps : int, optional
+            Number of timesteps.
+
+        Returns
+        -------
+        Grid
+            A log-spaced :py:class:`~saetass.grid.Grid` object.
+
+        Raises
+        ------
+        ValueError
+            If bounds are invalid, negative minimums are provided, maximums are lower than minimums, 0 is supplied for min values, or incomplete parameter sets are given.
         """
         has_r, has_p, has_t = cls._validate_grid_params(
             r_min=r_min,

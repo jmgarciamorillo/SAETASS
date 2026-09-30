@@ -57,8 +57,8 @@ class SplittingScheme(ABC):
 
         Parameters
         ----------
-        t_grid : np.ndarray
-            1D array of canonical global simulation times as pure numeric floats.
+        t_grid : numpy.ndarray
+            1D array of global simulation times as bare floats, in canonical :py:data:`~saetass.units.TIME` units.
         """
         if hasattr(t_grid, "unit"):
             raise TypeError(
@@ -103,13 +103,13 @@ class SplittingScheme(ABC):
             The ordered sequence of split operators to simulate.
         substeps_per_op : dict
             Dictionary mapping :py:class:`~saetass.solver.OperatorType` elements to their integer sub-step multipliers.
-        t_grid : np.ndarray
-            The global canonical time grid array from the main :py:class:`~saetass.grid.Grid`.
+        t_grid : numpy.ndarray
+            The global time grid of the main :py:class:`~saetass.grid.Grid` as bare floats, in canonical :py:data:`~saetass.units.TIME` units.
 
         Returns
         -------
         dict
-            A dictionary mapping :py:class:`~saetass.solver.OperatorType` operators to their specific refined 1D ``np.ndarray`` time grids.
+            A dictionary mapping :py:class:`~saetass.solver.OperatorType` operators to their specific refined 1D time grids.
         """
         pass
 
@@ -173,7 +173,7 @@ class StrangSplitting(SplittingScheme):
             Ordered sequence of operators.
         substeps_per_op : dict
             User configurations for base sub-steps per operator.
-        t_grid : np.ndarray
+        t_grid : numpy.ndarray
             1D array of the base canonical macro-timesteps.
 
         Returns
@@ -270,7 +270,7 @@ class LieSplitting(SplittingScheme):
             Ordered sequence of operators.
         substeps_per_op : dict
             User configurations for sub-steps per operator.
-        t_grid : np.ndarray
+        t_grid : numpy.ndarray
             1D array of the base canonical macro-timesteps.
 
         Returns
@@ -372,14 +372,14 @@ def _refine_t_grid(t_grid: np.ndarray, n_sub: int) -> np.ndarray:
 
     Parameters
     ----------
-    t_grid : np.ndarray
-        Array of macroscopic timesteps to process as pure numeric floats.
+    t_grid : numpy.ndarray
+        Array of macroscopic timesteps to process as bare floats, in canonical :py:data:`~saetass.units.TIME` units.
     n_sub : int
         Number of steps to forcefully insert equivalently between macro-intervals.
 
     Returns
     -------
-    np.ndarray
+    numpy.ndarray
         Dense temporal grid array.
     """
     if hasattr(t_grid, "unit"):

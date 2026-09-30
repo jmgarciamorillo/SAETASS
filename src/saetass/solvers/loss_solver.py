@@ -13,43 +13,43 @@ logger = logging.getLogger(__name__)
 
 
 class LossSolver(HyperbolicSolver):
-    """
+    r"""
     Finite volume solver for energy losses in momentum space, inheriting from :py:class:`~saetass.solvers.hyperbolic_solver.HyperbolicSolver`.
 
     Solves the momentum-loss equation in conservative form,
 
     .. math::
 
-        \\frac{\\partial \psi}{\\partial t} + \\frac{\\partial}{\\partial p}\\bigl(\\dot{p}(t,p)\\,\psi\\bigr) = 0,
+        \frac{\partial \psi}{\partial t} + \frac{\partial}{\partial p}\bigl(\dot{p}(t,p)\,\psi\bigr) = 0,
 
-    where :math:`\\dot{p} = dp/dt \\leq 0` is the (signed) momentum loss rate. The solver uses the conservative variable :math:`U = p \psi` and, also, :math:`V(t,y) = \\frac{\\dot{p}}{p\\ln(10)}` and :math:`y = \\log_{10}(p)`.
+    where :math:`\dot{p} = dp/dt \leq 0` is the (signed) momentum loss rate. The solver uses the conservative variable :math:`U = p \psi` and, also, :math:`V(t,y) = \frac{\dot{p}}{p\ln(10)}` and :math:`y = \log_{10}(p)`.
     The finite volume update is delegated to the base class across the momentum (p) axis.
 
     Parameters
     ----------
     grid : :py:class:`~saetass.grid.Grid`
         :py:class:`~saetass.grid.Grid` containing at least ``p_centers`` and ``p_faces``; optionally ``r_centers`` and ``r_faces`` for 2D problems.
-    t_grid : ndarray
+    t_grid : numpy.ndarray
         Subproblem time grid. In the standard SAETASS workflow this is already subrefined during :py:class:`~saetass.solver.Solver` initialization.
     params : dict
         Solver configuration, already converted to canonical floats by :py:meth:`~saetass.solver.SubSolver.convert_params`. Accepted keys (and the units required at the :py:class:`~saetass.solver.Solver` level) are:
 
-        P_dot : Quantity or callable
-            Momentum loss rate, :math:`\\dot{p}`, at cell centers (momentum per time). A callable must have signature ``P_dot(t: Quantity) -> Quantity``.
+        P_dot : astropy.units.Quantity or callable
+            Momentum loss rate, :math:`\dot{p}`, at cell centers. Units compatible with :py:data:`~saetass.units.MOMENTUM_LOSS_RATE`. A callable must have signature ``P_dot(t: Quantity) -> Quantity``.
         limiter : ``{'minmod', 'vanleer', 'mc'}``
             Slope limiter used for second-order schemes.
         cfl : float
             CFL number for the adaptive sub-step calculation.
-        inflow_value_psi : Quantity, optional
-            Differential density :math:`\\psi` at the high-momentum boundary, used as an inflow condition when :math:`\\dot{p} > 0` (i.e. momentum gain).
-        inflow_value_U : Quantity, optional
-            Same inflow condition given directly for the conservative variable :math:`U = p \\psi` (momentum times differential density). Mutually exclusive with ``inflow_value_psi``.
+        inflow_value_psi : astropy.units.Quantity, optional
+            Differential density :math:`\psi` at the high-momentum boundary, used as an inflow condition when :math:`\dot{p} > 0` (i.e. momentum gain). Units compatible with :py:data:`~saetass.units.PSI_P`.
+        inflow_value_U : astropy.units.Quantity, optional
+            Same inflow condition given directly for the conservative variable :math:`U = p \psi`. Mutually exclusive with ``inflow_value_psi``. Units compatible with :py:data:`~saetass.units.MOMENTUM` times :py:data:`~saetass.units.PSI_P`.
         order : ``{1, 2}``
             Order of the numerical scheme.
-        adiabatic_losses : bool
-            If ``True``, include adiabatic losses. The key ``v_centers_physical`` must also be supplied.
-        v_centers_physical : Quantity, optional
-            Physical advection velocity at cell centres (velocity); required when ``adiabatic_losses`` is ``True``.
+        adiabatic_losses : bool, optional
+            If ``True``, include adiabatic losses. The key ``v_centers_physical`` must also be supplied. Default is ``False``.
+        v_centers_physical : astropy.units.Quantity, optional
+            Physical advection velocity at cell centres; required when ``adiabatic_losses`` is ``True``. Units compatible with :py:data:`~saetass.units.VELOCITY`.
     """
 
     PARAM_SPECS = MappingProxyType(
@@ -155,8 +155,8 @@ class LossSolver(HyperbolicSolver):
             )
 
     def _generalized_velocity(self, P_dot: np.ndarray) -> np.ndarray:
-        """
-        Convert the physical momentum loss rate to the generalized velocity :math:`\\dot{p} / (p \\ln 10)` used by the base-class finite-volume update.
+        r"""
+        Convert the physical momentum loss rate to the generalized velocity :math:`\dot{p} / (p \ln 10)` used by the base-class finite-volume update.
 
         ``P_dot`` has shape ``(n_p,)`` or ``(n_p, n_r)``; a single broadcast multiply avoids per-call temporaries.
         """
@@ -167,14 +167,14 @@ class LossSolver(HyperbolicSolver):
     def _adiabatic_losses(
         self, grid: Grid, v_centers_physical: np.ndarray
     ) -> np.ndarray:
-        """
+        r"""
         Compute the adiabatic momentum loss rate due to spherical expansion.
 
         The adiabatic loss term arises from the divergence of the advection velocity field and is given by
 
         .. math::
 
-            \\dot{p}_{\\text{ad}} = -\\frac{p}{3}\\,\\nabla \\cdot \\mathbf{v},
+            \dot{p}_{\text{ad}} = -\frac{p}{3}\,\nabla \cdot \mathbf{v},
 
         evaluated cell-by-cell on the spatial grid via a finite-difference approximation of the radial flux divergence.
         """

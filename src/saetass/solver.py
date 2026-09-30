@@ -69,9 +69,9 @@ class SubSolver(ABC):
     ----------
     grid : :py:class:`~saetass.grid.Grid`
         The :py:class:`~saetass.grid.Grid` object containing spatial and/or momentum nodes.
-    t_grid : np.ndarray
-        The refined time grid for this specific operator's integration steps.
-    params : Dict[str, Any]
+    t_grid : numpy.ndarray
+        The refined time grid for this specific operator's integration steps, in canonical :py:data:`~saetass.units.TIME` units.
+    params : dict
         Dictionary containing numerical parameters specific to this :py:class:`~saetass.solver.SubSolver`, already converted to bare canonical floats (see :py:meth:`~saetass.solver.SubSolver.convert_params`).
     """
 
@@ -88,7 +88,7 @@ class SubSolver(ABC):
 
         Parameters
         ----------
-        params : Mapping[str, Any]
+        params : dict
             User-facing parameters.
         grid : :py:class:`~saetass.grid.Grid`
             Grid providing the physical coordinates passed to coordinate-dependent callables.
@@ -263,10 +263,10 @@ class Solver:
         For further details on expected parameters for each operator, refer to the documentation of the respective subsolver classes.
     substeps : dict, optional
         Dictionary specifying the number of substeps for each operator (e.g., ``{"advection": 2, "diffusion": 1}``).
-        Default is no subrefinement, this is, 1 substep per operator.
+        Default is ``None``, i.e. one substep per operator.
     splitting_scheme : str or :py:class:`~saetass.splitting.SplittingSchemeType`, optional
         String or :py:class:`~saetass.splitting.SplittingSchemeType` specifying the :py:class:`~saetass.splitting.SplittingScheme` to use. Valid schemes are defined in
-        :py:class:`~saetass.splitting.SplittingSchemeType` (e.g., "strang", "lie"). Default is "strang".
+        :py:class:`~saetass.splitting.SplittingSchemeType` (e.g., ``"strang"``, ``"lie"``). Default is ``"strang"``.
     """
 
     def __init__(
@@ -418,7 +418,7 @@ class Solver:
         Parameters
         ----------
         n_steps : int, optional
-            The number of global time steps to advance. Default is 1.
+            The number of global time steps to advance. Default is ``1``.
         """
         self._advance(n_steps)
         return self.state
