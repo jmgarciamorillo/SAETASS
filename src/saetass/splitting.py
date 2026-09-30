@@ -58,8 +58,13 @@ class SplittingScheme(ABC):
         Parameters
         ----------
         t_grid : np.ndarray
-            1D array of canonical global simulation times.
+            1D array of canonical global simulation times as pure numeric floats.
         """
+        if hasattr(t_grid, "unit"):
+            raise TypeError(
+                "Splitting schemes must receive pure numeric float ndarrays, not Astropy Quantities. "
+                "Unit conversion must occur in Solver."
+            )
         self.t_grid = np.asarray(t_grid, dtype=float)
         self._global_step = 0
 
@@ -368,7 +373,7 @@ def _refine_t_grid(t_grid: np.ndarray, n_sub: int) -> np.ndarray:
     Parameters
     ----------
     t_grid : np.ndarray
-        Array of macroscopic timesteps to process.
+        Array of macroscopic timesteps to process as pure numeric floats.
     n_sub : int
         Number of steps to forcefully insert equivalently between macro-intervals.
 
@@ -377,13 +382,19 @@ def _refine_t_grid(t_grid: np.ndarray, n_sub: int) -> np.ndarray:
     np.ndarray
         Dense temporal grid array.
     """
+    if hasattr(t_grid, "unit"):
+        raise TypeError(
+            "Splitting schemes must receive pure numeric float ndarrays, not Astropy Quantities."
+        )
+    raw_t = np.asarray(t_grid, dtype=float)
+
     if n_sub > 1:
         t_grid_refined = []
-        for j in range(len(t_grid) - 1):
-            t_start = t_grid[j]
-            t_end = t_grid[j + 1]
+        for j in range(len(raw_t) - 1):
+            t_start = raw_t[j]
+            t_end = raw_t[j + 1]
             t_grid_refined.extend(np.linspace(t_start, t_end, n_sub + 1)[:-1])
-        t_grid_refined.append(t_grid[-1])
-        return np.array(t_grid_refined)
+        t_grid_refined.append(raw_t[-1])
+        return np.asarray(t_grid_refined, dtype=float)
     else:
-        return t_grid
+        return raw_t
