@@ -33,12 +33,12 @@ class TestBubbleProfileCalculator:
         assert calc1.R_b is not None
         assert calc1.v_w is not None
 
-        # Test ndarray grid
-        calc2 = BubbleProfileCalculator(array_r_grid, model="Morlino21", **base_kwargs)
-        assert calc2.r_grid.unit.is_equivalent(u.pc)
+        # Test ndarray grid without units fails fail-fast boundary
+        with pytest.raises(TypeError):
+            BubbleProfileCalculator(array_r_grid, model="Morlino21", **base_kwargs)
 
         # Check invalid units
-        with pytest.raises(ValueError):
+        with pytest.raises((u.UnitsError, TypeError, ValueError)):
             BubbleProfileCalculator(np.linspace(0.1, 100, 100) * u.K, **base_kwargs)
 
         # Check invalid model mapping

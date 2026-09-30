@@ -8,8 +8,6 @@ The models available are based on the theoretical frameworks by
 The module provides an extensible framework using :py:class:`~saetass.utils.bubble_profiles.BubbleProfileCalculator` to easily extract density, velocity, magnetic field or transport parameters to be used in SAETASS simulations.
 """
 
-from __future__ import annotations
-
 import logging
 import math
 from enum import StrEnum
@@ -19,6 +17,30 @@ import astropy.constants as const
 import astropy.units as u
 import numpy as np
 from scipy.integrate import cumulative_trapezoid as cumtrapz
+
+from .. import units as su
+
+
+class BubbleModel(StrEnum):
+    """Auxiliary class for correct particle types handling.
+
+    .. note::
+        Currently, the supported models are: ``"Weaver77"`` and ``"Morlino21"``.
+
+    Parameters
+    ----------
+    model_type : str
+        The model type (e.g., "Weaver77" or "Morlino21").
+    """
+
+    WEAVER77 = "Weaver77"
+    MORLINO21 = "Morlino21"
+
+    def __new__(cls, model_type: str):
+        obj = str.__new__(cls, model_type)
+        obj._value_ = model_type
+        return obj
+
 
 logger = logging.getLogger(__name__)
 
@@ -33,8 +55,8 @@ class BubbleProfileCalculator:
 
     Parameters
     ----------
-    r_grid : u.Quantity or np.ndarray
-        Radial grid for the profiles computation (in pc).
+    r_grid : u.Quantity
+        Radial grid for the profiles computation (in length units, e.g. pc).
     model : BubbleModel or str
         The bubble description model (e.g., "Weaver77" or "Morlino21").
     **kwargs :
@@ -49,18 +71,20 @@ class BubbleProfileCalculator:
         Other optional kwargs: ``R_c`` (core radius).
     """
 
+    @u.quantity_input(r_grid=su.LENGTH)
     def __init__(
         self,
-        r_grid: u.Quantity | np.ndarray,
+        r_grid: u.Quantity,
         model: BubbleModel | str = "Morlino21",
         **kwargs,
     ):
-        if isinstance(r_grid, u.Quantity):
-            if not r_grid.unit.is_equivalent(u.pc):
-                raise ValueError("r_grid must have units equivalent to pc")
-            self.r_grid = r_grid.to(u.pc)
-        elif isinstance(r_grid, np.ndarray):
-            self.r_grid = r_grid * u.pc
+        if not isinstance(r_grid, u.Quantity) or not r_grid.unit.is_equivalent(
+            su.LENGTH
+        ):
+            raise u.UnitsError(
+                "r_grid must be an astropy Quantity with length dimensions."
+            )
+        self.r_grid = r_grid.to(su.LENGTH)
 
         if isinstance(model, str):
             for m in BubbleModel:
@@ -577,24 +601,3 @@ class BubbleProfileCalculator:
             res["Q"] = self.compute_source_term(E_k, eta_inj=eta_inj)
 
         return res
-
-
-class BubbleModel(StrEnum):
-    """Auxiliary class for correct particle types handling.
-
-    .. note::
-        Currently, the supported models are: ``"Weaver77"`` and ``"Morlino21"``.
-
-    Parameters
-    ----------
-    model_type : str
-        The model type (e.g., "Weaver77" or "Morlino21").
-    """
-
-    WEAVER77 = "Weaver77"
-    MORLINO21 = "Morlino21"
-
-    def __new__(cls, model_type: str):
-        obj = str.__new__(cls, model_type)
-        obj._value_ = model_type
-        return obj
