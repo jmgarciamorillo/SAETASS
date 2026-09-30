@@ -74,7 +74,15 @@ class LossSolver(HyperbolicSolver):
         self._validate_unit_free_inputs(t_grid, params)
         if grid.p_centers_phys is None:
             raise ValueError("LossSolver requires a Grid with a momentum axis.")
+        # Physical momenta and their reciprocals are cached once: the conservative
+        # transforms and the generalized velocity run every (sub)step.
         self.p_centers_phys = grid.p_centers_phys.to_value(su.MOMENTUM)
+        if np.any(self.p_centers_phys <= 0.0):
+            raise ValueError(
+                "LossSolver requires strictly positive momentum cell centers."
+            )
+        self._inv_p = 1.0 / self.p_centers_phys
+        self._inv_p_ln10 = self._inv_p / np.log(10.0)
 
         # Convert momentum loss parameters to general hyperbolic solver format
         loss_params = params.copy()
@@ -97,11 +105,11 @@ class LossSolver(HyperbolicSolver):
             if callable(P_dot_input):
 
                 def dynamic_V_centers(t):
-                    return self._generalized_velocity(P_dot_input(t), grid)
+                    return self._generalized_velocity(P_dot_input(t))
 
                 loss_params["V_centers"] = dynamic_V_centers
             else:
-                loss_params["V_centers"] = self._generalized_velocity(P_dot_input, grid)
+                loss_params["V_centers"] = self._generalized_velocity(P_dot_input)
 
         if "inflow_value_psi" in loss_params:
             if "inflow_value_U" in loss_params:
@@ -119,81 +127,42 @@ class LossSolver(HyperbolicSolver):
         """
         Map the primitive differential density to the conservative variable.
         """
-        p_src = getattr(grid, "_p_centers_phys", None)
-        if p_src is None:
-            p_src = self.p_centers_phys
-        p_centers = np.asarray(p_src, dtype=float)
-        return p_centers * f
+        return self.p_centers_phys * f
 
     def _inverse_generalized_variable(self, U: np.ndarray, grid: Grid) -> np.ndarray:
         """
         Map the conservative variable back to the primitive differential density.
         """
-        p_src = getattr(grid, "_p_centers_phys", None)
-        if p_src is None:
-            p_src = self.p_centers_phys
-        p = np.asarray(p_src, dtype=float).flatten()
+        inv_p = self._inv_p  # p > 0 is guaranteed at construction
 
         # 1D CASE
         if U.ndim == 1:
-            if U.shape[0] != p.shape[0]:
-                raise ValueError(f"Shape mismatch: U {U.shape}, p {p.shape}")
-            mask = p > 0
-            f = np.zeros_like(U)
-            f[mask] = U[mask] / p[mask]
-            if mask.sum() < len(p):
-                raise ValueError(
-                    "p contains non-positive values, cannot divide by zero."
-                )
-            return f
+            if U.shape[0] != inv_p.shape[0]:
+                raise ValueError(f"Shape mismatch: U {U.shape}, p {inv_p.shape}")
+            return U * inv_p
 
-        # 2D CASE
+        # 2D CASE: U is (n_r, n_p), broadcast along the last (momentum) axis
         elif U.ndim == 2:
-            # U: (n_r, n_p), p: (n_p,)
-            if U.shape[1] != p.shape[0]:
+            if U.shape[1] != inv_p.shape[0]:
                 raise ValueError(
-                    f"Expected U.shape[1] == p.shape[0], got U {U.shape}, p {p.shape}"
+                    f"Expected U.shape[1] == p.shape[0], got U {U.shape}, p {inv_p.shape}"
                 )
-
-            mask = p > 0.0
-            f = np.zeros_like(U)
-            # Only divide columns where p > 0
-            f[:, mask] = U[:, mask] / p[mask]
-            if mask.sum() < len(p):
-                raise ValueError(
-                    "p contains non-positive values, cannot divide by zero."
-                )
-            return f
+            return U * inv_p
 
         else:
             raise ValueError(
                 "inverse_generalized_variable only supports 1D or 2D arrays."
             )
 
-    def _generalized_velocity(self, P_dot: np.ndarray, grid: Grid) -> np.ndarray:
+    def _generalized_velocity(self, P_dot: np.ndarray) -> np.ndarray:
         """
-        Convert the physical momentum loss rate to the generalized velocity used by the base-class finite-volume update.
+        Convert the physical momentum loss rate to the generalized velocity :math:`\\dot{p} / (p \\ln 10)` used by the base-class finite-volume update.
+
+        ``P_dot`` has shape ``(n_p,)`` or ``(n_p, n_r)``; a single broadcast multiply avoids per-call temporaries.
         """
-        P_dot_arr = np.asarray(P_dot, dtype=float)
-        p_src = getattr(grid, "_p_centers_phys", None)
-        if p_src is None:
-            p_src = self.p_centers_phys
-        p_centers = np.asarray(p_src, dtype=float)
-        ln10 = np.log(10)
-        denom = p_centers * ln10
-        if P_dot_arr.ndim == 2:
-            len_x = grid.shape[1]
-            denom = np.tile(denom[:, None], (1, len_x))  # Expand for 2D grids
-
-        mask = denom > 0.0
-        gen_vel = np.zeros_like(P_dot_arr)
-        gen_vel[mask] = P_dot_arr[mask] / denom[mask]
-
-        # For p=0, set generalized velocity to zero to avoid singularity
-        if not np.all(mask) and np.any(mask):
-            gen_vel[~mask] = 0.0
-
-        return gen_vel
+        P_dot = np.asarray(P_dot, dtype=float)
+        inv = self._inv_p_ln10 if P_dot.ndim == 1 else self._inv_p_ln10[:, None]
+        return P_dot * inv
 
     def _adiabatic_losses(
         self, grid: Grid, v_centers_physical: np.ndarray

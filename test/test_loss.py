@@ -425,13 +425,30 @@ class TestLossSolverExceptionsAndEdges:
         with pytest.raises(ValueError, match="only supports 1D or 2D"):
             ls._inverse_generalized_variable(np.ones((2, 2, 2)), grid)
 
-        # non-positive p (mock grid physical)
-        grid._p_centers_phys = np.array([-1.0, 1.0]) * su.MOMENTUM
-        with pytest.raises(ValueError, match="non-positive values"):
-            ls._inverse_generalized_variable(np.ones(2), grid)
-
-        with pytest.raises(ValueError, match="non-positive values"):
-            ls._inverse_generalized_variable(np.ones((2, 2)), grid)
+    def test_non_positive_momentum_rejected_at_construction(self):
+        # Faces [-2, 0, 2] give a legal Grid with centers [-1, 1]: the loss
+        # transforms divide by p, so this must fail fast, not at every step.
+        grid = Grid(
+            p_faces=np.array([-2.0, 0.0, 2.0]) * su.MOMENTUM,
+            is_p_log=False,
+            t_grid=np.array([0.0, 1.0]) * su.TIME,
+        )
+        params = {
+            "P_dot": np.array([-1.0, -1.0]) * su.MOMENTUM_LOSS_RATE,
+            "limiter": "minmod",
+            "order": 1,
+            "cfl": 0.5,
+            "inflow_value_psi": 0.0 * su.PSI_P,
+        }
+        state = State(psi_p=np.ones(2) * su.PSI_P, grid=grid, particle=Particle.PROTON)
+        with pytest.raises(ValueError, match="strictly positive momentum"):
+            Solver(
+                grid=grid,
+                state=state,
+                problem_type="loss",
+                operator_params={"loss": params},
+                substeps={"loss": 1},
+            )
 
     def test_inflow_psi_and_U_are_mutually_exclusive(self):
         grid = Grid(
