@@ -2,6 +2,7 @@
 SAETASS: Solver for Astroparticle Equation of Transport Analysis in Spherical Symmetry
 """
 
+from . import units
 from .grid import Grid
 from .solver import Solver
 from .solvers.advection_solver import AdvectionSolver
@@ -22,4 +23,5 @@ __all__ = [
     "AdvectionSolver",
     "LossSolver",
     "SourceSolver",
+    "units",
 ]
