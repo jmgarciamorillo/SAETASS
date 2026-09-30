@@ -21,8 +21,6 @@ Moreover, the module is designed to be extensible, allowing for future additions
 ________________
 """
 
-from __future__ import annotations
-
 import logging
 from enum import StrEnum
 
@@ -30,6 +28,35 @@ import astropy.constants as const
 import astropy.units as u
 import numpy as np
 import numpy.typing as npt
+
+from .. import units as su
+
+
+class Particle(StrEnum):
+    """Auxiliary class for correct particle types handling.
+
+    .. note::
+        Currently, the supported particle types are: ``"proton"`` and ``"electron"``.
+
+
+    Parameters
+    ----------
+    particle_type : str
+        String identifier for the particle type (e.g., "proton", "electron"). This will raise a ``ValueError`` if an unsupported particle type is provided.
+    """
+
+    ## Separation of docstring because of Sphinx bug
+
+    PROTON = ("proton", const.m_p, "hadronic")
+    ELECTRON = ("electron", const.m_e, "leptonic")
+
+    def __new__(cls, particle_type: str, mass: float, species: str):
+        obj = str.__new__(cls, particle_type)
+        obj._value_ = particle_type
+        obj.mass = mass
+        obj.species = species
+        return obj
+
 
 logger = logging.getLogger(__name__)
 
@@ -44,22 +71,26 @@ class EnergyLossCalculator:
 
     Parameters
     ----------
-    E_grid : u.Quantity or np.ndarray
-        Energy grid for particles (in GeV)
-    r_grid : u.Quantity or np.ndarray
-        Radial grid for spatial variation (in pc)
-    n_gas : u.Quantity or np.ndarray
-        Gas density profile (in cm^-3)
+    E_grid : u.Quantity
+        Energy grid for particles (with energy dimensions, e.g. GeV)
+    r_grid : u.Quantity
+        Radial grid for spatial variation (with length dimensions, e.g. pc)
+    n_gas : u.Quantity
+        Gas density profile (with number density dimensions, e.g. cm^-3)
     particle : Particle or str
-        Choosen between "proton" or "electron". This will determine the particle mass and
-        the relevant loss processes. More species are work in progress.
+        Chosen between "proton" or "electron".
     """
 
+    @u.quantity_input(
+        E_grid=su.ENERGY,
+        r_grid=su.LENGTH,
+        n_gas=u.cm**-3,
+    )
     def __init__(
         self,
-        E_grid: u.Quantity | np.ndarray,
-        r_grid: u.Quantity | np.ndarray,
-        n_gas: u.Quantity | np.ndarray,
+        E_grid: u.Quantity,
+        r_grid: u.Quantity,
+        n_gas: u.Quantity,
         particle: Particle | str,
     ):
         # Validate parameters
@@ -105,38 +136,33 @@ class EnergyLossCalculator:
 
     def _check_parameters(
         self,
-        E_grid: u.Quantity | np.ndarray,
-        r_grid: u.Quantity | np.ndarray,
-        n_gas: u.Quantity | np.ndarray,
+        E_grid: u.Quantity,
+        r_grid: u.Quantity,
+        n_gas: u.Quantity,
         particle: Particle | str,
     ):
-        """Validate input parameters and convert to proper units if needed."""
-        if isinstance(E_grid, u.Quantity):
-            if not E_grid.unit.is_equivalent(u.GeV):
-                raise ValueError("E_grid must have units equivalent to GeV")
-            self.E_grid = E_grid.to(u.GeV)
-        elif isinstance(E_grid, np.ndarray):
-            self.E_grid = E_grid * u.GeV  # Assume GeV if no units provided
-        else:
-            raise TypeError("E_grid must be an astropy Quantity or numpy ndarray")
+        """Validate input parameters and enforce canonical Astropy physical units."""
+        if not isinstance(E_grid, u.Quantity) or not E_grid.unit.is_equivalent(
+            su.ENERGY
+        ):
+            raise u.UnitsError(
+                "E_grid must be an astropy Quantity with units of energy (e.g., GeV)."
+            )
+        self.E_grid = E_grid.to(su.ENERGY)
 
-        if isinstance(r_grid, u.Quantity):
-            if not r_grid.unit.is_equivalent(u.pc):
-                raise ValueError("r_grid must have units equivalent to pc")
-            self.r_grid = r_grid.to(u.pc)
-        elif isinstance(r_grid, np.ndarray):
-            self.r_grid = r_grid * u.pc  # Assume pc if no units provided
-        else:
-            raise TypeError("r_grid must be an astropy Quantity or numpy ndarray")
+        if not isinstance(r_grid, u.Quantity) or not r_grid.unit.is_equivalent(
+            su.LENGTH
+        ):
+            raise u.UnitsError(
+                "r_grid must be an astropy Quantity with units of length (e.g., pc)."
+            )
+        self.r_grid = r_grid.to(su.LENGTH)
 
-        if isinstance(n_gas, u.Quantity):
-            if not n_gas.unit.is_equivalent(u.cm**-3):
-                raise ValueError("n_gas must have units equivalent to cm^-3")
-            self.n_gas = n_gas.to(u.cm**-3)
-        elif isinstance(n_gas, np.ndarray):
-            self.n_gas = n_gas * u.cm**-3  # Assume cm^-3 if no units provided
-        else:
-            raise TypeError("n_gas must be an astropy Quantity or numpy ndarray")
+        if not isinstance(n_gas, u.Quantity) or not n_gas.unit.is_equivalent(u.cm**-3):
+            raise u.UnitsError(
+                "n_gas must be an astropy Quantity with units of number density (e.g., cm^-3)."
+            )
+        self.n_gas = n_gas.to(u.cm**-3)
 
         particle = particle.lower() if isinstance(particle, str) else particle
         self.particle = Particle(particle)
@@ -613,29 +639,3 @@ class EnergyLossCalculator:
             timescales["total"] = tau_total.to(u.yr)
 
         return timescales
-
-
-class Particle(StrEnum):
-    """Auxiliary class for correct particle types handling.
-
-    .. note::
-        Currently, the supported particle types are: ``"proton"`` and ``"electron"``.
-
-
-    Parameters
-    ----------
-    particle_type : str
-        String identifier for the particle type (e.g., "proton", "electron"). This will raise a ``ValueError`` if an unsupported particle type is provided.
-    """
-
-    ## Separation of docstring because of Sphinx bug
-
-    PROTON = ("proton", const.m_p, "hadronic")
-    ELECTRON = ("electron", const.m_e, "leptonic")
-
-    def __new__(cls, particle_type: str, mass: float, species: str):
-        obj = str.__new__(cls, particle_type)
-        obj._value_ = particle_type
-        obj.mass = mass
-        obj.species = species
-        return obj
