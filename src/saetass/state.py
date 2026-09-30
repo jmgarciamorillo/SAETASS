@@ -12,38 +12,46 @@ import astropy.constants as const
 import astropy.units as u
 import numpy as np
 
+from . import units as su
 from .grid import Grid
 from .utils.energy_losses import Particle
 
 logger = logging.getLogger(__name__)
+
+CANONICAL_F_PS_UNIT = su.F_PS
+CANONICAL_PSI_P_UNIT = su.PSI_P
+CANONICAL_PSI_E_UNIT = su.PSI_E
 
 
 class State:
     r"""
     Container and tracker for the particle distribution and simulation metadata.
 
-    A :py:class:`State` instance wraps the numerical differential density array, :math:`\\psi_p(t, r, p) = 4\\pi p^2 f_\\mathrm{ps}(t, r, p) = \\frac{dn}{dp}`, together with the associated :py:class:`~saetass.grid.Grid`, particle species :py:class:`~saetass.utils.energy_losses.Particle`, current simulation time, time step, operator-splitting stage information and an optional snapshot history.
+    A :py:class:`State` instance wraps the numerical differential density array, :math:`\psi_p(t, r, p) = 4\pi p^2 f_\mathrm{ps}(t, r, p) = \frac{dn}{dp}`, together with the associated :py:class:`~saetass.grid.Grid`, particle species :py:class:`~saetass.utils.energy_losses.Particle`, current simulation time, time step, operator-splitting stage information and an optional snapshot history.
 
-    The internal representation stores only the canonical momentum-space differential density, :math:`\\psi_p`.
-    However, intialization and updates can be performed using any of :math:`f_\\mathrm{ps}`, :math:`\\psi_p` or :math:`\\psi_E`, as long as the grid dimensions are compatible with the provided array.
+    The internal representation stores only the canonical momentum-space differential density, :math:`\psi_p`.
+    However, intialization and updates can be performed using any of :math:`f_\mathrm{ps}`, :math:`\psi_p` or :math:`\psi_E`, as long as the grid dimensions are compatible with the provided array.
     All representations can also be retrieved using the :py:attr:`f_ps`, :py:attr:`psi_p` and :py:attr:`psi_E` properties, which act as thin wrappers around the internal representation.
 
     Parameters
     ----------
     grid : :py:class:`~saetass.grid.Grid`
         The associated spatial/momentum simulation grid.
-    f_ps : ndarray or Quantity, optional
-        Phase-space distribution in momentum space :math:`f_\\mathrm{ps}(r, p)`.
-    psi_p : ndarray or Quantity, optional
-        Differential density in momentum :math:`\\psi_p(r, p) = \\frac{dn}{dp} = 4\\pi p^2 f_\\mathrm{ps}`.
-    psi_E : ndarray or Quantity, optional
-        Differential number density in kinetic energy :math:`\\psi_E(r, E) = \\frac{dn}{dE} = \\frac{dp}{dE} \\psi_p`.
+    f_ps : :py:class:`astropy.units.Quantity`, optional
+        Phase-space distribution in momentum space :math:`f_\mathrm{ps}(r, p)`.
+        Must have physical dimensions compatible with :math:`\mathrm{pc^{-3}\,(GeV/c)^{-3}}`.
+    psi_p : :py:class:`astropy.units.Quantity`, optional
+        Differential density in momentum :math:`\psi_p(r, p) = \frac{dn}{dp} = 4\pi p^2 f_\mathrm{ps}`.
+        Must have physical dimensions compatible with :math:`\mathrm{pc^{-3}\,(GeV/c)^{-1}}`.
+    psi_E : :py:class:`astropy.units.Quantity`, optional
+        Differential number density in kinetic energy :math:`\psi_E(r, E) = \frac{dn}{dE} = \frac{dp}{dE} \psi_p`.
+        Must have physical dimensions compatible with :math:`\mathrm{pc^{-3}\,GeV^{-1}}`.
     particle : Particle or str, optional
         The cosmic ray particle species (default: ``Particle.PROTON``).
-    t : float or Quantity, optional
-        Initial simulation time (default: ``0.0``).
-    dt : float or Quantity, optional
-        Time step used in the last update (default: ``0.0``).
+    t : astropy.units.Quantity, optional
+        Initial simulation time (default: ``0.0 * su.TIME``).
+    dt : astropy.units.Quantity, optional
+        Time step used in the last update (default: ``0.0 * su.TIME``).
     stage : int, optional
         Current operator-splitting stage index (default: ``0``).
     stage_name : str, optional
@@ -59,15 +67,22 @@ class State:
         ``2`` for a full 2D spatial-momentum problem.
     """
 
+    @u.quantity_input(
+        f_ps=su.F_PS,
+        psi_p=su.PSI_P,
+        psi_E=su.PSI_E,
+        t=su.TIME,
+        dt=su.TIME,
+    )
     def __init__(
         self,
         grid: Grid,
-        f_ps: Any | None = None,
-        psi_p: Any | None = None,
-        psi_E: Any | None = None,
+        f_ps: u.Quantity | None = None,
+        psi_p: u.Quantity | None = None,
+        psi_E: u.Quantity | None = None,
         particle: Particle | str = Particle.PROTON,
-        t: Any = 0.0,
-        dt: Any = 0.0,
+        t: u.Quantity = 0.0 * su.TIME,
+        dt: u.Quantity = 0.0 * su.TIME,
         stage: int = 0,
         stage_name: str = "",
         history: list[dict[str, Any]] | None = None,
@@ -84,16 +99,48 @@ class State:
         self.ndim, raw_arr_2d = self._validate_and_reshape_array(raw_data)
         self._validate_grid_compatibility(self.grid, raw_data, self.ndim, raw_arr_2d)
 
-        # Store internal values as optimized, pure float ndarray
+        # Store internal values as optimized, pure float ndarray in canonical units
         self._values: np.ndarray = np.ascontiguousarray(
             self._convert_to_canonical_psi_p(raw_arr_2d, rep_type), dtype=float
         )
 
-        self.t = t
-        self.dt = dt
+        # Time is stored once, as canonical floats; ``t`` / ``dt`` are Quantity views.
+        self._t: float = float(t.to_value(su.TIME))
+        self._dt: float = float(dt.to_value(su.TIME))
         self.stage = int(stage)
         self.stage_name = str(stage_name)
         self.history = history if history is not None else []
+
+    @property
+    def t(self) -> u.Quantity:
+        """Current simulation time (in canonical TIME)."""
+        return self._t * su.TIME
+
+    @t.setter
+    def t(self, value: u.Quantity) -> None:
+        self._t = self._time_to_float(value)
+
+    @property
+    def dt(self) -> u.Quantity:
+        """Time step of the last update (in canonical TIME)."""
+        return self._dt * su.TIME
+
+    @dt.setter
+    def dt(self, value: u.Quantity) -> None:
+        self._dt = self._time_to_float(value)
+
+    @property
+    def t_val(self) -> float:
+        """Physical simulation time as pure float in canonical TIME units (Myr)."""
+        return self._t
+
+    @staticmethod
+    def _time_to_float(value: u.Quantity) -> float:
+        if not isinstance(value, u.Quantity):
+            raise TypeError(
+                f"Time values must be astropy Quantities with time units; got {type(value).__name__}."
+            )
+        return float(value.to_value(su.TIME))
 
     @staticmethod
     def _parse_particle(particle: Particle | str) -> Particle:
@@ -110,9 +157,9 @@ class State:
     @classmethod
     def _resolve_input_representation(
         cls,
-        f_ps: Any | None = None,
-        psi_p: Any | None = None,
-        psi_E: Any | None = None,
+        f_ps: u.Quantity | None = None,
+        psi_p: u.Quantity | None = None,
+        psi_E: u.Quantity | None = None,
     ) -> tuple[str, np.ndarray]:
         inputs = {
             "f_ps": f_ps,
@@ -137,12 +184,23 @@ class State:
 
     @staticmethod
     def _validate_named_representation(
-        rep_name: str, rep_val: Any
+        rep_name: str, rep_val: u.Quantity
     ) -> tuple[str, np.ndarray]:
-        if hasattr(rep_val, "value"):
-            raw_data = rep_val.value
-        else:
-            raw_data = rep_val
+        canonical_units = {
+            "f_ps": su.F_PS,
+            "psi_p": su.PSI_P,
+            "psi_E": su.PSI_E,
+        }
+        target_unit = canonical_units[rep_name]
+        if not isinstance(rep_val, u.Quantity):
+            raise TypeError(
+                f"State representation '{rep_name}' must be an astropy.units.Quantity."
+            )
+        if not rep_val.unit.is_equivalent(target_unit):
+            raise u.UnitsError(
+                f"Unit '{rep_val.unit}' is not compatible with '{rep_name}' ({target_unit})."
+            )
+        raw_data = rep_val.to_value(target_unit)
         return rep_name, np.asarray(raw_data, dtype=float)
 
     @staticmethod
@@ -217,9 +275,9 @@ class State:
                     "Conversion between representations requires a Grid with momentum coordinates (p_centers)."
                 )
             four_pi_p2_val = (
-                four_pi_p2.value
-                if hasattr(four_pi_p2, "value")
-                else np.asarray(four_pi_p2, dtype=float)
+                four_pi_p2.to_value(su.MOMENTUM**2)
+                if isinstance(four_pi_p2, u.Quantity)
+                else four_pi_p2
             )
             return raw_arr_2d * four_pi_p2_val[p_factor_dim]
 
@@ -234,18 +292,14 @@ class State:
             raise ValueError(
                 "Conversion between representations requires a Grid with momentum coordinates (p_centers)."
             )
-        p = getattr(self.grid, "_p_centers_phys", None)
-        if p is None:
-            p = getattr(self.grid, "p_centers_phys", self.grid.p_centers)
+        p = self.grid.p_centers_phys
         if p is None:
             raise ValueError(
                 "Conversion between representations requires a Grid with momentum coordinates (p_centers)."
             )
-        if hasattr(p, "value"):
-            return np.asarray(p.value, dtype=float)
-        return np.asarray(p, dtype=float)
+        return p.to_value(su.MOMENTUM)
 
-    def _process_representation(self, rep_name: str, rep_val: Any) -> np.ndarray:
+    def _process_representation(self, rep_name: str, rep_val: u.Quantity) -> np.ndarray:
         _, raw_data = self._validate_named_representation(rep_name, rep_val)
         ndim, raw_arr_2d = self._validate_and_reshape_array(raw_data)
         self._validate_grid_compatibility(self.grid, raw_data, ndim, raw_arr_2d)
@@ -253,7 +307,7 @@ class State:
 
     def _update_metadata(
         self,
-        dt: Any | None = None,
+        dt: u.Quantity | None = None,
         stage: int | None = None,
         stage_name: str | None = None,
     ) -> None:
@@ -339,101 +393,91 @@ class State:
     # -------------------------------------------------------------------------
 
     @cached_property
-    def E_tot(self) -> Any:
+    def E_tot(self) -> u.Quantity:
         r"""
-        Total energy :math:`E_\\mathrm{tot} = \\sqrt{p^2 c^2 + (m c^2)^2}` at momentum cell centers (in GeV).
+        Total energy :math:`E_\mathrm{tot} = \sqrt{p^2 c^2 + (m c^2)^2}` at momentum cell centers (in GeV).
 
         Returns
         -------
-        Quantity or ndarray
+        Quantity
             Array of total energies in GeV with shape ``(n_p,)``.
         """
         p_val = self._get_p_coords()
-        m_energy = (
-            (self.particle.mass * const.c**2).to_value(u.GeV)
-            if hasattr(self.particle.mass, "to_value")
-            else 0.938272
-        )
-        p_energy = p_val  # in GeV (p*c in GeV/c * c = GeV)
+        p = p_val * su.MOMENTUM
+        m_energy = (self.particle.mass * const.c**2).to(su.ENERGY)
+        p_energy = (p * const.c).to(su.ENERGY)
         return np.sqrt(p_energy**2 + m_energy**2)
 
     @cached_property
-    def E(self) -> Any:
+    def E(self) -> u.Quantity:
         r"""
-        Kinetic energy :math:`E = E_\\mathrm{tot} - m c^2` at momentum cell centers (in GeV).
+        Kinetic energy :math:`E = E_\mathrm{tot} - m c^2` at momentum cell centers (in GeV).
 
         Returns
         -------
-        Quantity or ndarray
+        Quantity
             Array of kinetic energies in GeV with shape ``(n_p,)``.
         """
-        m_energy = (
-            (self.particle.mass * const.c**2).to_value(u.GeV)
-            if hasattr(self.particle.mass, "to_value")
-            else 0.938272
-        )
+        m_energy = (self.particle.mass * const.c**2).to(su.ENERGY)
         return self.E_tot - m_energy
 
     @cached_property
     def gamma(self) -> np.ndarray:
         r"""
-        Lorentz factor :math:`\\gamma = \\frac{E_\\mathrm{tot}}{m c^2}` at momentum cell centers (dimensionless).
+        Lorentz factor :math:`\gamma = \frac{E_\mathrm{tot}}{m c^2}` at momentum cell centers (dimensionless).
 
         Returns
         -------
         ndarray
             Array of Lorentz factors with shape ``(n_p,)``.
         """
-        m_energy = (
-            (self.particle.mass * const.c**2).to_value(u.GeV)
-            if hasattr(self.particle.mass, "to_value")
-            else 0.938272
-        )
-        return np.asarray(self.E_tot / m_energy, dtype=float)
+        m_energy = (self.particle.mass * const.c**2).to(su.ENERGY)
+        return (self.E_tot / m_energy).to_value(u.dimensionless_unscaled)
 
     @cached_property
     def beta(self) -> np.ndarray:
         r"""
-        Dimensionless velocity :math:`\\beta = v/c = \\frac{p c}{E_\\mathrm{tot}}` at momentum cell centers.
+        Dimensionless velocity :math:`\beta = v/c = \frac{p c}{E_\mathrm{tot}}` at momentum cell centers.
 
         Returns
         -------
         ndarray
             Array of dimensionless velocities with shape ``(n_p,)``.
         """
-        p_energy = self._get_p_coords()
-        return np.asarray(p_energy / self.E_tot, dtype=float)
+        p = self._get_p_coords() * su.MOMENTUM
+        p_energy = (p * const.c).to(su.ENERGY)
+        return (p_energy / self.E_tot).to_value(u.dimensionless_unscaled)
 
     @cached_property
-    def v(self) -> Any:
+    def v(self) -> u.Quantity:
         r"""
-        Particle velocity :math:`v = \\beta c` at momentum cell centers.
+        Particle velocity :math:`v = \beta c` at momentum cell centers (in canonical VELOCITY).
 
         Returns
         -------
-        Quantity or ndarray
+        Quantity
             Array of velocities in pc/Myr with shape ``(n_p,)``.
         """
-        c_speed = const.c.to_value(u.pc / u.Myr)
-        return self.beta * c_speed
+        return (self.beta * const.c).to(su.VELOCITY)
 
     @cached_property
     def dp_dE(self) -> np.ndarray:
         r"""
-        Jacobian conversion factor :math:`\\frac{dp}{dE} = \\frac{E_\\mathrm{tot}}{p c^2}` relating kinetic energy and momentum differentials (in :math:`(\\mathrm{GeV}/c)/\\mathrm{GeV}`).
+        Jacobian conversion factor :math:`\frac{dp}{dE} = \frac{E_\mathrm{tot}}{p c^2}` relating kinetic energy and momentum differentials (in :math:`(\mathrm{GeV}/c)/\mathrm{GeV}`).
 
         Returns
         -------
         ndarray
             Array of :math:`dp/dE` with shape ``(n_p,)``.
         """
-        p_energy = self._get_p_coords()
-        return np.asarray(self.E_tot / p_energy, dtype=float)
+        p = self._get_p_coords() * su.MOMENTUM
+        p_energy = (p * const.c).to(su.ENERGY)
+        return (self.E_tot / p_energy).to_value(u.dimensionless_unscaled)
 
     @cached_property
     def dE_dp(self) -> np.ndarray:
         r"""
-        Jacobian conversion factor :math:`\\frac{dE}{dp} = \\beta c = \\frac{p c^2}{E_\\mathrm{tot}}` relating kinetic energy and momentum differentials (in :math:`\\mathrm{GeV}/(\\mathrm{GeV}/c)`).
+        Jacobian conversion factor :math:`\frac{dE}{dp} = \beta c = \frac{p c^2}{E_\mathrm{tot}}` relating kinetic energy and momentum differentials (in :math:`\mathrm{GeV}/(\mathrm{GeV}/c)`).
 
         Returns
         -------
@@ -447,49 +491,50 @@ class State:
     # -------------------------------------------------------------------------
 
     @property
-    def psi_p(self) -> Any:
+    def psi_p(self) -> u.Quantity:
         """Differential density in momentum space :math:`\\psi_p(r, p) = \\frac{dn}{dp}`."""
         return self.to_psi_p()
 
     @psi_p.setter
-    def psi_p(self, value: Any) -> None:
+    def psi_p(self, value: u.Quantity) -> None:
         self.update_psi_p(value)
 
     @property
-    def f_ps(self) -> Any:
+    def f_ps(self) -> u.Quantity:
         """Phase-space distribution function in momentum space :math:`f_\\mathrm{ps}(r, p)`."""
         return self.to_f_ps()
 
     @f_ps.setter
-    def f_ps(self, value: Any) -> None:
+    def f_ps(self, value: u.Quantity) -> None:
         self.update_f_ps(value)
 
     @property
-    def psi_E(self) -> Any:
+    def psi_E(self) -> u.Quantity:
         """Differential number density in energy space :math:`\\psi_E(r, E) = \\frac{dn}{dE}`."""
         return self.to_psi_E()
 
     @psi_E.setter
-    def psi_E(self, value: Any) -> None:
+    def psi_E(self, value: u.Quantity) -> None:
         self.update_psi_E(value)
 
     @property
-    def dndE(self) -> Any:
+    def dndE(self) -> u.Quantity:
         """Differential number density in energy space :math:`\\frac{dn}{dE}` (alias for :py:attr:`psi_E`)."""
         return self.to_psi_E()
 
     @dndE.setter
-    def dndE(self, value: Any) -> None:
+    def dndE(self, value: u.Quantity) -> None:
         self.update_psi_E(value)
 
     # -------------------------------------------------------------------------
     # Explicit User-Facing Update Methods
     # -------------------------------------------------------------------------
 
+    @u.quantity_input(psi_p=su.PSI_P, dt=su.TIME)
     def update_psi_p(
         self,
-        psi_p: Any,
-        dt: Any | None = None,
+        psi_p: u.Quantity,
+        dt: u.Quantity | None = None,
         stage: int | None = None,
         stage_name: str | None = None,
     ) -> None:
@@ -498,9 +543,9 @@ class State:
 
         Parameters
         ----------
-        psi_p : Quantity or ndarray
+        psi_p : :py:class:`astropy.units.Quantity`
             New momentum differential density array.
-        dt : Quantity or float, optional
+        dt : :py:class:`astropy.units.Quantity`, optional
             Elapsed time step for this update.
         stage : int, optional
             Operator-splitting stage index.
@@ -511,10 +556,11 @@ class State:
         self._update_values(psi_p_arr_2d)
         self._update_metadata(dt=dt, stage=stage, stage_name=stage_name)
 
+    @u.quantity_input(f_ps=su.F_PS, dt=su.TIME)
     def update_f_ps(
         self,
-        f_ps: Any,
-        dt: Any | None = None,
+        f_ps: u.Quantity,
+        dt: u.Quantity | None = None,
         stage: int | None = None,
         stage_name: str | None = None,
     ) -> None:
@@ -523,9 +569,9 @@ class State:
 
         Parameters
         ----------
-        f_ps : Quantity or ndarray
+        f_ps : :py:class:`astropy.units.Quantity`
             New phase-space distribution array.
-        dt : Quantity or float, optional
+        dt : :py:class:`astropy.units.Quantity`, optional
             Elapsed time step for this update.
         stage : int, optional
             Operator-splitting stage index.
@@ -536,10 +582,11 @@ class State:
         self._update_values(psi_p_arr_2d)
         self._update_metadata(dt=dt, stage=stage, stage_name=stage_name)
 
+    @u.quantity_input(psi_E=su.PSI_E, dt=su.TIME)
     def update_psi_E(
         self,
-        psi_E: Any,
-        dt: Any | None = None,
+        psi_E: u.Quantity,
+        dt: u.Quantity | None = None,
         stage: int | None = None,
         stage_name: str | None = None,
     ) -> None:
@@ -548,9 +595,9 @@ class State:
 
         Parameters
         ----------
-        psi_E : Quantity or ndarray
+        psi_E : :py:class:`astropy.units.Quantity`
             New energy differential density array.
-        dt : Quantity or float, optional
+        dt : :py:class:`astropy.units.Quantity`, optional
             Elapsed time step for this update.
         stage : int, optional
             Operator-splitting stage index.
@@ -561,12 +608,18 @@ class State:
         self._update_values(psi_p_arr_2d)
         self._update_metadata(dt=dt, stage=stage, stage_name=stage_name)
 
+    @u.quantity_input(
+        f_ps=su.F_PS,
+        psi_p=su.PSI_P,
+        psi_E=su.PSI_E,
+        dt=su.TIME,
+    )
     def update(
         self,
-        f_ps: Any | None = None,
-        psi_p: Any | None = None,
-        psi_E: Any | None = None,
-        dt: Any | None = None,
+        f_ps: u.Quantity | None = None,
+        psi_p: u.Quantity | None = None,
+        psi_E: u.Quantity | None = None,
+        dt: u.Quantity | None = None,
         stage: int | None = None,
         stage_name: str | None = None,
     ) -> None:
@@ -577,13 +630,13 @@ class State:
 
         Parameters
         ----------
-        f_ps : Quantity or ndarray, optional
+        f_ps : :py:class:`astropy.units.Quantity`, optional
             Phase-space distribution in momentum space.
-        psi_p : Quantity or ndarray, optional
+        psi_p : :py:class:`astropy.units.Quantity`, optional
             Differential density in momentum space.
-        psi_E : Quantity or ndarray, optional
+        psi_E : :py:class:`astropy.units.Quantity`, optional
             Differential number density in kinetic energy.
-        dt : Quantity or float, optional
+        dt : :py:class:`astropy.units.Quantity`, optional
             Elapsed time step for this update.
         stage : int, optional
             Operator-splitting stage index.
@@ -603,34 +656,36 @@ class State:
     # Explicit User-Facing Conversion Methods
     # -------------------------------------------------------------------------
 
-    def to_psi_p(self, unit: Any | None = None) -> Any:
+    def to_psi_p(self, unit: u.Unit | None = None) -> u.Quantity:
         """
         Return differential density in momentum space :math:`\\psi_p(r, p) = \\frac{dn}{dp} = 4\\pi p^2 f_\\mathrm{ps}`.
 
         Parameters
         ----------
         unit : :py:class:`astropy.units.Unit`, optional
-            Target unit for output. If ``None``, returns Quantity or ndarray in canonical units of :math:`\\mathrm{pc^{-3}\\,(GeV/c)^{-1}}`.
+            Target unit for output. If ``None``, returns Quantity in canonical units of :math:`\\mathrm{pc^{-3}\\,(GeV/c)^{-1}}`.
 
         Returns
         -------
-        Quantity or ndarray
+        Quantity
             Differential density in momentum space.
         """
-        return self._get_values()
+        vals = self._get_values()
+        target_unit = unit if unit is not None else su.PSI_P
+        return (vals * su.PSI_P).to(target_unit)
 
-    def to_f_ps(self, unit: Any | None = None) -> Any:
+    def to_f_ps(self, unit: u.Unit | None = None) -> u.Quantity:
         r"""
         Convert to phase-space distribution function in momentum space :math:`f_\mathrm{ps}(r, p) = \frac{\psi_p(r, p)}{4\pi p^2}`.
 
         Parameters
         ----------
         unit : :py:class:`astropy.units.Unit`, optional
-            Target unit for output. If ``None``, returns Quantity or ndarray in canonical units of :math:`\mathrm{pc^{-3}\,(GeV/c)^{-3}}`.
+            Target unit for output. If ``None``, returns Quantity in canonical units of :math:`\mathrm{pc^{-3}\,(GeV/c)^{-3}}`.
 
         Returns
         -------
-        Quantity or ndarray
+        Quantity
             Phase-space distribution array in the specified units.
         """
         four_pi_p2 = self.grid.four_pi_p2
@@ -639,39 +694,41 @@ class State:
                 "Conversion between representations requires a Grid with momentum coordinates (p_centers)."
             )
         four_pi_p2_val = (
-            four_pi_p2.value
-            if hasattr(four_pi_p2, "value")
-            else np.asarray(four_pi_p2, dtype=float)
+            four_pi_p2.to_value(su.MOMENTUM**2)
+            if isinstance(four_pi_p2, u.Quantity)
+            else four_pi_p2
         )
         p_factor_dim = slice(None) if self.ndim == 1 else (slice(None), np.newaxis)
         f_ps_arr = self._values / four_pi_p2_val[p_factor_dim]
         res = f_ps_arr[0] if self.ndim == 1 else f_ps_arr
-        return res
+        target_unit = unit if unit is not None else su.F_PS
+        return (res * su.F_PS).to(target_unit)
 
-    def to_phase_space(self, unit: Any | None = None) -> Any:
+    def to_phase_space(self, unit: u.Unit | None = None) -> u.Quantity:
         """Alias for :py:meth:`to_f_ps`."""
         return self.to_f_ps(unit=unit)
 
-    def to_psi_E(self, unit: Any | None = None) -> Any:
+    def to_psi_E(self, unit: u.Unit | None = None) -> u.Quantity:
         r"""
         Convert to differential number density in energy space :math:`\psi_E(r, E) = \frac{dn}{dE} = \psi_p\,\frac{E_\mathrm{tot}}{p c^2}`.
 
         Parameters
         ----------
         unit : :py:class:`astropy.units.Unit`, optional
-            Target unit for output. If ``None``, returns Quantity or ndarray in canonical units of :math:`\mathrm{pc^{-3}\,GeV^{-1}}`.
+            Target unit for output. If ``None``, returns Quantity in canonical units of :math:`\mathrm{pc^{-3}\,GeV^{-1}}`.
 
         Returns
         -------
-        Quantity or ndarray
+        Quantity
             Differential number density in kinetic energy.
         """
         p_factor_dim = slice(None) if self.ndim == 1 else (slice(None), np.newaxis)
         psi_E_arr = self._values * self.dp_dE[p_factor_dim]
         res = psi_E_arr[0] if self.ndim == 1 else psi_E_arr
-        return res
+        target_unit = unit if unit is not None else su.PSI_E
+        return (res * su.PSI_E).to(target_unit)
 
-    def to_dndE(self, unit: Any | None = None) -> Any:
+    def to_dndE(self, unit: u.Unit | None = None) -> u.Quantity:
         """Alias for :py:meth:`to_psi_E`."""
         return self.to_psi_E(unit=unit)
 
@@ -695,20 +752,22 @@ class State:
             The ``history`` list of the clone is empty unless ``copy_history`` is ``True``.
         """
         new_state = State(
-            psi_p=self._values.copy(),
+            psi_p=self._values.copy() * su.PSI_P,
             grid=self.grid,
             particle=self.particle,
-            t=self.t.copy() if hasattr(self.t, "copy") else self.t,
-            dt=self.dt.copy() if hasattr(self.dt, "copy") else self.dt,
+            t=self.t,
+            dt=self.dt,
             stage=int(self.stage),
             stage_name=str(self.stage_name),
         )
         if copy_history:
             new_state.history = [
                 {
-                    "t": snap["t"].copy() if hasattr(snap["t"], "copy") else snap["t"],
+                    "t": snap["t"].copy()
+                    if isinstance(snap["t"], u.Quantity)
+                    else snap["t"],
                     "dt": snap["dt"].copy()
-                    if hasattr(snap["dt"], "copy")
+                    if isinstance(snap["dt"], u.Quantity)
                     else snap["dt"],
                     "stage": snap["stage"],
                     "stage_name": snap.get("stage_name", ""),
@@ -718,7 +777,7 @@ class State:
             ]
         return new_state
 
-    def set_time(self, t: Any) -> None:
+    def set_time(self, t: u.Quantity | float) -> None:
         """
         Set the simulation clock to an exact value.
 
@@ -727,11 +786,13 @@ class State:
 
         Parameters
         ----------
-        t : float or Quantity
-            Exact time value to assign.
+        t : :py:class:`astropy.units.Quantity` or float
+            Exact time value to assign (in canonical TIME if float).
         """
-        self.dt = t - self.t
-        self.t = t
+        # Hot path (called every global step by the splitting schemes): floats only.
+        t_new = float(t.to_value(su.TIME)) if isinstance(t, u.Quantity) else float(t)
+        self._dt = t_new - self._t
+        self._t = t_new
 
     def record_substep(self, stage_name: str | None = None) -> None:
         """
@@ -747,8 +808,8 @@ class State:
             If ``None``, the current :py:attr:`stage_name` attribute is used instead.
         """
         entry = {
-            "t": self.t.copy() if hasattr(self.t, "copy") else self.t,
-            "dt": self.dt.copy() if hasattr(self.dt, "copy") else self.dt,
+            "t": self.t,
+            "dt": self.dt,
             "stage": int(self.stage),
             "stage_name": (
                 stage_name if stage_name is not None else str(self.stage_name)
@@ -756,6 +817,13 @@ class State:
             "values": self._values.copy(),
         }
         self.history.append(entry)
+
+    @staticmethod
+    def _snapshot_time(value: u.Quantity | float) -> float:
+        """Canonical float time from a snapshot entry (Quantity, or float in canonical TIME)."""
+        if isinstance(value, u.Quantity):
+            return float(value.to_value(su.TIME))
+        return float(value)
 
     def restore_substep(self, identifier: int | str) -> "State":
         """
@@ -789,8 +857,8 @@ class State:
                 raise ValueError(f"No snapshot found with stage_name={identifier!r}")
             snap = matches[0]
         self._values = snap["values"].copy()
-        self.t = snap["t"].copy() if hasattr(snap["t"], "copy") else snap["t"]
-        self.dt = snap["dt"].copy() if hasattr(snap["dt"], "copy") else snap["dt"]
+        self._t = self._snapshot_time(snap["t"])
+        self._dt = self._snapshot_time(snap["dt"])
         self.stage = int(snap["stage"])
         self.stage_name = str(snap.get("stage_name", ""))
         return self
@@ -816,8 +884,12 @@ class State:
         """
         snap = self.history[index]
         return {
-            "t": snap["t"].copy() if hasattr(snap["t"], "copy") else snap["t"],
-            "dt": snap["dt"].copy() if hasattr(snap["dt"], "copy") else snap["dt"],
+            "t": snap["t"].copy()
+            if isinstance(snap["t"], u.Quantity)
+            else float(snap["t"]) * su.TIME,
+            "dt": snap["dt"].copy()
+            if isinstance(snap["dt"], u.Quantity)
+            else float(snap["dt"]) * su.TIME,
             "stage": int(snap["stage"]),
             "stage_name": str(snap.get("stage_name", "")),
             "values": snap["values"].copy(),
@@ -849,10 +921,8 @@ class State:
         particle_name = getattr(self.particle, "value", str(self.particle))
         species_name = getattr(self.particle, "species", "")
         spec_str = f" ({species_name})" if species_name else ""
-        t_val = self.t.value if hasattr(self.t, "value") else self.t
-        dt_val = self.dt.value if hasattr(self.dt, "value") else self.dt
         return (
-            f"State(t={t_val:.3f}, dt={dt_val:.3f}, stage={self.stage}, "
+            f"State(t={self._t:.3f} {su.TIME}, dt={self._dt:.3f} {su.TIME}, stage={self.stage}, "
             f"stage_name={self.stage_name!r}, particle={particle_name!r}{spec_str}, "
             f"shape={self._values.shape}, history_len={len(self.history)})"
         )
