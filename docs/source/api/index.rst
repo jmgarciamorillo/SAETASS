@@ -7,5 +7,6 @@ API Reference
     solvers
     state
     grid
+    units
     splitting
     utils

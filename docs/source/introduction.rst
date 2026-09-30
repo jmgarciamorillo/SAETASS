@@ -24,7 +24,7 @@ Key Features
 ------------
 - **Modular Solvers**: Independent numerical schemes for advection, diffusion, energy losses and source terms, seamlessly integrated via mathematically robust operator splitting parameters and state-of-the-art numerical methods.
 - **Flexible Grid Representations**: Dedicated objects for spatial, temporal and momentum matrices to accurately capture complex domain requirements.
-- **Physical Accuracy**: Deep integration with `astropy.units` and `astropy.constants` to ensure strict dimensional analysis across all mathematical modules.
+- **Physical Accuracy**: Deep integration with `astropy.units` and `astropy.constants` to ensure strict dimensional analysis across all mathematical modules. Every physical input is an Astropy Quantity, validated and converted once to a single set of canonical units at the boundary of the package (see :doc:`the units module <api/units>`).
 - **Extensibility**: Designed to be highly modular, allowing researchers to easily plug in custom diffusion coefficients and non-standard advection velocity fields.
 
 Authors and Maintainers
