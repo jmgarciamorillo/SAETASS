@@ -1,7 +1,7 @@
 """
 This module provides the :py:class:`~saetass.utils.emissions.EmissionCalculator` class to compute observable non-thermal multi-messenger emissions (gamma-rays and neutrinos) from cosmic ray distributions.
 
-The module cleanly decouples the static background physical environment and spatial/energy grids from the dynamic particle distribution function encoded in :py:class:`~saetass.state.State`.
+The module cleanly decouples the static background physical environment and spatial/energy grids from the dynamic particle differential density encoded in :py:class:`~saetass.state.State`.
 It performs high-performance vectorized integrations over the particle energy spectra and the spatial volume to compute physical emissivities and observable fluxes.
 
 The structure and API mirror the energy losses module (:py:mod:`~saetass.utils.energy_losses`), supporting the following emission processes:
@@ -21,8 +21,6 @@ Other key features include:
 - Strict particle species validation based on :py:class:`~saetass.utils.energy_losses.Particle` to prevent unphysical calculations (e.g., pion decay from electrons).
 """
 
-from __future__ import annotations
-
 import logging
 from typing import Optional
 
@@ -30,6 +28,7 @@ import astropy.constants as const
 import astropy.units as u
 import numpy as np
 
+from saetass import units as su
 from saetass.state import State
 from saetass.utils.cross_sections import (
     get_hadronic_cross_section_model,
@@ -69,12 +68,19 @@ class EmissionCalculator:
         If an unsupported particle species is specified.
     """
 
+    @u.quantity_input(
+        E_out_grid=su.ENERGY,
+        E_cr_grid=su.ENERGY,
+        r_grid=su.LENGTH,
+        n_gas=u.cm**-3,
+        distance=su.LENGTH,
+    )
     def __init__(
         self,
-        E_out_grid: u.Quantity | np.ndarray,
-        E_cr_grid: u.Quantity | np.ndarray,
-        r_grid: u.Quantity | np.ndarray,
-        n_gas: u.Quantity | np.ndarray,
+        E_out_grid: u.Quantity,
+        E_cr_grid: u.Quantity,
+        r_grid: u.Quantity,
+        n_gas: u.Quantity,
         particle: Particle | str,
         distance: u.Quantity | None = None,
     ):
@@ -105,18 +111,46 @@ class EmissionCalculator:
 
     def _check_parameters(
         self,
-        E_out_grid: u.Quantity | np.ndarray,
-        E_cr_grid: u.Quantity | np.ndarray,
-        r_grid: u.Quantity | np.ndarray,
-        n_gas: u.Quantity | np.ndarray,
+        E_out_grid: u.Quantity,
+        E_cr_grid: u.Quantity,
+        r_grid: u.Quantity,
+        n_gas: u.Quantity,
         particle: Particle | str,
         distance: u.Quantity | None,
     ) -> None:
         """Validate input parameters and enforce consistent Astropy physical units."""
-        self.E_out_grid = u.Quantity(E_out_grid, u.GeV)
-        self.E_cr_grid = u.Quantity(E_cr_grid, u.GeV)
-        self.r_grid = u.Quantity(r_grid, u.pc)
-        self.n_gas = u.Quantity(n_gas, u.cm**-3)
+        if not isinstance(E_out_grid, u.Quantity) or not E_out_grid.unit.is_equivalent(
+            su.ENERGY
+        ):
+            raise u.UnitsError(
+                "E_out_grid must be an astropy Quantity with energy units."
+            )
+        if not isinstance(E_cr_grid, u.Quantity) or not E_cr_grid.unit.is_equivalent(
+            su.ENERGY
+        ):
+            raise u.UnitsError(
+                "E_cr_grid must be an astropy Quantity with energy units."
+            )
+        if not isinstance(r_grid, u.Quantity) or not r_grid.unit.is_equivalent(
+            su.LENGTH
+        ):
+            raise u.UnitsError("r_grid must be an astropy Quantity with length units.")
+        if not isinstance(n_gas, u.Quantity) or not n_gas.unit.is_equivalent(u.cm**-3):
+            raise u.UnitsError(
+                "n_gas must be an astropy Quantity with number density units."
+            )
+        if distance is not None and (
+            not isinstance(distance, u.Quantity)
+            or not distance.unit.is_equivalent(su.LENGTH)
+        ):
+            raise u.UnitsError(
+                "distance must be an astropy Quantity with length units."
+            )
+
+        self.E_out_grid = E_out_grid.to(su.ENERGY)
+        self.E_cr_grid = E_cr_grid.to(su.ENERGY)
+        self.r_grid = r_grid.to(su.LENGTH)
+        self.n_gas = n_gas.to(u.cm**-3)
 
         if np.any(self.E_out_grid.value <= 0):
             raise ValueError("E_out_grid energies must be strictly positive (> 0).")
@@ -135,7 +169,7 @@ class EmissionCalculator:
         self.particle_species = self.particle.species
 
         if distance is not None:
-            self.distance = u.Quantity(distance, u.kpc)
+            self.distance = distance.to(u.kpc)
             if self.distance.value <= 0:
                 raise ValueError("distance must be strictly positive (> 0).")
         else:
@@ -311,10 +345,8 @@ class EmissionCalculator:
         ValueError
             If the shape of ``state.psi_p`` does not match ``(len(E_cr_grid), len(r_grid))``.
         """
-        psi_cr = (
-            state.psi_p.to_value(u.cm**-3 / (u.GeV / const.c))
-            if hasattr(state.psi_p, "to_value")
-            else np.asarray(state.psi_p, dtype=float)
+        psi_cr = state.psi_p.to_value(
+            u.cm**-3 / (u.GeV / const.c)
         )  # Shape: (N_cr, N_r)
         expected_shape = (len(self.E_cr_grid), len(self.r_grid))
         if psi_cr.shape != expected_shape:
@@ -375,10 +407,8 @@ class EmissionCalculator:
         ValueError
             If the shape of ``state.psi_p`` does not match ``(len(E_cr_grid), len(r_grid))``.
         """
-        psi_cr = (
-            state.psi_p.to_value(u.cm**-3 / (u.GeV / const.c))
-            if hasattr(state.psi_p, "to_value")
-            else np.asarray(state.psi_p, dtype=float)
+        psi_cr = state.psi_p.to_value(
+            u.cm**-3 / (u.GeV / const.c)
         )  # Shape: (N_cr, N_r)
         expected_shape = (len(self.E_cr_grid), len(self.r_grid))
         if psi_cr.shape != expected_shape:
