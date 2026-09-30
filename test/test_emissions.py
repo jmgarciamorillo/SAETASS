@@ -463,10 +463,14 @@ class TestEmissionRegression:
             base_args, state_cr, dummy_sigma, dummy_ic_kernel
         )
 
-        if update_golden or not golden_data_path.exists():
+        if update_golden:
             np.savez_compressed(golden_data_path, **results)
-            if update_golden:
-                pytest.skip("Golden dataset updated on disk.")
+            pytest.skip("Golden dataset updated on disk.")
+        if not golden_data_path.exists():
+            pytest.fail(
+                f"Golden dataset {golden_data_path} is missing; "
+                "regenerate it deliberately with --update-golden."
+            )
 
         golden = np.load(golden_data_path)
         for key, value in results.items():
@@ -474,7 +478,7 @@ class TestEmissionRegression:
                 value,
                 golden[key],
                 rtol=1e-5,
-                atol=1e-30,
+                atol=0.0,  # purely relative: an absolute floor hides scale errors
                 err_msg=f"Regression mismatch detected for channel '{key}'",
             )
 
