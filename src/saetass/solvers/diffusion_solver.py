@@ -1,10 +1,12 @@
 import logging
+from types import MappingProxyType
 
 import numpy as np
 from numba import njit, prange
 
+from .. import units as su
 from ..grid import Grid
-from ..solver import SubSolver
+from ..solver import ParamSpec, SubSolver
 from ..state import State
 
 logger = logging.getLogger(__name__)
@@ -40,18 +42,26 @@ class DiffusionSolver(SubSolver):
         Subproblem time grid.
         In the standard SAETASS workflow this is already subrefined during :py:class:`~saetass.solver.Solver` initialization.
     params : dict
-        Solver configuration.  Accepted keys are:
+        Solver configuration, already converted to canonical floats by :py:meth:`~saetass.solver.SubSolver.convert_params`. Accepted keys (and the units required at the :py:class:`~saetass.solver.Solver` level) are:
 
-        D_values : ndarray or callable
-            Diffusion coefficient at cell centres.  Shape must match the grid (``(nr,)`` for 1D or ``(np, nr)`` for 2D).  A callable must have signature ``D_values(t) -> ndarray``.
+        D_values : Quantity or callable
+            Diffusion coefficient at cell centres (area per time).  Shape must match the grid (``(nr,)`` for 1D or ``(np, nr)`` for 2D).  A callable must have signature ``D_values(t: Quantity) -> Quantity``.
         boundary_condition : ``{'dirichlet', 'neumann', 'outflow'}``, optional
             Outer boundary condition (default: ``'dirichlet'``).
-        boundary_value : float or callable, optional
-            Value of the differential density :math:`\psi` at the outer boundary for the Dirichlet condition (default: 0).
-            Can also be passed as ``psi_end`` or ``f_end``. A callable must have signature ``boundary_value(t) -> float``.
+        psi_end : Quantity or callable, optional
+            Differential density :math:`\psi` at the outer boundary for the Dirichlet condition (default: 0). A callable must have signature ``psi_end(t: Quantity) -> Quantity``.
     """
 
+    PARAM_SPECS = MappingProxyType(
+        {
+            "D_values": ParamSpec(su.DIFFUSION_COEFFICIENT, dynamic=True),
+            "psi_end": ParamSpec(su.PSI_P, dynamic=True),
+            "boundary_condition": ParamSpec(),
+        }
+    )
+
     def __init__(self, grid: Grid, t_grid: np.ndarray, params: dict, **kwargs) -> None:
+        self._validate_unit_free_inputs(t_grid, params)
         self._unpack_grid(grid)
         self.t_grid = np.asarray(t_grid, dtype=float)
         if self.r_centers.ndim != 1 or self.r_centers.size < 2:
@@ -132,27 +142,27 @@ class DiffusionSolver(SubSolver):
 
             self.D_values = self.D_values_static
 
-        boundary_input = (
-            self.params.get("boundary_value", None)
-            if self.params.get("boundary_value", None) is not None
-            else (
-                self.params.get("psi_end", None)
-                if self.params.get("psi_end", None) is not None
-                else self.params.get("f_end", 0.0)
-            )
-        )
+        boundary_input = self.params.get("psi_end", 0.0)
         if callable(boundary_input):
-            self.is_f_end_dynamic = True
+            self.is_psi_end_dynamic = True
 
-            def _get_f_end_dynamic(t):
-                f_e = boundary_input(t)
-                return float(f_e) if np.isscalar(f_e) else np.asarray(f_e, dtype=float)
+            def _get_psi_end_dynamic(t):
+                b_val = boundary_input(t)
+                return (
+                    float(b_val)
+                    if np.isscalar(b_val)
+                    else np.asarray(b_val, dtype=float)
+                )
 
-            self._get_f_end = _get_f_end_dynamic
-            self.f_end = self._get_f_end(self.t_grid[0])
+            self._get_psi_end = _get_psi_end_dynamic
+            self.psi_end = self._get_psi_end(self.t_grid[0])
         else:
-            self.is_f_end_dynamic = False
-            self.f_end = float(boundary_input)
+            self.is_psi_end_dynamic = False
+            self.psi_end = (
+                float(boundary_input)
+                if np.isscalar(boundary_input)
+                else np.asarray(boundary_input, dtype=float)
+            )
 
     def _init_buffers(self):
         # Buffers for batched Thomas solver
@@ -218,12 +228,13 @@ class DiffusionSolver(SubSolver):
             )
 
         # Dynamic update
+        t_current = state.t_val
         if self.is_D_dynamic:
-            D_values = self._get_D(state.t)
+            D_values = self._get_D(t_current)
             self._update_conductances(D_values)
 
-        if getattr(self, "is_f_end_dynamic", False):
-            self.f_end = self._get_f_end(state.t)
+        if self.is_psi_end_dynamic:
+            self.psi_end = self._get_psi_end(t_current)
 
         # Vectorized batched solve for all slices
         values_new_all = self._advance_all_slices_batched(dt, values_all)
@@ -312,7 +323,7 @@ class DiffusionSolver(SubSolver):
         self._rhs[:, :-1] += self._B_upper[:, :-1] * f[:, 1:]
 
         if self.boundary_condition == "dirichlet":
-            self._rhs[:, -1] = self.f_end
+            self._rhs[:, -1] = self.psi_end
 
         # Solve batched tridiagonal systems A * f_new = rhs
         f_new = _thomas_batched_numba(

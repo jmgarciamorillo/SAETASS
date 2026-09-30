@@ -2,10 +2,12 @@ try:
     import matplotlib.pyplot as plt
 except ImportError:
     plt = None
+import astropy.units as u
 import numpy as np
 import pytest
 
-from saetass import Grid, Solver, State
+from saetass import Grid, Particle, Solver, State
+from saetass import units as su
 
 
 # Helper function to set up and run a diffusion problem
@@ -14,29 +16,54 @@ def run_diffusion_test(grid_params, solver_params, initial_f):
     Helper function to initialize and run the solver for a diffusion problem.
     Handles both 1D and 2D cases.
     """
+    r_g = (
+        grid_params["r_grid"]
+        if isinstance(grid_params["r_grid"], u.Quantity)
+        else grid_params["r_grid"] * su.LENGTH
+    )
+    t_g = (
+        grid_params["t_grid"]
+        if isinstance(grid_params["t_grid"], u.Quantity)
+        else grid_params["t_grid"] * su.TIME
+    )
+    p_g = grid_params.get("p_grid", None)
+    if p_g is not None and not isinstance(p_g, u.Quantity):
+        p_g = p_g * su.MOMENTUM
+
+    init_f = initial_f if isinstance(initial_f, u.Quantity) else initial_f * su.PSI_P
+
+    # Convert solver params D_values to Quantity if not already
+    solv_p = solver_params.copy()
+    if (
+        "D_values" in solv_p
+        and not isinstance(solv_p["D_values"], u.Quantity)
+        and not callable(solv_p["D_values"])
+    ):
+        solv_p["D_values"] = solv_p["D_values"] * su.DIFFUSION_COEFFICIENT
+
     # Create grid and initial state
     grid = Grid(
-        r_centers=grid_params["r_grid"],
-        t_grid=grid_params["t_grid"],
-        p_centers=grid_params.get("p_grid", None),
+        r_centers=r_g,
+        t_grid=t_g,
+        p_centers=p_g,
     )
-    state = State(initial_f)
+    state = State(psi_p=init_f, grid=grid, particle=Particle.PROTON)
 
     # Create solver
     solver = Solver(
         grid=grid,
         state=state,
         problem_type="diffusion",
-        operator_params={"diffusion": solver_params},
+        operator_params={"diffusion": solv_p},
         substeps={"diffusion": 1},
         splitting_scheme="strang",
     )
 
     # Run simulation
-    num_timesteps = len(grid_params["t_grid"]) - 1
+    num_timesteps = len(t_g) - 1
     solver.step(num_timesteps)
 
-    return solver.state.f
+    return solver.state.psi_p.to_value(su.PSI_P)
 
 
 class Test1DRadialDiffusion:
@@ -51,25 +78,28 @@ class Test1DRadialDiffusion:
         Validates against an analytical solution with a sinc-like initial profile.
         """
         r_0, r_end, t_final, D_const = 0.0, 1.0, 0.1, 1.0
-        r_grid = np.linspace(r_0, r_end, num_points)
-        t_grid = np.linspace(0, t_final, 100)
-        f_initial = (np.pi / 2) * np.sinc(r_grid)
+        r_grid = np.linspace(r_0, r_end, num_points) * su.LENGTH
+        t_grid = np.linspace(0, t_final, 100) * su.TIME
+        r_raw = r_grid.to_value(su.LENGTH)
+        f_initial = (np.pi / 2) * np.sinc(r_raw) * su.PSI_P
 
         grid_params = {"r_grid": r_grid, "t_grid": t_grid}
         solver_params = {
-            "D_values": np.full(num_points, D_const),
-            "f_end": 0.0,
+            "D_values": np.full(num_points, D_const) * su.DIFFUSION_COEFFICIENT,
+            "psi_end": 0.0 * su.PSI_P,
         }
 
         f_final_numerical = run_diffusion_test(
             grid_params, solver_params, f_initial
         ).flatten()
-        f_final_analytical = f_initial * np.exp(-(np.pi**2) * D_const * t_final)
+        f_final_analytical = f_initial.to_value(su.PSI_P) * np.exp(
+            -(np.pi**2) * D_const * t_final
+        )
 
         if plot_results:
             plt.figure(figsize=(10, 6))
-            plt.plot(r_grid, f_final_numerical, label="Numerical", lw=2)
-            plt.plot(r_grid, f_final_analytical, "r--", label="Analytical", lw=2)
+            plt.plot(r_raw, f_final_numerical, label="Numerical", lw=2)
+            plt.plot(r_raw, f_final_analytical, "r--", label="Analytical", lw=2)
             plt.title(f"1D Sinc Test - {num_points} points")
             plt.legend()
             plt.grid(True, alpha=0.5)
@@ -82,32 +112,37 @@ class Test1DRadialDiffusion:
         Tests that the total number of particles is conserved in a closed system (where no enough time has passed for significant loss).
         """
         num_points, r_end, t_final, D_const = 800, 500.0, 1000.0, 0.1
-        r_grid = np.linspace(0.0, r_end, num_points)
-        t_grid = np.linspace(0, t_final, 100)
-        dr = r_grid[1] - r_grid[0]
-        f_initial = np.exp(-((r_grid - 50.0) ** 2) / (2 * 5**2))
+        r_grid = np.linspace(0.0, r_end, num_points) * su.LENGTH
+        t_grid = np.linspace(0, t_final, 100) * su.TIME
+        r_raw = r_grid.to_value(su.LENGTH)
+        dr = r_raw[1] - r_raw[0]
+        f_initial = np.exp(-((r_raw - 50.0) ** 2) / (2 * 5**2)) * su.PSI_P
 
         grid_params = {"r_grid": r_grid, "t_grid": t_grid}
         solver_params = {
-            "D_values": np.full(num_points, D_const),
-            "f_end": 0.0,
+            "D_values": np.full(num_points, D_const) * su.DIFFUSION_COEFFICIENT,
+            "psi_end": 0.0 * su.PSI_P,
         }
 
-        integrand_initial = 4 * np.pi * r_grid**2 * f_initial
+        integrand_initial = 4 * np.pi * r_raw**2 * f_initial.to_value(su.PSI_P)
         n_particles_initial = np.sum(integrand_initial * dr)
 
         f_final_numerical = run_diffusion_test(
             grid_params, solver_params, f_initial
         ).flatten()
 
-        integrand_final = 4 * np.pi * r_grid**2 * f_final_numerical
+        integrand_final = 4 * np.pi * r_raw**2 * f_final_numerical
         n_particles_final = np.sum(integrand_final * dr)
 
         if plot_results:
             plt.figure(figsize=(10, 6))
-            plt.plot(r_grid, f_initial, label=f"Initial, N={n_particles_initial:.4f}")
             plt.plot(
-                r_grid, f_final_numerical, label=f"Final, N={n_particles_final:.4f}"
+                r_raw,
+                f_initial.to_value(su.PSI_P),
+                label=f"Initial, N={n_particles_initial:.4f}",
+            )
+            plt.plot(
+                r_raw, f_final_numerical, label=f"Final, N={n_particles_final:.4f}"
             )
             plt.title("1D Particle Conservation Test")
             plt.legend()
@@ -127,22 +162,24 @@ class Test1DRadialDiffusion:
         t_final = 0.1
 
         # Grids
-        r_grid = np.linspace(0.0, r_end, num_points)
-        t_grid = np.linspace(0, t_final, 100)
+        r_grid = np.linspace(0.0, r_end, num_points) * su.LENGTH
+        t_grid = np.linspace(0, t_final, 100) * su.TIME
+        r_raw = r_grid.to_value(su.LENGTH)
 
         # Initial condition (Gaussian centered before the discontinuity)
-        f_initial = np.exp(-((r_grid - 0.3) ** 2) / (2 * 0.05**2))
+        f_initial = np.exp(-((r_raw - 0.3) ** 2) / (2 * 0.05**2)) * su.PSI_P
 
         # Discontinuous diffusion coefficient
         D_values = np.ones(num_points)
         discontinuity_idx = int(num_points / 2)
         D_values[discontinuity_idx:] = 0.1  # D drops by a factor of 10
+        D_qty = D_values * su.DIFFUSION_COEFFICIENT
 
         # Solver parameters
         grid_params = {"r_grid": r_grid, "t_grid": t_grid}
         solver_params = {
-            "D_values": D_values,
-            "f_end": 0.0,
+            "D_values": D_qty,
+            "psi_end": 0.0 * su.PSI_P,
         }
 
         # Run simulation
@@ -152,10 +189,16 @@ class Test1DRadialDiffusion:
         if plot_results:
             fig, ax1 = plt.subplots(figsize=(12, 7))
             # Plot distribution
-            ax1.plot(r_grid, f_initial, "k--", label="Initial Profile", alpha=0.5)
-            ax1.plot(r_grid, f_final, label="Final Profile", lw=2)
+            ax1.plot(
+                r_raw,
+                f_initial.to_value(su.PSI_P),
+                "k--",
+                label="Initial Profile",
+                alpha=0.5,
+            )
+            ax1.plot(r_raw, f_final, label="Final Profile", lw=2)
             ax1.axvline(
-                r_grid[discontinuity_idx],
+                r_raw[discontinuity_idx],
                 color="r",
                 linestyle="--",
                 label="Discontinuity in D",
@@ -168,7 +211,7 @@ class Test1DRadialDiffusion:
 
             # Plot diffusion coefficient on a second y-axis
             ax2 = ax1.twinx()
-            ax2.plot(r_grid, D_values, "g-", label="Diffusion Coeff. D(r)", alpha=0.6)
+            ax2.plot(r_raw, D_values, "g-", label="Diffusion Coeff. D(r)", alpha=0.6)
             ax2.set_ylabel("D(r)", color="g")
             ax2.tick_params(axis="y", labelcolor="g")
             ax2.legend(loc="upper right")
@@ -202,19 +245,20 @@ class Test1DRadialDiffusion:
         t_final = 1.0
         D_const = 1.0
 
-        r_grid = np.linspace(0.0, r_end, num_points)
-        t_grid = np.linspace(0, t_final, 100)
+        r_grid = np.linspace(0.0, r_end, num_points) * su.LENGTH
+        t_grid = np.linspace(0, t_final, 100) * su.TIME
+        r_raw = r_grid.to_value(su.LENGTH)
 
         # Initial condition: Gaussian pulse somewhat near the boundary
-        f_initial = np.exp(-((r_grid - 3.5) ** 2) / (2 * 0.5**2))
+        f_initial = np.exp(-((r_raw - 3.5) ** 2) / (2 * 0.5**2)) * su.PSI_P
 
         grid_params = {"r_grid": r_grid, "t_grid": t_grid}
 
-        # 1. Dirichlet: f(r_end) = f_end
+        # 1. Dirichlet: psi(r_end) = psi_end
         solver_params_dirichlet = {
             "boundary_condition": "dirichlet",
-            "D_values": np.full(num_points, D_const),
-            "f_end": 0.0,
+            "D_values": np.full(num_points, D_const) * su.DIFFUSION_COEFFICIENT,
+            "psi_end": 0.0 * su.PSI_P,
         }
         f_dirichlet = run_diffusion_test(
             grid_params, solver_params_dirichlet, f_initial
@@ -223,7 +267,7 @@ class Test1DRadialDiffusion:
         # 2. Neumann: zero flux (df/dr = 0)
         solver_params_neumann = {
             "boundary_condition": "neumann",
-            "D_values": np.full(num_points, D_const),
+            "D_values": np.full(num_points, D_const) * su.DIFFUSION_COEFFICIENT,
         }
         f_neumann = run_diffusion_test(
             grid_params, solver_params_neumann, f_initial
@@ -232,7 +276,7 @@ class Test1DRadialDiffusion:
         # 3. Outflow: f ~ 1/r (df/dr = -f/r)
         solver_params_outflow = {
             "boundary_condition": "outflow",
-            "D_values": np.full(num_points, D_const),
+            "D_values": np.full(num_points, D_const) * su.DIFFUSION_COEFFICIENT,
         }
         f_outflow = run_diffusion_test(
             grid_params, solver_params_outflow, f_initial
@@ -240,17 +284,23 @@ class Test1DRadialDiffusion:
 
         if plot_results:
             plt.figure(figsize=(10, 6))
-            plt.plot(r_grid, f_initial, "k--", label="Initial Profile", alpha=0.5)
-            plt.plot(r_grid, f_dirichlet, label="Dirichlet (f=0)")
-            plt.plot(r_grid, f_neumann, label="Neumann (df/dr=0)")
-            plt.plot(r_grid, f_outflow, label="Outflow (f ~ 1/r)")
+            plt.plot(
+                r_raw,
+                f_initial.to_value(su.PSI_P),
+                "k--",
+                label="Initial Profile",
+                alpha=0.5,
+            )
+            plt.plot(r_raw, f_dirichlet, label="Dirichlet (f=0)")
+            plt.plot(r_raw, f_neumann, label="Neumann (df/dr=0)")
+            plt.plot(r_raw, f_outflow, label="Outflow (f ~ 1/r)")
             plt.title("Diffusion Boundary Conditions Test")
             plt.legend()
             plt.grid(True)
             plt.show()
 
         # Assertions
-        # 1. Dirichlet should exactly equal the f_end value at the boundary
+        # 1. Dirichlet should exactly equal the psi_end value at the boundary
         assert np.isclose(f_dirichlet[-1], 0.0, atol=1e-12)
 
         # 2. Neumann should have zero gradient at the boundary: f_{N-1} ≈ f_N
@@ -274,19 +324,25 @@ class Test2DEnergyRadiusDiffusion:
         Verifies that diffusion is faster for energies with a higher diffusion coefficient.
         """
         num_r, num_E = 200, 10
-        r_grid = np.linspace(0.0, 10.0, num_r)
-        p_grid = np.logspace(0, 2, num_E)  # Dummy momentum grid
-        t_grid = np.linspace(0, 0.1, 100)
+        r_grid = np.linspace(0.0, 10.0, num_r) * su.LENGTH
+        p_grid = np.logspace(0, 2, num_E) * su.MOMENTUM  # Momentum grid
+        t_grid = np.linspace(0, 0.1, 100) * su.TIME
+        r_raw = r_grid.to_value(su.LENGTH)
+        p_raw = p_grid.to_value(su.MOMENTUM)
 
         # D(E) = D_0 * (p / p_0), i.e., diffusion is faster for higher "momentum"
-        D_values = (p_grid / p_grid[0])[:, np.newaxis] * np.ones((num_E, num_r))
+        D_values = (
+            (p_raw / p_raw[0])[:, np.newaxis]
+            * np.ones((num_E, num_r))
+            * su.DIFFUSION_COEFFICIENT
+        )
 
         # Initial condition: Gaussian in radius, same for all energies
-        f_initial = np.exp(-((r_grid - 5.0) ** 2) / (2 * 0.5**2))
-        f_initial_2d = np.tile(f_initial, (num_E, 1))
+        f_initial = np.exp(-((r_raw - 5.0) ** 2) / (2 * 0.5**2))
+        f_initial_2d = np.tile(f_initial, (num_E, 1)) * su.PSI_P
 
         grid_params = {"r_grid": r_grid, "t_grid": t_grid, "p_grid": p_grid}
-        solver_params = {"D_values": D_values, "f_end": 0.0}
+        solver_params = {"D_values": D_values, "psi_end": 0.0 * su.PSI_P}
 
         f_final_2d = run_diffusion_test(grid_params, solver_params, f_initial_2d)
 
@@ -296,16 +352,16 @@ class Test2DEnergyRadiusDiffusion:
             variance = np.sum(dist * (r_coords - mean) ** 2) / np.sum(dist)
             return np.sqrt(variance)
 
-        width_low_E = get_width(f_final_2d[0, :], r_grid)
-        width_high_E = get_width(f_final_2d[-1, :], r_grid)
+        width_low_E = get_width(f_final_2d[0, :], r_raw)
+        width_high_E = get_width(f_final_2d[-1, :], r_raw)
 
         if plot_results:
             plt.figure(figsize=(10, 6))
-            plt.plot(r_grid, f_final_2d[0, :], label=f"Low E (width={width_low_E:.2f})")
+            plt.plot(r_raw, f_final_2d[0, :], label=f"Low E (width={width_low_E:.2f})")
             plt.plot(
-                r_grid, f_final_2d[-1, :], label=f"High E (width={width_high_E:.2f})"
+                r_raw, f_final_2d[-1, :], label=f"High E (width={width_high_E:.2f})"
             )
-            plt.plot(r_grid, f_initial, "k--", label="Initial Profile")
+            plt.plot(r_raw, f_initial, "k--", label="Initial Profile")
             plt.title("2D Energy-Dependent Diffusion Test")
             plt.legend()
             plt.grid(True)
@@ -320,13 +376,14 @@ class Test2DEnergyRadiusDiffusion:
         """
         # 1. Run a standard 1D simulation
         num_r, D_const, t_final = 200, 1.0, 0.1
-        r_grid = np.linspace(0.0, 1.0, num_r)
-        t_grid = np.linspace(0, t_final, 200)
-        f_initial_1d = (np.pi / 2) * np.sinc(r_grid)
+        r_grid = np.linspace(0.0, 1.0, num_r) * su.LENGTH
+        t_grid = np.linspace(0, t_final, 200) * su.TIME
+        r_raw = r_grid.to_value(su.LENGTH)
+        f_initial_1d = (np.pi / 2) * np.sinc(r_raw) * su.PSI_P
         grid_params_1d = {"r_grid": r_grid, "t_grid": t_grid}
         solver_params_1d = {
-            "D_values": np.full(num_r, D_const),
-            "f_end": 0.0,
+            "D_values": np.full(num_r, D_const) * su.DIFFUSION_COEFFICIENT,
+            "psi_end": 0.0 * su.PSI_P,
         }
         f_final_1d = run_diffusion_test(
             grid_params_1d, solver_params_1d, f_initial_1d
@@ -334,12 +391,12 @@ class Test2DEnergyRadiusDiffusion:
 
         # 2. Run a 2D simulation with the same parameters
         num_E = 5
-        p_grid = np.linspace(1, 5, num_E)
-        f_initial_2d = np.tile(f_initial_1d, (num_E, 1))
+        p_grid = np.linspace(1, 5, num_E) * su.MOMENTUM
+        f_initial_2d = np.tile(f_initial_1d.to_value(su.PSI_P), (num_E, 1)) * su.PSI_P
         grid_params_2d = {"r_grid": r_grid, "t_grid": t_grid, "p_grid": p_grid}
         solver_params_2d = {
-            "D_values": np.full((num_E, num_r), D_const),
-            "f_end": 0.0,
+            "D_values": np.full((num_E, num_r), D_const) * su.DIFFUSION_COEFFICIENT,
+            "psi_end": 0.0 * su.PSI_P,
         }
         f_final_2d = run_diffusion_test(grid_params_2d, solver_params_2d, f_initial_2d)
 
@@ -348,9 +405,9 @@ class Test2DEnergyRadiusDiffusion:
 
         if plot_results:
             plt.figure(figsize=(10, 6))
-            plt.plot(r_grid, f_final_1d, "b-", label="1D Run Result", lw=4, alpha=0.7)
+            plt.plot(r_raw, f_final_1d, "b-", label="1D Run Result", lw=4, alpha=0.7)
             plt.plot(
-                r_grid,
+                r_raw,
                 f_slice_from_2d,
                 "r--",
                 label="Slice from 2D Run",

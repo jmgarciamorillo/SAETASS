@@ -1,9 +1,12 @@
 import logging
+from types import MappingProxyType
 from typing import Any
 
 import numpy as np
 
+from .. import units as su
 from ..grid import Grid
+from ..solver import ParamSpec
 from .hyperbolic_solver import HyperbolicSolver
 
 logger = logging.getLogger(__name__)
@@ -29,23 +32,36 @@ class LossSolver(HyperbolicSolver):
     t_grid : ndarray
         Subproblem time grid. In the standard SAETASS workflow this is already subrefined during :py:class:`~saetass.solver.Solver` initialization.
     params : dict
-        Solver configuration.  Accepted keys are:
+        Solver configuration, already converted to canonical floats by :py:meth:`~saetass.solver.SubSolver.convert_params`. Accepted keys (and the units required at the :py:class:`~saetass.solver.Solver` level) are:
 
-        P_dot : ndarray or callable
-            Momentum loss rate, :math:`\\dot{p}`, at cell centers. A callable must have signature ``P_dot(t) -> ndarray``.
+        P_dot : Quantity or callable
+            Momentum loss rate, :math:`\\dot{p}`, at cell centers (momentum per time). A callable must have signature ``P_dot(t: Quantity) -> Quantity``.
         limiter : ``{'minmod', 'vanleer', 'mc'}``
             Slope limiter used for second-order schemes.
         cfl : float
             CFL number for the adaptive sub-step calculation.
-        inflow_value_f : float
-            Value of the primitive distribution function at the high-momentum boundary, used as an inflow condition when :math:`\\dot{p} > 0` (i.e. momentum gain).
+        inflow_value_psi : Quantity, optional
+            Differential density :math:`\\psi` at the high-momentum boundary, used as an inflow condition when :math:`\\dot{p} > 0` (i.e. momentum gain).
+        inflow_value_U : Quantity, optional
+            Same inflow condition given directly for the conservative variable :math:`U = p \\psi` (momentum times differential density). Mutually exclusive with ``inflow_value_psi``.
         order : ``{1, 2}``
             Order of the numerical scheme.
         adiabatic_losses : bool
             If ``True``, include adiabatic losses. The key ``v_centers_physical`` must also be supplied.
-        v_centers_physical : ndarray, optional
-            Physical advection velocity at cell centres; required when ``adiabatic_losses`` is ``True``.
+        v_centers_physical : Quantity, optional
+            Physical advection velocity at cell centres (velocity); required when ``adiabatic_losses`` is ``True``.
     """
+
+    PARAM_SPECS = MappingProxyType(
+        {
+            **HyperbolicSolver.PARAM_SPECS,
+            "P_dot": ParamSpec(su.MOMENTUM_LOSS_RATE, dynamic=True),
+            "inflow_value_psi": ParamSpec(su.PSI_P),
+            "inflow_value_U": ParamSpec(su.MOMENTUM * su.PSI_P),
+            "adiabatic_losses": ParamSpec(),
+            "v_centers_physical": ParamSpec(su.VELOCITY),
+        }
+    )
 
     def __init__(
         self,
@@ -55,6 +71,11 @@ class LossSolver(HyperbolicSolver):
         **kwargs,
     ) -> None:
         """Initialize the loss solver."""
+        self._validate_unit_free_inputs(t_grid, params)
+        if grid.p_centers_phys is None:
+            raise ValueError("LossSolver requires a Grid with a momentum axis.")
+        self.p_centers_phys = grid.p_centers_phys.to_value(su.MOMENTUM)
+
         # Convert momentum loss parameters to general hyperbolic solver format
         loss_params = params.copy()
 
@@ -62,10 +83,9 @@ class LossSolver(HyperbolicSolver):
         loss_params["axis"] = 0
 
         # Add adiabatic losses
-        if loss_params["adiabatic_losses"]:
-            try:
-                v_centers_physical = loss_params.pop("v_centers_physical")
-            except KeyError:
+        v_centers_physical = loss_params.pop("v_centers_physical", None)
+        if loss_params.pop("adiabatic_losses", False):
+            if v_centers_physical is None:
                 raise ValueError(
                     "If adiabatic_losses is True, v_centers_physical must be provided."
                 )
@@ -77,22 +97,19 @@ class LossSolver(HyperbolicSolver):
             if callable(P_dot_input):
 
                 def dynamic_V_centers(t):
-                    P = P_dot_input(t)
-                    return self._generalized_velocity(P, grid)
+                    return self._generalized_velocity(P_dot_input(t), grid)
 
                 loss_params["V_centers"] = dynamic_V_centers
             else:
                 loss_params["V_centers"] = self._generalized_velocity(P_dot_input, grid)
 
-        inflow_input = loss_params.pop("inflow_value", None)
-        if inflow_input is None:
-            inflow_input = loss_params.pop("inflow_value_psi", None)
-        if inflow_input is None:
-            inflow_input = loss_params.pop("inflow_value_f", None)
-
-        if inflow_input is not None:
+        if "inflow_value_psi" in loss_params:
+            if "inflow_value_U" in loss_params:
+                raise ValueError(
+                    "Provide either inflow_value_psi or inflow_value_U, not both."
+                )
             loss_params["inflow_value_U"] = self._generalized_variable(
-                inflow_input, grid
+                loss_params.pop("inflow_value_psi"), grid
             )[-1]
 
         # Initialize the base class
@@ -102,14 +119,20 @@ class LossSolver(HyperbolicSolver):
         """
         Map the primitive differential density to the conservative variable.
         """
-        p_centers = grid._p_centers_phys
+        p_src = getattr(grid, "_p_centers_phys", None)
+        if p_src is None:
+            p_src = self.p_centers_phys
+        p_centers = np.asarray(p_src, dtype=float)
         return p_centers * f
 
     def _inverse_generalized_variable(self, U: np.ndarray, grid: Grid) -> np.ndarray:
         """
         Map the conservative variable back to the primitive differential density.
         """
-        p = np.asarray(grid._p_centers_phys).flatten()
+        p_src = getattr(grid, "_p_centers_phys", None)
+        if p_src is None:
+            p_src = self.p_centers_phys
+        p = np.asarray(p_src, dtype=float).flatten()
 
         # 1D CASE
         if U.ndim == 1:
@@ -151,16 +174,20 @@ class LossSolver(HyperbolicSolver):
         """
         Convert the physical momentum loss rate to the generalized velocity used by the base-class finite-volume update.
         """
-        p_centers = grid._p_centers_phys
+        P_dot_arr = np.asarray(P_dot, dtype=float)
+        p_src = getattr(grid, "_p_centers_phys", None)
+        if p_src is None:
+            p_src = self.p_centers_phys
+        p_centers = np.asarray(p_src, dtype=float)
         ln10 = np.log(10)
         denom = p_centers * ln10
-        if P_dot.ndim == 2:
+        if P_dot_arr.ndim == 2:
             len_x = grid.shape[1]
             denom = np.tile(denom[:, None], (1, len_x))  # Expand for 2D grids
 
         mask = denom > 0.0
-        gen_vel = np.zeros_like(P_dot)
-        gen_vel[mask] = P_dot[mask] / denom[mask]
+        gen_vel = np.zeros_like(P_dot_arr)
+        gen_vel[mask] = P_dot_arr[mask] / denom[mask]
 
         # For p=0, set generalized velocity to zero to avoid singularity
         if not np.all(mask) and np.any(mask):
@@ -182,13 +209,13 @@ class LossSolver(HyperbolicSolver):
 
         evaluated cell-by-cell on the spatial grid via a finite-difference approximation of the radial flux divergence.
         """
-        r_faces = grid.r_faces
+        r_faces = grid.r_faces.to_value(su.LENGTH)
         A_face = 4.0 * np.pi * r_faces
         V = (4.0 / 3.0) * np.pi * (r_faces[1:] ** 3 - r_faces[:-1] ** 3)
 
         # TEMPORARY SOLUTION
         N = len(grid.r_centers)
-        v_faces = np.zeros((len(grid._p_centers_phys), N + 1))
+        v_faces = np.zeros((len(self.p_centers_phys), N + 1))
         v_faces[:, 1:N] = 0.5 * (v_centers_physical[:, :-1] - v_centers_physical[:, 1:])
         v_faces[:, 0] = v_centers_physical[:, 0]
         v_faces[:, -1] = v_centers_physical[:, -1]
@@ -196,4 +223,4 @@ class LossSolver(HyperbolicSolver):
         Phi = A_face * v_faces
         div = (Phi[:, 1:] - Phi[:, :-1]) / V
 
-        return (-grid._p_centers_phys * div.T).T / 3.0 * 0
+        return (-self.p_centers_phys * div.T).T / 3.0 * 0

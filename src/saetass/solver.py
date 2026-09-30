@@ -11,16 +11,50 @@ Hence, it serves as the central orchestrator of the simulation workflow, while d
 
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any
+from types import MappingProxyType
+from typing import Any, ClassVar
 
+import astropy.units as u
 import numpy as np
 
+from . import units as su
 from .cli.banner import print_banner
 from .cli.progress import create_progress_bar
 from .grid import Grid
 from .splitting import create_splitting_scheme
 from .state import State
+
+
+@dataclass(frozen=True, slots=True)
+class ParamSpec:
+    """
+    Declaration of a single user-facing :py:class:`~saetass.solver.SubSolver` parameter.
+
+    Each :py:class:`~saetass.solver.SubSolver` declares its accepted parameters in
+    :py:attr:`~saetass.solver.SubSolver.PARAM_SPECS`. :py:class:`~saetass.solver.Solver`
+    uses these declarations to convert physical inputs into the bare canonical floats
+    consumed by the numerical kernels, rejecting anything undeclared.
+
+    Parameters
+    ----------
+    unit : astropy.units.UnitBase or None, optional
+        Canonical unit of a physical parameter, which must then be given as a
+        :py:class:`~astropy.units.Quantity` (or a callable returning one).
+        ``None`` marks a non-physical option (e.g. ``cfl``, ``limiter``), passed through unchanged.
+    dynamic : bool, optional
+        Whether a callable may be given instead of a fixed value. It is called with the
+        time as a Quantity, ``fn(t)``, and must return a Quantity.
+    coords : bool, optional
+        Whether a dynamic callable also receives the physical cell-center coordinates,
+        ``fn(r, p, t)``, where ``r`` or ``p`` is ``None`` for 1D grids.
+    """
+
+    unit: u.UnitBase | None = None
+    dynamic: bool = False
+    coords: bool = False
 
 
 class SubSolver(ABC):
@@ -38,8 +72,86 @@ class SubSolver(ABC):
     t_grid : np.ndarray
         The refined time grid for this specific operator's integration steps.
     params : Dict[str, Any]
-        Dictionary containing physical and numerical parameters specific to this :py:class:`~saetass.solver.SubSolver`.
+        Dictionary containing numerical parameters specific to this :py:class:`~saetass.solver.SubSolver`, already converted to bare canonical floats (see :py:meth:`~saetass.solver.SubSolver.convert_params`).
     """
+
+    #: Accepted user-facing parameters and their canonical units.
+    PARAM_SPECS: ClassVar[Mapping[str, ParamSpec]] = MappingProxyType({})
+
+    @classmethod
+    def convert_params(cls, params: Mapping[str, Any], grid: Grid) -> dict[str, Any]:
+        """
+        Convert user-facing parameters into the bare canonical floats consumed by this subsolver.
+
+        Physical parameters must be Quantities (or, where declared dynamic, callables returning Quantities) with units equivalent to those declared in :py:attr:`PARAM_SPECS`.
+        Dynamic callables are wrapped into ``fn(t: float) -> ndarray`` in canonical units.
+
+        Parameters
+        ----------
+        params : Mapping[str, Any]
+            User-facing parameters.
+        grid : :py:class:`~saetass.grid.Grid`
+            Grid providing the physical coordinates passed to coordinate-dependent callables.
+
+        Returns
+        -------
+        dict
+            Parameters ready to be passed to the subsolver constructor.
+
+        Raises
+        ------
+        ValueError
+            If a parameter is not declared in :py:attr:`PARAM_SPECS`.
+        TypeError
+            If a physical parameter lacks units, a non-physical one has them, or a callable is given for a non-dynamic parameter.
+        astropy.units.UnitsError
+            If a parameter has units incompatible with its declared unit.
+        """
+        unknown = params.keys() - cls.PARAM_SPECS.keys()
+        if unknown:
+            raise ValueError(
+                f"Unknown {cls.__name__} parameter(s) {sorted(unknown)}. "
+                f"Accepted parameters are {sorted(cls.PARAM_SPECS)}."
+            )
+
+        converted = {}
+        for key, value in params.items():
+            spec = cls.PARAM_SPECS[key]
+            name = f"{cls.__name__} parameter '{key}'"
+            if spec.unit is None:
+                if isinstance(value, u.Quantity):
+                    raise TypeError(
+                        f"{name} is not a physical quantity; got {value!r}."
+                    )
+                converted[key] = value
+            elif callable(value):
+                if not spec.dynamic:
+                    raise TypeError(f"{name} does not accept a callable.")
+                coords = (grid.r_centers, grid.p_centers_phys) if spec.coords else ()
+                converted[key] = _canonical_callable(value, spec.unit, coords, name)
+            else:
+                converted[key] = _canonical_value(value, spec.unit, name)
+        return converted
+
+    @classmethod
+    def _validate_unit_free_inputs(
+        cls, t_grid: np.ndarray, params: dict[str, Any]
+    ) -> None:
+        """
+        Validate that subsolvers receive pure numeric floats / ndarrays, not Astropy Quantities.
+        """
+        if hasattr(t_grid, "unit"):
+            raise TypeError(
+                f"{cls.__name__} must receive pure numeric float ndarray for t_grid, "
+                "not an Astropy Quantity. Physical unit conversions must be performed in Solver."
+            )
+        if params:
+            for k, v in params.items():
+                if hasattr(v, "unit"):
+                    raise TypeError(
+                        f"{cls.__name__} parameter '{k}' must be a pure numeric float or array, "
+                        f"not an Astropy Quantity ({v!r}). Physical unit conversions must be performed in Solver."
+                    )
 
     @abstractmethod
     def __init__(
@@ -60,6 +172,36 @@ class SubSolver(ABC):
             The global tracking :py:class:`~saetass.state.State` to be updated.
         """
         pass
+
+
+def _canonical_value(value: Any, unit: u.UnitBase, name: str) -> Any:
+    """Strip ``value`` to bare floats in ``unit``, requiring compatible Astropy units."""
+    if not isinstance(value, u.Quantity):
+        raise TypeError(
+            f"{name} must be an astropy Quantity with units equivalent to "
+            f"'{unit}'; got {type(value).__name__}."
+        )
+    try:
+        # Returns a view (no copy) when the value is already in canonical units.
+        return value.to_value(unit)
+    except u.UnitConversionError as err:
+        raise u.UnitsError(
+            f"{name} has units '{value.unit}', not equivalent to '{unit}'."
+        ) from err
+
+
+def _canonical_callable(
+    fn: Callable[..., u.Quantity],
+    unit: u.UnitBase,
+    coords: tuple[u.Quantity | None, ...],
+    name: str,
+) -> Callable[[float], Any]:
+    """Wrap a physical callable into ``f(t: float) -> bare floats in unit``."""
+
+    def numeric(t: float) -> Any:
+        return _canonical_value(fn(*coords, t * su.TIME), unit, f"{name} (callable)")
+
+    return numeric
 
 
 from .solvers.advection_solver import AdvectionSolver  # noqa: E402
@@ -187,37 +329,28 @@ class Solver:
         self.operator_subsolvers = []
         self._initialize_subsolvers(**kwargs)
 
-    def _refined_t_grid(self, n_sub):
-        """Return a refined t_grid for n_sub substeps per global step."""
-        t_grid = self.grid.t_grid
-        num_timesteps = self.total_steps
-        t_grid_refined = []
-        for i in range(num_timesteps):
-            t_start = t_grid[i]
-            t_end = t_grid[i + 1]
-            t_grid_refined.extend(np.linspace(t_start, t_end, n_sub + 1)[:-1])
-        t_grid_refined.append(t_grid[-1])
-        return np.array(t_grid_refined)
-
     def _initialize_subsolvers(self, **kwargs):
-        """Initialize subsolvers with appropriate t_grids and parameters."""
+        """Initialize subsolvers with appropriate t_grids and canonical numeric parameters."""
+        # Grid enforces Quantity time grids: this is the single unit-stripping point for time.
+        t_grid_canonical = self.grid.t_grid.to_value(su.TIME)
         refined_t_grids = self.splitting_scheme.initialize_t_grid(
-            self.operator_list, self.substeps_per_op, self.grid.t_grid
+            self.operator_list, self.substeps_per_op, t_grid_canonical
         )
 
         logger.info(
             f"Lengths of refined t_grids: {[len(refined_t_grids[op]) for op in self.operator_list]}"
         )
 
-        for i, op in enumerate(self.operator_list):
+        for op in self.operator_list:
             solver_class = op.solver_class
-            t_grid_refined = refined_t_grids[op]
-            op_params = self.operator_params.get(op.value, {})
+            op_params = solver_class.convert_params(
+                self.operator_params.get(op.value, {}), self.grid
+            )
 
             self.operator_subsolvers.append(
                 solver_class(
                     self.grid,
-                    t_grid_refined,
+                    refined_t_grids[op],
                     op_params,
                     **kwargs,
                 )

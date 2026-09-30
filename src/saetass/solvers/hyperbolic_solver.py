@@ -16,13 +16,14 @@ Thus, :py:class:`~saetass.solvers.advection_solver.AdvectionSolver` and :py:clas
 
 import logging
 from abc import ABC, abstractmethod
+from types import MappingProxyType
 from typing import Literal
 
 import numpy as np
 from numba import njit, prange
 
 from ..grid import Grid
-from ..solver import SubSolver
+from ..solver import ParamSpec, SubSolver
 from ..state import State
 
 logger = logging.getLogger(__name__)
@@ -94,6 +95,11 @@ class HyperbolicSolver(SubSolver, ABC):
             * 1: Spatial axis.
     """
 
+    #: Numerical options shared by all hyperbolic subsolvers (extended by subclasses).
+    PARAM_SPECS = MappingProxyType(
+        {"limiter": ParamSpec(), "cfl": ParamSpec(), "order": ParamSpec()}
+    )
+
     def __init__(
         self,
         grid: Grid,
@@ -101,7 +107,7 @@ class HyperbolicSolver(SubSolver, ABC):
         params: dict,
         **kwargs,
     ) -> None:
-
+        self._validate_unit_free_inputs(t_grid, params)
         self._unpack_params(params)
         self._unpack_grid(grid)
         self.t_grid = np.asarray(t_grid, dtype=float)
@@ -187,9 +193,9 @@ class HyperbolicSolver(SubSolver, ABC):
 
         dx = self.dx if self.M is None else self.dx[None, :]
 
-        dt_requested = np.diff(self.t_grid)[0]
-        total_time = n_steps * dt_requested
-        t_local = state.t
+        dt_requested = float(np.diff(self.t_grid)[0])
+        total_time = float(n_steps) * dt_requested
+        t_local = state.t_val
 
         while total_time > 1e-40:
             V_centers, V_faces = self._get_velocities(t_local)
