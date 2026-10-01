@@ -4,6 +4,7 @@ The units module defines the canonical physical units of SAETASS, which act as t
 All physical inputs of the public API, i.e. :py:class:`~saetass.grid.Grid`, :py:class:`~saetass.state.State`, the operator parameters passed to :py:class:`~saetass.solver.Solver` and the calculators in ``saetass.utils``, must be given as :py:class:`astropy.units.Quantity` objects.
 Any unit with the correct physical dimensions is accepted: values are converted once, at the boundary of the package, into the canonical units defined here.
 Bare numbers or incompatible units raise an error instead of being silently interpreted in some implicit unit.
+Function arguments are validated with :py:func:`astropy.units.quantity_input`, while the physical inputs it cannot see, such as entries of the operator parameter dictionaries, keyword arguments or values returned by user callables, are validated with :py:func:`validate_quantity`, which applies the same rules and raises the same errors.
 
 Past this boundary, the numerical kernels only operate on bare ``float64`` arrays expressed in canonical units, so that no unit bookkeeping takes place inside the time loop.
 Results are returned to the user as Quantities again, e.g. through :py:attr:`~saetass.state.State.psi_p`, and can be converted to any other compatible unit with :py:meth:`~astropy.units.Quantity.to`.

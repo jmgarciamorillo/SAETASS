@@ -92,6 +92,7 @@ We welcome pull requests for:
   - State the unit explicitly only for bare numerical arrays, e.g. ``..., in :math:`\mathrm{GeV}`.``.
   - End the description of optional parameters with `Default is ``value``.`.
 - **Type hints**: Encouraged for function signatures where they improve clarity.
+- **Physical inputs**: Validate physical function arguments with `@u.quantity_input`, targeting the canonical units of `saetass.units`, and any other physical input (dictionary entries, `**kwargs`, values returned by callables) with `saetass.units.validate_quantity`. Do not re-check units manually; only convert the validated inputs to the units used internally.
 - **Testing**: Every new feature or fix should include corresponding tests in the `test/` directory. Use `pytest` to run them.
 - **Naming**: Follow PEP 8 conventions. Use descriptive variable names — prefer `diffusion_coefficient` over `D` in public APIs.
 
