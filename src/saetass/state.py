@@ -118,7 +118,7 @@ class State:
 
     @t.setter
     def t(self, value: u.Quantity) -> None:
-        self._t = self._time_to_float(value)
+        self._t = float(su.validate_quantity(value, su.TIME, "State time").value)
 
     @property
     def dt(self) -> u.Quantity:
@@ -127,20 +127,12 @@ class State:
 
     @dt.setter
     def dt(self, value: u.Quantity) -> None:
-        self._dt = self._time_to_float(value)
+        self._dt = float(su.validate_quantity(value, su.TIME, "State time step").value)
 
     @property
     def t_val(self) -> float:
         """Current simulation time as a bare float in canonical :py:data:`~saetass.units.TIME` units."""
         return self._t
-
-    @staticmethod
-    def _time_to_float(value: u.Quantity) -> float:
-        if not isinstance(value, u.Quantity):
-            raise TypeError(
-                f"Time values must be astropy Quantities with time units; got {type(value).__name__}."
-            )
-        return float(value.to_value(su.TIME))
 
     @staticmethod
     def _parse_particle(particle: Particle | str) -> Particle:
@@ -755,12 +747,9 @@ class State:
         if copy_history:
             new_state.history = [
                 {
-                    "t": snap["t"].copy()
-                    if isinstance(snap["t"], u.Quantity)
-                    else snap["t"],
-                    "dt": snap["dt"].copy()
-                    if isinstance(snap["dt"], u.Quantity)
-                    else snap["dt"],
+                    "t": self._canonical_time(snap["t"], "Snapshot time") * su.TIME,
+                    "dt": self._canonical_time(snap["dt"], "Snapshot time step")
+                    * su.TIME,
                     "stage": snap["stage"],
                     "stage_name": snap.get("stage_name", ""),
                     "values": snap["values"].copy(),
@@ -782,7 +771,7 @@ class State:
             Exact time value to assign. A float is interpreted in canonical :py:data:`~saetass.units.TIME` units.
         """
         # Hot path (called every global step by the splitting schemes): floats only.
-        t_new = float(t.to_value(su.TIME)) if isinstance(t, u.Quantity) else float(t)
+        t_new = self._canonical_time(t, "Time")
         self._dt = t_new - self._t
         self._t = t_new
 
@@ -811,10 +800,10 @@ class State:
         self.history.append(entry)
 
     @staticmethod
-    def _snapshot_time(value: u.Quantity | float) -> float:
-        """Canonical float time from a snapshot entry (Quantity, or float in canonical TIME)."""
+    def _canonical_time(value: u.Quantity | float, name: str) -> float:
+        """Canonical float time from a Quantity or from a bare float already in canonical TIME units."""
         if isinstance(value, u.Quantity):
-            return float(value.to_value(su.TIME))
+            return float(su.validate_quantity(value, su.TIME, name).value)
         return float(value)
 
     def restore_substep(self, identifier: int | str) -> "State":
@@ -849,8 +838,8 @@ class State:
                 raise ValueError(f"No snapshot found with stage_name={identifier!r}")
             snap = matches[0]
         self._values = snap["values"].copy()
-        self._t = self._snapshot_time(snap["t"])
-        self._dt = self._snapshot_time(snap["dt"])
+        self._t = self._canonical_time(snap["t"], "Snapshot time")
+        self._dt = self._canonical_time(snap["dt"], "Snapshot time step")
         self.stage = int(snap["stage"])
         self.stage_name = str(snap.get("stage_name", ""))
         return self
@@ -876,12 +865,8 @@ class State:
         """
         snap = self.history[index]
         return {
-            "t": snap["t"].copy()
-            if isinstance(snap["t"], u.Quantity)
-            else float(snap["t"]) * su.TIME,
-            "dt": snap["dt"].copy()
-            if isinstance(snap["dt"], u.Quantity)
-            else float(snap["dt"]) * su.TIME,
+            "t": self._canonical_time(snap["t"], "Snapshot time") * su.TIME,
+            "dt": self._canonical_time(snap["dt"], "Snapshot time step") * su.TIME,
             "stage": int(snap["stage"]),
             "stage_name": str(snap.get("stage_name", "")),
             "values": snap["values"].copy(),

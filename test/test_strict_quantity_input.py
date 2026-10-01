@@ -75,11 +75,11 @@ def test_subsolvers_reject_quantities():
 
     # 1. Splitting scheme rejects Quantity in t_grid
     scheme = StrangSplitting()
-    with pytest.raises(TypeError, match="must receive pure numeric float ndarray"):
+    with pytest.raises(TypeError, match="t_grid must be a bare number or array"):
         scheme._store_t_grid(grid.t_grid)
 
     # 2. AdvectionSolver rejects Quantity in params or t_grid
-    with pytest.raises(TypeError, match="must receive pure numeric float ndarray"):
+    with pytest.raises(TypeError, match="t_grid must be a bare number or array"):
         AdvectionSolver(
             grid,
             grid.t_grid,
@@ -92,7 +92,9 @@ def test_subsolvers_reject_quantities():
             },
         )
 
-    with pytest.raises(TypeError, match="must be a pure numeric float or array"):
+    with pytest.raises(
+        TypeError, match="parameter '\w+' must be a bare number or array"
+    ):
         AdvectionSolver(
             grid,
             t_grid_nude,
@@ -106,7 +108,9 @@ def test_subsolvers_reject_quantities():
         )
 
     # 3. DiffusionSolver rejects Quantity in params
-    with pytest.raises(TypeError, match="must be a pure numeric float or array"):
+    with pytest.raises(
+        TypeError, match="parameter '\w+' must be a bare number or array"
+    ):
         DiffusionSolver(
             grid,
             t_grid_nude,
@@ -114,7 +118,9 @@ def test_subsolvers_reject_quantities():
         )
 
     # 4. SourceSolver rejects Quantity in params
-    with pytest.raises(TypeError, match="must be a pure numeric float or array"):
+    with pytest.raises(
+        TypeError, match="parameter '\w+' must be a bare number or array"
+    ):
         SourceSolver(
             grid,
             t_grid_nude,
@@ -126,7 +132,9 @@ def test_subsolvers_reject_quantities():
         p_centers=np.logspace(0, 2, 10) * su.MOMENTUM,
         t_grid=grid.t_grid,
     )
-    with pytest.raises(TypeError, match="must be a pure numeric float or array"):
+    with pytest.raises(
+        TypeError, match="parameter '\w+' must be a bare number or array"
+    ):
         LossSolver(
             grid_p,
             t_grid_nude,
@@ -175,7 +183,7 @@ class TestSolverParameterConversion:
         from saetass.solvers.loss_solver import LossSolver
 
         with pytest.raises(
-            TypeError, match="'v_centers_physical' must be an astropy Quantity"
+            TypeError, match="'v_centers_physical' has no 'unit' attribute"
         ):
             LossSolver.convert_params(
                 {"v_centers_physical": np.ones(5)}, self._grid_2d()
@@ -184,13 +192,15 @@ class TestSolverParameterConversion:
     def test_incompatible_units_rejected(self):
         from saetass.solvers.diffusion_solver import DiffusionSolver
 
-        with pytest.raises(u.UnitsError, match="'psi_end' has units"):
+        with pytest.raises(
+            u.UnitsError, match="'psi_end' must be in units convertible to"
+        ):
             DiffusionSolver.convert_params({"psi_end": 1.0 * su.F_PS}, self._grid_2d())
 
     def test_non_physical_parameter_with_units_rejected(self):
         from saetass.solvers.advection_solver import AdvectionSolver
 
-        with pytest.raises(TypeError, match="'cfl' is not a physical quantity"):
+        with pytest.raises(TypeError, match="'cfl' must be a bare number or array"):
             AdvectionSolver.convert_params({"cfl": 0.5 * u.s}, self._grid_2d())
 
     def test_callable_rejected_for_static_parameter(self):
@@ -210,7 +220,7 @@ class TestSolverParameterConversion:
             {"D_values": lambda t: np.ones((11, 5))}, self._grid_2d()
         )
         with pytest.raises(
-            TypeError, match=r"'D_values' \(callable\) must be an astropy Quantity"
+            TypeError, match=r"'D_values' \(callable\) has no 'unit' attribute"
         ):
             out["D_values"](0.0)
 

@@ -18,6 +18,7 @@ from enum import StrEnum
 
 import numpy as np
 
+from . import units as su
 from .state import State
 
 logger = logging.getLogger(__name__)
@@ -60,11 +61,7 @@ class SplittingScheme(ABC):
         t_grid : numpy.ndarray
             1D array of global simulation times as bare floats, in canonical :py:data:`~saetass.units.TIME` units.
         """
-        if hasattr(t_grid, "unit"):
-            raise TypeError(
-                "Splitting schemes must receive pure numeric float ndarrays, not Astropy Quantities. "
-                "Unit conversion must occur in Solver."
-            )
+        su.require_bare(t_grid, "Splitting scheme t_grid")
         self.t_grid = np.asarray(t_grid, dtype=float)
         self._global_step = 0
 
@@ -382,10 +379,7 @@ def _refine_t_grid(t_grid: np.ndarray, n_sub: int) -> np.ndarray:
     numpy.ndarray
         Dense temporal grid array.
     """
-    if hasattr(t_grid, "unit"):
-        raise TypeError(
-            "Splitting schemes must receive pure numeric float ndarrays, not Astropy Quantities."
-        )
+    su.require_bare(t_grid, "Splitting scheme t_grid")
     raw_t = np.asarray(t_grid, dtype=float)
 
     if n_sub > 1:

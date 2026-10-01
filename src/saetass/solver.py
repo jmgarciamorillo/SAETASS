@@ -119,10 +119,7 @@ class SubSolver(ABC):
             spec = cls.PARAM_SPECS[key]
             name = f"{cls.__name__} parameter '{key}'"
             if spec.unit is None:
-                if isinstance(value, u.Quantity):
-                    raise TypeError(
-                        f"{name} is not a physical quantity; got {value!r}."
-                    )
+                su.require_bare(value, name)
                 converted[key] = value
             elif callable(value):
                 if not spec.dynamic:
@@ -130,7 +127,7 @@ class SubSolver(ABC):
                 coords = (grid.r_centers, grid.p_centers_phys) if spec.coords else ()
                 converted[key] = _canonical_callable(value, spec.unit, coords, name)
             else:
-                converted[key] = _canonical_value(value, spec.unit, name)
+                converted[key] = su.validate_quantity(value, spec.unit, name).value
         return converted
 
     @classmethod
@@ -138,20 +135,11 @@ class SubSolver(ABC):
         cls, t_grid: np.ndarray, params: dict[str, Any]
     ) -> None:
         """
-        Validate that subsolvers receive pure numeric floats / ndarrays, not Astropy Quantities.
+        Validate that subsolvers receive bare canonical floats, since unit conversions are performed by :py:meth:`convert_params`.
         """
-        if hasattr(t_grid, "unit"):
-            raise TypeError(
-                f"{cls.__name__} must receive pure numeric float ndarray for t_grid, "
-                "not an Astropy Quantity. Physical unit conversions must be performed in Solver."
-            )
-        if params:
-            for k, v in params.items():
-                if hasattr(v, "unit"):
-                    raise TypeError(
-                        f"{cls.__name__} parameter '{k}' must be a pure numeric float or array, "
-                        f"not an Astropy Quantity ({v!r}). Physical unit conversions must be performed in Solver."
-                    )
+        su.require_bare(t_grid, f"{cls.__name__} t_grid")
+        for key, value in (params or {}).items():
+            su.require_bare(value, f"{cls.__name__} parameter '{key}'")
 
     @abstractmethod
     def __init__(
@@ -174,22 +162,6 @@ class SubSolver(ABC):
         pass
 
 
-def _canonical_value(value: Any, unit: u.UnitBase, name: str) -> Any:
-    """Strip ``value`` to bare floats in ``unit``, requiring compatible Astropy units."""
-    if not isinstance(value, u.Quantity):
-        raise TypeError(
-            f"{name} must be an astropy Quantity with units equivalent to "
-            f"'{unit}'; got {type(value).__name__}."
-        )
-    try:
-        # Returns a view (no copy) when the value is already in canonical units.
-        return value.to_value(unit)
-    except u.UnitConversionError as err:
-        raise u.UnitsError(
-            f"{name} has units '{value.unit}', not equivalent to '{unit}'."
-        ) from err
-
-
 def _canonical_callable(
     fn: Callable[..., u.Quantity],
     unit: u.UnitBase,
@@ -199,7 +171,9 @@ def _canonical_callable(
     """Wrap a physical callable into ``f(t: float) -> bare floats in unit``."""
 
     def numeric(t: float) -> Any:
-        return _canonical_value(fn(*coords, t * su.TIME), unit, f"{name} (callable)")
+        return su.validate_quantity(
+            fn(*coords, t * su.TIME), unit, f"{name} (callable)"
+        ).value
 
     return numeric
 
