@@ -84,7 +84,7 @@ class EnergyLossCalculator:
     @u.quantity_input(
         E_grid=su.ENERGY,
         r_grid=su.LENGTH,
-        n_gas=u.cm**-3,
+        n_gas=su.NUMBER_DENSITY,
     )
     def __init__(
         self,
@@ -141,27 +141,9 @@ class EnergyLossCalculator:
         n_gas: u.Quantity,
         particle: Particle | str,
     ):
-        """Validate input parameters and enforce canonical Astropy physical units."""
-        if not isinstance(E_grid, u.Quantity) or not E_grid.unit.is_equivalent(
-            su.ENERGY
-        ):
-            raise u.UnitsError(
-                "E_grid must be an astropy Quantity with units of energy (e.g., GeV)."
-            )
+        """Store the inputs, already validated by ``quantity_input``, in the units used internally."""
         self.E_grid = E_grid.to(su.ENERGY)
-
-        if not isinstance(r_grid, u.Quantity) or not r_grid.unit.is_equivalent(
-            su.LENGTH
-        ):
-            raise u.UnitsError(
-                "r_grid must be an astropy Quantity with units of length (e.g., pc)."
-            )
         self.r_grid = r_grid.to(su.LENGTH)
-
-        if not isinstance(n_gas, u.Quantity) or not n_gas.unit.is_equivalent(u.cm**-3):
-            raise u.UnitsError(
-                "n_gas must be an astropy Quantity with units of number density (e.g., cm^-3)."
-            )
         self.n_gas = n_gas.to(u.cm**-3)
 
         particle = particle.lower() if isinstance(particle, str) else particle

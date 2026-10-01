@@ -191,16 +191,8 @@ class State:
             "psi_p": su.PSI_P,
             "psi_E": su.PSI_E,
         }
-        target_unit = canonical_units[rep_name]
-        if not isinstance(rep_val, u.Quantity):
-            raise TypeError(
-                f"State representation '{rep_name}' must be an astropy.units.Quantity."
-            )
-        if not rep_val.unit.is_equivalent(target_unit):
-            raise u.UnitsError(
-                f"Unit '{rep_val.unit}' is not compatible with '{rep_name}' ({target_unit})."
-            )
-        raw_data = rep_val.to_value(target_unit)
+        # Units were validated by quantity_input in the public entry points.
+        raw_data = rep_val.to_value(canonical_units[rep_name])
         return rep_name, np.asarray(raw_data, dtype=float)
 
     @staticmethod

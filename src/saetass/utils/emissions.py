@@ -72,7 +72,7 @@ class EmissionCalculator:
         E_out_grid=su.ENERGY,
         E_cr_grid=su.ENERGY,
         r_grid=su.LENGTH,
-        n_gas=u.cm**-3,
+        n_gas=su.NUMBER_DENSITY,
         distance=su.LENGTH,
     )
     def __init__(
@@ -118,35 +118,7 @@ class EmissionCalculator:
         particle: Particle | str,
         distance: u.Quantity | None,
     ) -> None:
-        """Validate input parameters and enforce consistent Astropy physical units."""
-        if not isinstance(E_out_grid, u.Quantity) or not E_out_grid.unit.is_equivalent(
-            su.ENERGY
-        ):
-            raise u.UnitsError(
-                "E_out_grid must be an astropy Quantity with energy units."
-            )
-        if not isinstance(E_cr_grid, u.Quantity) or not E_cr_grid.unit.is_equivalent(
-            su.ENERGY
-        ):
-            raise u.UnitsError(
-                "E_cr_grid must be an astropy Quantity with energy units."
-            )
-        if not isinstance(r_grid, u.Quantity) or not r_grid.unit.is_equivalent(
-            su.LENGTH
-        ):
-            raise u.UnitsError("r_grid must be an astropy Quantity with length units.")
-        if not isinstance(n_gas, u.Quantity) or not n_gas.unit.is_equivalent(u.cm**-3):
-            raise u.UnitsError(
-                "n_gas must be an astropy Quantity with number density units."
-            )
-        if distance is not None and (
-            not isinstance(distance, u.Quantity)
-            or not distance.unit.is_equivalent(su.LENGTH)
-        ):
-            raise u.UnitsError(
-                "distance must be an astropy Quantity with length units."
-            )
-
+        """Store the inputs, already validated by ``quantity_input``, in the units used internally and check their values."""
         self.E_out_grid = E_out_grid.to(su.ENERGY)
         self.E_cr_grid = E_cr_grid.to(su.ENERGY)
         self.r_grid = r_grid.to(su.LENGTH)

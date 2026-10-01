@@ -78,12 +78,6 @@ class BubbleProfileCalculator:
         model: BubbleModel | str = "Morlino21",
         **kwargs,
     ):
-        if not isinstance(r_grid, u.Quantity) or not r_grid.unit.is_equivalent(
-            su.LENGTH
-        ):
-            raise u.UnitsError(
-                "r_grid must be an astropy Quantity with length dimensions."
-            )
         self.r_grid = r_grid.to(su.LENGTH)
 
         if isinstance(model, str):
