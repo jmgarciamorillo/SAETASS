@@ -18,6 +18,7 @@ from enum import StrEnum
 
 import numpy as np
 
+from . import units as su
 from .state import State
 
 logger = logging.getLogger(__name__)
@@ -57,9 +58,10 @@ class SplittingScheme(ABC):
 
         Parameters
         ----------
-        t_grid : np.ndarray
-            1D array of canonical global simulation times.
+        t_grid : numpy.ndarray
+            1D array of global simulation times as bare floats, in canonical :py:data:`~saetass.units.TIME` units.
         """
+        su.require_bare(t_grid, "Splitting scheme t_grid")
         self.t_grid = np.asarray(t_grid, dtype=float)
         self._global_step = 0
 
@@ -98,13 +100,13 @@ class SplittingScheme(ABC):
             The ordered sequence of split operators to simulate.
         substeps_per_op : dict
             Dictionary mapping :py:class:`~saetass.solver.OperatorType` elements to their integer sub-step multipliers.
-        t_grid : np.ndarray
-            The global canonical time grid array from the main :py:class:`~saetass.grid.Grid`.
+        t_grid : numpy.ndarray
+            The global time grid of the main :py:class:`~saetass.grid.Grid` as bare floats, in canonical :py:data:`~saetass.units.TIME` units.
 
         Returns
         -------
         dict
-            A dictionary mapping :py:class:`~saetass.solver.OperatorType` operators to their specific refined 1D ``np.ndarray`` time grids.
+            A dictionary mapping :py:class:`~saetass.solver.OperatorType` operators to their specific refined 1D time grids.
         """
         pass
 
@@ -120,7 +122,7 @@ class SplittingScheme(ABC):
         Apply exactly one global macro-step of the splitting scheme.
 
         Sequentially commands the provided ``operator_subsolvers`` to integrate their independent
-        physical phenomena on the phase-space. Implementations must call ``self._advance_global_time(state)``
+        physical phenomena on the transport domain. Implementations must call ``self._advance_global_time(state)``
         as their final action.
 
         Parameters
@@ -132,7 +134,7 @@ class SplittingScheme(ABC):
         substeps_per_op : dict
             Dictionary mapping operators to their sub-step configuration.
         state : :py:class:`~saetass.state.State`
-            The global distribution state object to consecutively mutate inplace.
+            The global state object to consecutively mutate inplace.
         """
         pass
 
@@ -168,7 +170,7 @@ class StrangSplitting(SplittingScheme):
             Ordered sequence of operators.
         substeps_per_op : dict
             User configurations for base sub-steps per operator.
-        t_grid : np.ndarray
+        t_grid : numpy.ndarray
             1D array of the base canonical macro-timesteps.
 
         Returns
@@ -211,9 +213,9 @@ class StrangSplitting(SplittingScheme):
         state : :py:class:`~saetass.state.State`
             State wrapper passed in-place down the subsolver chain.
         """
-        if np.min(state.f) < 0:
+        if np.min(state._values) < 0:
             logger.warning(
-                "Strang splitting: Negative values detected in state.f before applying operators."
+                "Strang splitting: Negative values detected in state._values before applying operators."
             )
 
         # First half-step for all but the last operator
@@ -265,7 +267,7 @@ class LieSplitting(SplittingScheme):
             Ordered sequence of operators.
         substeps_per_op : dict
             User configurations for sub-steps per operator.
-        t_grid : np.ndarray
+        t_grid : numpy.ndarray
             1D array of the base canonical macro-timesteps.
 
         Returns
@@ -367,23 +369,26 @@ def _refine_t_grid(t_grid: np.ndarray, n_sub: int) -> np.ndarray:
 
     Parameters
     ----------
-    t_grid : np.ndarray
-        Array of macroscopic timesteps to process.
+    t_grid : numpy.ndarray
+        Array of macroscopic timesteps to process as bare floats, in canonical :py:data:`~saetass.units.TIME` units.
     n_sub : int
         Number of steps to forcefully insert equivalently between macro-intervals.
 
     Returns
     -------
-    np.ndarray
+    numpy.ndarray
         Dense temporal grid array.
     """
+    su.require_bare(t_grid, "Splitting scheme t_grid")
+    raw_t = np.asarray(t_grid, dtype=float)
+
     if n_sub > 1:
         t_grid_refined = []
-        for j in range(len(t_grid) - 1):
-            t_start = t_grid[j]
-            t_end = t_grid[j + 1]
+        for j in range(len(raw_t) - 1):
+            t_start = raw_t[j]
+            t_end = raw_t[j + 1]
             t_grid_refined.extend(np.linspace(t_start, t_end, n_sub + 1)[:-1])
-        t_grid_refined.append(t_grid[-1])
-        return np.array(t_grid_refined)
+        t_grid_refined.append(raw_t[-1])
+        return np.asarray(t_grid_refined, dtype=float)
     else:
-        return t_grid
+        return raw_t

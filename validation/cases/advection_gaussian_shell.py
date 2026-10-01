@@ -14,18 +14,21 @@ from plot_style import (
     get_quantitative_style,
 )
 
-from saetass import Grid, Solver, State
+from saetass import Grid, Particle, Solver, State
+from saetass import units as su
 
 apply_plot_style()
 
 
-def run_advection_simulation(r_grid, t_grid, f_initial, solver_params, sample_count=5):
+def run_advection_simulation(
+    r_grid, t_grid, psi_initial, solver_params, sample_count=5
+):
     """
     Create and run an advection Solver for the provided grids and params.
     Returns the final distribution (numpy array), the snapshots, and snap times.
     """
-    grid = Grid(r_centers=r_grid, t_grid=t_grid, p_centers=None)
-    state = State(f_initial)
+    grid = Grid(r_centers=r_grid * su.LENGTH, t_grid=t_grid * su.TIME)
+    state = State(psi_p=psi_initial * su.PSI_P, grid=grid, particle=Particle.PROTON)
 
     solver = Solver(
         grid=grid,
@@ -38,7 +41,7 @@ def run_advection_simulation(r_grid, t_grid, f_initial, solver_params, sample_co
 
     num_timesteps = len(t_grid) - 1
 
-    snapshots = [np.copy(state.f.flatten())]
+    snapshots = [state.psi_p.to_value(su.PSI_P).flatten()]
     times = [t_grid[0]]
 
     if sample_count > 0 and num_timesteps > 0:
@@ -53,31 +56,31 @@ def run_advection_simulation(r_grid, t_grid, f_initial, solver_params, sample_co
         if steps_to_advance > 0:
             solver.step(steps_to_advance)
             current_step = next_step
-        snapshots.append(np.copy(solver.state.f.flatten()))
+        snapshots.append(solver.state.psi_p.to_value(su.PSI_P).flatten())
         times.append(t_grid[current_step])
 
-    return solver.state.f.flatten(), snapshots, times
+    return solver.state.psi_p.to_value(su.PSI_P).flatten(), snapshots, times
 
 
-def analytical_spherical_advection(r_grid, f_initial_func, v_const, t_final):
+def analytical_spherical_advection(r_grid, psi_initial_func, v_const, t_final):
     """
     Analytical solution for spherical radial advection (particles advected outward
-    at constant velocity v_const). For a scalar field f(t,r) representing a
+    at constant velocity v_const). For a scalar field \psi(t,r) representing a
     density per unit volume (or per radial coordinate with spherical dilution
     accounted by factor r^2), the transported profile obeys:
-        f(t,r) = (r_shifted / r)**2 * f_initial(r_shifted)
+        \psi(t,r) = (r_shifted / r)**2 * \psi_initial(r_shifted)
     where r_shifted = r - v * t and valid for r_shifted > 0 and r > 0.
 
     We avoid r=0 by returning 0 there.
     """
     r_shifted = r_grid - v_const * t_final
-    f_ana = np.zeros_like(r_grid)
+    psi_ana = np.zeros_like(r_grid)
     mask = (r_grid > 0) & (r_shifted > 0)
-    f_ana[mask] = (r_shifted[mask] / r_grid[mask]) ** 2 * f_initial_func(
+    psi_ana[mask] = (r_shifted[mask] / r_grid[mask]) ** 2 * psi_initial_func(
         r_shifted[mask]
     )
     # Keep r=0 as zero
-    return f_ana
+    return psi_ana
 
 
 def gaussian_shell(r, r0, sigma):
@@ -124,31 +127,31 @@ def validation_sweep(
         t_grid = np.linspace(0.0, t_final, 20000)
 
         # initial condition: gaussian shell
-        f_initial = gaussian_shell(r_grid, r0, sigma)
+        psi_initial = gaussian_shell(r_grid, r0, sigma)
 
         # solver params
         v_field = np.full(N, v_const)
         solver_params = {
-            "v_centers": v_field,
+            "v_centers": v_field * su.VELOCITY,
             "order": 2,
             "limiter": "minmod",
             "cfl": cfl,
-            "inflow_value_U": 0.0,
+            "inflow_value_U": 0.0 * su.AREA * su.PSI_P,
         }
 
-        f_num, snapshots, snap_times = run_advection_simulation(
-            r_grid, t_grid, f_initial, solver_params, sample_count=7
+        psi_num, snapshots, snap_times = run_advection_simulation(
+            r_grid, t_grid, psi_initial, solver_params, sample_count=7
         )
 
         # analytical solution at t_final
-        f_ana = analytical_spherical_advection(
+        psi_ana = analytical_spherical_advection(
             r_grid, lambda r: gaussian_shell(r, r0, sigma), v_const, t_final
         )
 
         # mask valid region where analytical is defined (r_shifted>0 and r>0)
         mask = (r_grid > 0) & (r_grid - v_const * t_final > 0)
 
-        relL2 = compute_relative_L2(f_num, f_ana, mask)
+        relL2 = compute_relative_L2(psi_num, psi_ana, mask)
         errors.append(relL2)
         dxs.append(dr)
 
@@ -159,9 +162,9 @@ def validation_sweep(
             {
                 "N": N,
                 "r_grid": r_grid,
-                "f_initial": f_initial,
-                "f_num": f_num,
-                "f_ana": f_ana,
+                "psi_initial": psi_initial,
+                "psi_num": psi_num,
+                "psi_ana": psi_ana,
                 "relL2": relL2,
                 "snapshots": snapshots,
                 "snap_times": snap_times,
@@ -178,10 +181,10 @@ def validation_sweep(
         ymin = np.inf
         ymax = -np.inf
         for rec in all_results:
-            ymin = min(ymin, np.min(rec["f_initial"]))
-            ymax = max(ymax, np.max(rec["f_initial"]))
-            ymin = min(ymin, np.min(rec["f_num"]))
-            ymax = max(ymax, np.max(rec["f_num"]))
+            ymin = min(ymin, np.min(rec["psi_initial"]))
+            ymax = max(ymax, np.max(rec["psi_initial"]))
+            ymin = min(ymin, np.min(rec["psi_num"]))
+            ymax = max(ymax, np.max(rec["psi_num"]))
 
         if not np.isfinite(ymin) or not np.isfinite(ymax):
             ymin, ymax = 0.0, 1.0
@@ -191,14 +194,6 @@ def validation_sweep(
         plt.figure(figsize=(6, 4))
         quant_style = get_quantitative_style()
         plt.loglog(res, errors, label=r"Error ($\mathcal{E}_{L_2}$)", **quant_style)
-        # # Fit a slope line for reference (power law)
-        # if len(res) >= 2:
-        #     coeffs = np.polyfit(np.log(res), np.log(errors), 1)
-        #     slope = coeffs[0]
-        #     print(f"Observed convergence slope ~ {slope:.2f}")
-        #     xfit = np.array([res.min(), res.max()])
-        #     yfit = np.exp(coeffs[1]) * xfit**slope
-        #     plt.loglog(xfit, yfit, "--", label=f"slope {slope:.2f}")
 
         plt.xlabel("Number of radial cells: $n_r$")
         plt.ylabel(r"Relative error: $\mathcal{E}_{L_2}$")
@@ -213,9 +208,9 @@ def validation_sweep(
         for rec in all_results:
             N = rec["N"]
             r_grid = rec["r_grid"]
-            f_initial = rec["f_initial"]
-            f_num = rec["f_num"]
-            f_ana = rec["f_ana"]
+            psi_initial = rec["psi_initial"]
+            psi_num = rec["psi_num"]
+            psi_ana = rec["psi_ana"]
             relL2 = rec["relL2"]
             snapshots = rec["snapshots"]
             snap_times = rec["snap_times"]
@@ -239,14 +234,14 @@ def validation_sweep(
                 plt.plot(r_grid, s, label=label, **style)
 
             ana_style = get_analytical_style()
-            plt.plot(r_grid, f_ana, label="Analytical (final)", **ana_style)
+            plt.plot(r_grid, psi_ana, label="Analytical (final)", **ana_style)
 
             add_time_colorbar(fig, plt.gca(), t_min=snap_times[0], t_max=snap_times[-1])
 
             plt.xlim(0, r_end)
             plt.ylim(ylims)
             plt.xlabel("Radial coordinate: $r$ (a. u.)")
-            plt.ylabel("Solution: $f(t,r)$ (a. u.)")
+            plt.ylabel(r"Solution: $\psi(t,r)$ (a. u.)")
             plt.legend()
             plt.grid()
             plt.tight_layout()

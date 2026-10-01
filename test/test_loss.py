@@ -9,10 +9,12 @@ Focus areas
    boundary must equal the integral reduction of f.
 """
 
+import astropy.units as u
 import numpy as np
 import pytest
 
-from saetass import Grid, Solver, State
+from saetass import Grid, Particle, Solver, State
+from saetass import units as su
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -31,23 +33,22 @@ def _make_loss_grid_and_solver(
     cfl: float = 0.5,
 ):
     """Build a 1D (momentum-only) loss solver with a constant P_dot."""
-    p_centers = np.logspace(np.log10(p_min), np.log10(p_max), num_p)
-    t_grid = np.linspace(0, t_final, num_t + 1)
-
-    # Scalar P_dot (same for every cell) broadcast to shape (num_p,)
-    P_dot = np.full(num_p, P_dot_const)
+    p_centers = np.logspace(np.log10(p_min), np.log10(p_max), num_p) * su.MOMENTUM
+    t_grid = np.linspace(0, t_final, num_t + 1) * su.TIME
+    P_dot = np.full(num_p, P_dot_const) * su.MOMENTUM_LOSS_RATE
+    init_f = f_init if isinstance(f_init, u.Quantity) else f_init * su.PSI_P
 
     loss_params = {
         "P_dot": P_dot,
         "limiter": "minmod",
         "cfl": cfl,
-        "inflow_value_U": np.zeros(1, dtype=float),
+        "inflow_value_U": np.zeros(1) * su.MOMENTUM * su.PSI_P,
         "order": order,
         "adiabatic_losses": False,
     }
 
     grid = Grid(p_centers=p_centers, t_grid=t_grid)
-    state = State(f_init)
+    state = State(psi_p=init_f, grid=grid, particle=Particle.PROTON)
     solver = Solver(
         grid=grid,
         state=state,
@@ -56,7 +57,49 @@ def _make_loss_grid_and_solver(
         substeps={"loss": 1},
         splitting_scheme="strang",
     )
-    return solver, p_centers
+    return solver, p_centers.to_value(su.MOMENTUM)
+
+
+def _setup_loss_solver(
+    P_dot,
+    f_init,
+    p_centers,
+    t_grid,
+    cfl=0.5,
+    order=1,
+    p_faces=None,
+    is_p_log=True,
+):
+    """Convenience factory for LossSolver via the top-level Solver."""
+    p_c = p_centers if isinstance(p_centers, u.Quantity) else p_centers * su.MOMENTUM
+    t_g = t_grid if isinstance(t_grid, u.Quantity) else t_grid * su.TIME
+    init_f = f_init if isinstance(f_init, u.Quantity) else f_init * su.PSI_P
+    p_dot_in = (
+        P_dot
+        if (isinstance(P_dot, u.Quantity) or callable(P_dot))
+        else P_dot * su.MOMENTUM_LOSS_RATE
+    )
+
+    loss_params = {
+        "P_dot": p_dot_in,
+        "limiter": "minmod",
+        "cfl": cfl,
+        "inflow_value_U": np.zeros(1) * su.MOMENTUM * su.PSI_P,
+        "order": order,
+        "adiabatic_losses": False,
+    }
+
+    grid = Grid(p_centers=p_c, t_grid=t_g)
+    state = State(psi_p=init_f, grid=grid, particle=Particle.PROTON)
+    solver = Solver(
+        grid=grid,
+        state=state,
+        problem_type="loss",
+        operator_params={"loss": loss_params},
+        substeps={"loss": 1},
+        splitting_scheme="strang",
+    )
+    return solver, p_c.to_value(su.MOMENTUM)
 
 
 # ---------------------------------------------------------------------------
@@ -77,7 +120,7 @@ class TestLossSolverPositivity:
         p_centers = np.logspace(np.log10(p_min), np.log10(p_max), num_p)
         # Step at mid-grid
         p_mid = np.sqrt(p_min * p_max)
-        f_init = np.where(p_centers < p_mid, 1.0, 0.0).astype(float)
+        f_init = np.where(p_centers < p_mid, 1.0, 0.0).astype(float) * su.PSI_P
 
         # P_dot < 0: energy is lost (particles shift to lower p)
         # Rate chosen so ν = |V_gen|*dt/dp_log ~ 0.3 with cfl=0.5
@@ -87,7 +130,7 @@ class TestLossSolverPositivity:
             num_p, p_min, p_max, t_final, num_t, P_dot_const, f_init.copy()
         )
         solver.step(num_t)
-        f_final = solver.state.f.flatten()
+        f_final = solver.state.psi_p.to_value(su.PSI_P).flatten()
 
         assert np.all(f_final >= -1e-14), (
             f"Negative values in f after loss step: min={f_final.min():.3e}"
@@ -104,7 +147,7 @@ class TestLossSolverPositivity:
         log_p = np.log10(p_centers)
         log_p_mid = 0.5 * (np.log10(p_min) + np.log10(p_max))
         sigma = 0.3  # in log10 units
-        f_init = np.exp(-((log_p - log_p_mid) ** 2) / (2 * sigma**2))
+        f_init = np.exp(-((log_p - log_p_mid) ** 2) / (2 * sigma**2)) * su.PSI_P
 
         P_dot_const = -0.2 * p_centers[num_p // 2]
 
@@ -112,7 +155,7 @@ class TestLossSolverPositivity:
             num_p, p_min, p_max, t_final, num_t, P_dot_const, f_init.copy()
         )
         solver.step(num_t)
-        f_final = solver.state.f.flatten()
+        f_final = solver.state.psi_p.to_value(su.PSI_P).flatten()
 
         assert np.all(f_final >= -1e-14), (
             f"Negative values after Gaussian loss run: min={f_final.min():.3e}"
@@ -129,7 +172,7 @@ class TestLossSolverPhysics:
         p_centers = np.logspace(np.log10(p_min), np.log10(p_max), num_p)
         p_mid = np.sqrt(p_min * p_max)
 
-        f_init = np.where(p_centers < p_mid, 1.0, 0.0).astype(float)
+        f_init = np.where(p_centers < p_mid, 1.0, 0.0).astype(float) * su.PSI_P
 
         # Short run: front should move, but only slightly
         t_final = 0.02
@@ -140,7 +183,7 @@ class TestLossSolverPhysics:
             num_p, p_min, p_max, t_final, num_t, P_dot_const, f_init.copy()
         )
         solver.step(num_t)
-        f_final = solver.state.f.flatten()
+        f_final = solver.state.psi_p.to_value(su.PSI_P).flatten()
 
         # Locate the 50% crossing (step front position) before and after
         def _front_p(f, p):
@@ -171,7 +214,7 @@ class TestLossSolverPhysics:
         dp = np.diff(np.log10(p_centers))
         dp = np.append(dp, dp[-1])  # cell widths in log10 space
 
-        f_init = np.ones(num_p)
+        f_init = np.ones(num_p) * su.PSI_P
 
         t_final = 0.05
         num_t = 500
@@ -180,9 +223,9 @@ class TestLossSolverPhysics:
         solver, _ = _make_loss_grid_and_solver(
             num_p, p_min, p_max, t_final, num_t, P_dot_const, f_init.copy()
         )
-        mass_initial = float(np.sum(f_init * dp))
+        mass_initial = float(np.sum(f_init.to_value(su.PSI_P) * dp))
         solver.step(num_t)
-        f_final = solver.state.f.flatten()
+        f_final = solver.state.psi_p.to_value(su.PSI_P).flatten()
         mass_final = float(np.sum(f_final * dp))
 
         assert mass_final <= mass_initial + 1e-10, (
@@ -206,7 +249,7 @@ class TestLossSolverOrder:
         log_p_mid = 0.5 * (np.log10(p_min) + np.log10(p_max))
         sigma = 0.4
 
-        f_init = np.exp(-((log_p - log_p_mid) ** 2) / (2 * sigma**2))
+        f_init = np.exp(-((log_p - log_p_mid) ** 2) / (2 * sigma**2)) * su.PSI_P
         t_final = 0.01
         num_t = 60  # coarse — both schemes use same step count
         P_dot_const = -0.15 * p_centers[num_p // 2]
@@ -224,7 +267,7 @@ class TestLossSolverOrder:
             cfl=0.5,
         )
         solver_ref.step(num_t * 10)
-        f_ref = solver_ref.state.f.flatten()
+        f_ref = solver_ref.state.psi_p.to_value(su.PSI_P).flatten()
 
         # --- order 1 (coarse) ---
         solver_1, _ = _make_loss_grid_and_solver(
@@ -239,7 +282,7 @@ class TestLossSolverOrder:
             cfl=0.5,
         )
         solver_1.step(num_t)
-        f1 = solver_1.state.f.flatten()
+        f1 = solver_1.state.psi_p.to_value(su.PSI_P).flatten()
 
         # --- order 2 (coarse, same step count) ---
         solver_2, _ = _make_loss_grid_and_solver(
@@ -254,7 +297,7 @@ class TestLossSolverOrder:
             cfl=0.5,
         )
         solver_2.step(num_t)
-        f2 = solver_2.state.f.flatten()
+        f2 = solver_2.state.psi_p.to_value(su.PSI_P).flatten()
 
         err1 = float(np.sqrt(np.mean((f1 - f_ref) ** 2)))
         err2 = float(np.sqrt(np.mean((f2 - f_ref) ** 2)))
@@ -270,10 +313,15 @@ class TestLossSolverOrder:
 class TestLossSolverExceptionsAndEdges:
     def test_missing_v_centers_for_adiabatic(self):
         grid = Grid(
-            p_centers=np.array([5.0, 10.0]), is_p_log=False, t_grid=np.array([0.0, 1.0])
+            p_centers=np.array([5.0, 10.0]) * su.MOMENTUM,
+            is_p_log=False,
+            t_grid=np.array([0.0, 1.0]) * su.TIME,
         )
-        params = {"P_dot": np.array([-1.0, -1.0]), "adiabatic_losses": True}
-        state = State(np.ones(2))
+        params = {
+            "P_dot": np.array([-1.0, -1.0]) * su.MOMENTUM_LOSS_RATE,
+            "adiabatic_losses": True,
+        }
+        state = State(psi_p=np.ones(2) * su.PSI_P, grid=grid, particle=Particle.PROTON)
         with pytest.raises(ValueError, match="v_centers_physical must be provided"):
             Solver(
                 grid=grid,
@@ -285,13 +333,14 @@ class TestLossSolverExceptionsAndEdges:
 
     def test_callable_P_dot(self):
         grid = Grid(
-            p_centers=np.array([50.0, 100.0]),
+            p_centers=np.array([50.0, 100.0]) * su.MOMENTUM,
             is_p_log=True,
-            t_grid=np.array([0.0, 1.0]),
+            t_grid=np.array([0.0, 1.0]) * su.TIME,
         )
 
         def p_dot_func(t):
-            return np.array([-0.1 * t, -0.1 * t])
+            t_val = t.value if hasattr(t, "value") else t
+            return np.array([-0.1 * t_val, -0.1 * t_val]) * su.MOMENTUM_LOSS_RATE
 
         params = {
             "P_dot": p_dot_func,
@@ -299,9 +348,9 @@ class TestLossSolverExceptionsAndEdges:
             "limiter": "minmod",
             "order": 1,
             "cfl": 0.5,
-            "inflow_value_f": 0.0,
+            "inflow_value_psi": 0.0 * su.PSI_P,
         }
-        state = State(np.ones(2))
+        state = State(psi_p=np.ones(2) * su.PSI_P, grid=grid, particle=Particle.PROTON)
         solver = Solver(
             grid=grid,
             state=state,
@@ -313,21 +362,23 @@ class TestLossSolverExceptionsAndEdges:
 
     def test_2D_and_adiabatic(self):
         grid = Grid(
-            r_centers=np.array([1.0, 2.0]),
-            p_centers=np.array([50.0, 100.0]),
+            r_centers=np.array([1.0, 2.0]) * su.LENGTH,
+            p_centers=np.array([50.0, 100.0]) * su.MOMENTUM,
             is_p_log=True,
-            t_grid=np.array([0.0, 1.0]),
+            t_grid=np.array([0.0, 1.0]) * su.TIME,
         )
         params = {
-            "P_dot": np.full((2, 2), -0.1),
+            "P_dot": np.full((2, 2), -0.1) * su.MOMENTUM_LOSS_RATE,
             "adiabatic_losses": True,
-            "v_centers_physical": np.ones((2, 2)),
+            "v_centers_physical": np.ones((2, 2)) * su.VELOCITY,
             "limiter": "minmod",
             "order": 1,
             "cfl": 0.5,
-            "inflow_value_f": 0.0,
+            "inflow_value_psi": 0.0 * su.PSI_P,
         }
-        state = State(np.ones((2, 2)))
+        state = State(
+            psi_p=np.ones((2, 2)) * su.PSI_P, grid=grid, particle=Particle.PROTON
+        )
         solver = Solver(
             grid=grid,
             state=state,
@@ -340,19 +391,19 @@ class TestLossSolverExceptionsAndEdges:
 
     def test_inverse_generalized_errors(self):
         grid = Grid(
-            p_centers=np.array([50.0, 100.0]),
+            p_centers=np.array([50.0, 100.0]) * su.MOMENTUM,
             is_p_log=True,
-            t_grid=np.array([0.0, 1.0]),
+            t_grid=np.array([0.0, 1.0]) * su.TIME,
         )
         params = {
-            "P_dot": np.array([-1.0, -1.0]),
+            "P_dot": np.array([-1.0, -1.0]) * su.MOMENTUM_LOSS_RATE,
             "adiabatic_losses": False,
             "limiter": "minmod",
             "order": 1,
             "cfl": 0.5,
-            "inflow_value_f": 0.0,
+            "inflow_value_psi": 0.0 * su.PSI_P,
         }
-        state = State(np.ones(2))
+        state = State(psi_p=np.ones(2) * su.PSI_P, grid=grid, particle=Particle.PROTON)
         solver = Solver(
             grid=grid,
             state=state,
@@ -374,14 +425,115 @@ class TestLossSolverExceptionsAndEdges:
         with pytest.raises(ValueError, match="only supports 1D or 2D"):
             ls._inverse_generalized_variable(np.ones((2, 2, 2)), grid)
 
-        # non-positive p (mock grid physical)
-        grid._p_centers_phys = np.array([-1.0, 1.0])
-        with pytest.raises(ValueError, match="non-positive values"):
-            ls._inverse_generalized_variable(np.ones(2), grid)
+    def test_non_positive_momentum_rejected_at_construction(self):
+        # Faces [-2, 0, 2] give a legal Grid with centers [-1, 1]: the loss
+        # transforms divide by p, so this must fail fast, not at every step.
+        grid = Grid(
+            p_faces=np.array([-2.0, 0.0, 2.0]) * su.MOMENTUM,
+            is_p_log=False,
+            t_grid=np.array([0.0, 1.0]) * su.TIME,
+        )
+        params = {
+            "P_dot": np.array([-1.0, -1.0]) * su.MOMENTUM_LOSS_RATE,
+            "limiter": "minmod",
+            "order": 1,
+            "cfl": 0.5,
+            "inflow_value_psi": 0.0 * su.PSI_P,
+        }
+        state = State(psi_p=np.ones(2) * su.PSI_P, grid=grid, particle=Particle.PROTON)
+        with pytest.raises(ValueError, match="strictly positive momentum"):
+            Solver(
+                grid=grid,
+                state=state,
+                problem_type="loss",
+                operator_params={"loss": params},
+                substeps={"loss": 1},
+            )
 
-        with pytest.raises(ValueError, match="non-positive values"):
-            ls._inverse_generalized_variable(np.ones((2, 2)), grid)
+    def test_inflow_psi_and_U_are_mutually_exclusive(self):
+        grid = Grid(
+            p_centers=np.logspace(0, 2, 10) * su.MOMENTUM,
+            t_grid=np.array([0.0, 1.0]) * su.TIME,
+        )
+        params = {
+            "P_dot": np.full(10, -1.0) * su.MOMENTUM_LOSS_RATE,
+            "limiter": "minmod",
+            "order": 1,
+            "cfl": 0.5,
+            "inflow_value_psi": 0.0 * su.PSI_P,
+            "inflow_value_U": 0.0 * su.MOMENTUM * su.PSI_P,
+        }
+        state = State(psi_p=np.ones(10) * su.PSI_P, grid=grid, particle=Particle.PROTON)
+        with pytest.raises(
+            ValueError, match="either inflow_value_psi or inflow_value_U"
+        ):
+            Solver(
+                grid=grid,
+                state=state,
+                problem_type="loss",
+                operator_params={"loss": params},
+                substeps={"loss": 1},
+            )
 
 
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+class TestLossSolver2D:
+    params = {
+        "limiter": "minmod",
+        "order": 1,
+        "cfl": 0.5,
+        "inflow_value_psi": 0.0 * su.PSI_P,
+    }
+
+    def test_requires_momentum_grid(self):
+        grid = Grid(
+            r_centers=np.linspace(0.0, 1.0, 5) * su.LENGTH,
+            t_grid=np.array([0.0, 1.0]) * su.TIME,
+        )
+        with pytest.raises(ValueError, match="requires a Grid with a momentum axis"):
+            Solver(
+                grid=grid,
+                state=State(psi_p=np.ones(5) * su.PSI_P, grid=grid),
+                problem_type="loss",
+                operator_params={
+                    "loss": {**self.params, "P_dot": np.ones(5) * su.MOMENTUM_LOSS_RATE}
+                },
+            )
+
+    def test_2d_matches_1d_slices(self):
+        """Each radial column of a 2D loss problem evolves as the 1D problem."""
+        p = np.logspace(0, 2, 30) * su.MOMENTUM
+        t_grid = np.linspace(0.0, 0.05, 11) * su.TIME
+        log_p = np.log10(p.to_value(su.MOMENTUM))
+        profile = np.exp(-((log_p - 1.0) ** 2) / (2 * 0.3**2))
+        amplitudes = np.array([1.0, 2.0, 3.0])
+        P_dot = -0.3 * p.to_value(su.MOMENTUM)
+
+        grid_2d = Grid(
+            r_centers=np.array([1.0, 2.0, 3.0]) * su.LENGTH, p_centers=p, t_grid=t_grid
+        )
+        solver_2d = Solver(
+            grid=grid_2d,
+            state=State(psi_p=np.outer(profile, amplitudes) * su.PSI_P, grid=grid_2d),
+            problem_type="loss",
+            operator_params={
+                "loss": {
+                    **self.params,
+                    "P_dot": np.tile(P_dot[:, None], (1, 3)) * su.MOMENTUM_LOSS_RATE,
+                }
+            },
+        )
+        psi_2d = solver_2d.run().psi_p.to_value(su.PSI_P)
+
+        for j, amplitude in enumerate(amplitudes):
+            grid_1d = Grid(p_centers=p, t_grid=t_grid)
+            solver_1d = Solver(
+                grid=grid_1d,
+                state=State(psi_p=amplitude * profile * su.PSI_P, grid=grid_1d),
+                problem_type="loss",
+                operator_params={
+                    "loss": {**self.params, "P_dot": P_dot * su.MOMENTUM_LOSS_RATE}
+                },
+            )
+            np.testing.assert_allclose(
+                psi_2d[:, j], solver_1d.run().psi_p.to_value(su.PSI_P), rtol=1e-12
+            )

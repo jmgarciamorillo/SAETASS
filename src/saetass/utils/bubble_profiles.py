@@ -8,17 +8,40 @@ The models available are based on the theoretical frameworks by
 The module provides an extensible framework using :py:class:`~saetass.utils.bubble_profiles.BubbleProfileCalculator` to easily extract density, velocity, magnetic field or transport parameters to be used in SAETASS simulations.
 """
 
-from __future__ import annotations
-
 import logging
 import math
 from enum import StrEnum
+from types import MappingProxyType
 from typing import Any
 
 import astropy.constants as const
 import astropy.units as u
 import numpy as np
 from scipy.integrate import cumulative_trapezoid as cumtrapz
+
+from .. import units as su
+
+
+class BubbleModel(StrEnum):
+    """Auxiliary class for correct particle types handling.
+
+    .. note::
+        Currently, the supported models are: ``"Weaver77"`` and ``"Morlino21"``.
+
+    Parameters
+    ----------
+    model_type : str
+        The model type (e.g., "Weaver77" or "Morlino21").
+    """
+
+    WEAVER77 = "Weaver77"
+    MORLINO21 = "Morlino21"
+
+    def __new__(cls, model_type: str):
+        obj = str.__new__(cls, model_type)
+        obj._value_ = model_type
+        return obj
+
 
 logger = logging.getLogger(__name__)
 
@@ -33,34 +56,41 @@ class BubbleProfileCalculator:
 
     Parameters
     ----------
-    r_grid : u.Quantity or np.ndarray
-        Radial grid for the profiles computation (in pc).
+    r_grid : astropy.units.Quantity
+        Radial grid for the profiles computation. Units compatible with :py:data:`~saetass.units.LENGTH`.
     model : BubbleModel or str
         The bubble description model (e.g., "Weaver77" or "Morlino21").
     **kwargs :
         Specific physical parameters required by the selected model. For 'Weaver77' and
         'Morlino21', the required kwargs are:
 
-        - ``L_wind`` : u.Quantity (Wind mechanical luminosity)
-        - ``M_dot`` : u.Quantity (Mass loss rate)
-        - ``rho_0`` : u.Quantity (Ambient mass density)
-        - ``t_b`` : u.Quantity (Bubble age)
+        - ``L_wind`` : astropy.units.Quantity. Wind mechanical luminosity. Units compatible with :py:data:`~saetass.units.LUMINOSITY`.
+        - ``M_dot`` : astropy.units.Quantity. Mass loss rate. Units compatible with :py:data:`~saetass.units.MASS_LOSS_RATE`.
+        - ``rho_0`` : astropy.units.Quantity. Ambient mass density. Units compatible with :py:data:`~saetass.units.MASS_DENSITY`.
+        - ``t_b`` : astropy.units.Quantity. Bubble age. Units compatible with :py:data:`~saetass.units.TIME`.
 
-        Other optional kwargs: ``R_c`` (core radius).
+        Other optional kwargs: ``R_c`` (core radius). Units compatible with :py:data:`~saetass.units.LENGTH`.
     """
 
+    #: Canonical units of the physical model parameters accepted as keyword arguments.
+    _KWARG_UNITS = MappingProxyType(
+        {
+            "L_wind": su.LUMINOSITY,
+            "M_dot": su.MASS_LOSS_RATE,
+            "rho_0": su.MASS_DENSITY,
+            "t_b": su.TIME,
+            "R_c": su.LENGTH,
+        }
+    )
+
+    @u.quantity_input(r_grid=su.LENGTH)
     def __init__(
         self,
-        r_grid: u.Quantity | np.ndarray,
+        r_grid: u.Quantity,
         model: BubbleModel | str = "Morlino21",
         **kwargs,
     ):
-        if isinstance(r_grid, u.Quantity):
-            if not r_grid.unit.is_equivalent(u.pc):
-                raise ValueError("r_grid must have units equivalent to pc")
-            self.r_grid = r_grid.to(u.pc)
-        elif isinstance(r_grid, np.ndarray):
-            self.r_grid = r_grid * u.pc
+        self.r_grid = r_grid.to(su.LENGTH)
 
         if isinstance(model, str):
             for m in BubbleModel:
@@ -69,6 +99,11 @@ class BubbleProfileCalculator:
                     break
         self.model = BubbleModel(model)
 
+        for key, unit in self._KWARG_UNITS.items():
+            if key in kwargs:
+                su.validate_quantity(
+                    kwargs[key], unit, f"BubbleProfileCalculator argument '{key}'"
+                )
         self.kwargs = kwargs
 
         self.R_TS = None
@@ -150,8 +185,8 @@ class BubbleProfileCalculator:
 
         Returns
         -------
-        u.Quantity
-            Density profile (in cm^-3)
+        astropy.units.Quantity
+            Gas number density profile. Units compatible with :py:data:`~saetass.units.NUMBER_DENSITY`.
         """
         if self.model in [BubbleModel.WEAVER77, BubbleModel.MORLINO21]:
             M_dot = self.kwargs["M_dot"]
@@ -209,6 +244,7 @@ class BubbleProfileCalculator:
                 f"Density profile for {self.model} not implemented."
             )
 
+    @u.quantity_input(T_w=u.K, T_ISM=u.K, T_bubble=u.K, T_shell=u.K, T_core=u.K)
     def compute_temperature_profile(
         self,
         T_w: u.Quantity = 2e2 * u.K,
@@ -217,26 +253,26 @@ class BubbleProfileCalculator:
         T_shell: u.Quantity = 100 * u.K,
         T_core: u.Quantity = 1e4 * u.K,
     ) -> u.Quantity:
-        """
+        r"""
         Compute the gas temperature profile.
 
         Parameters
         ----------
-        T_w: u.Quantity, optional
-            Temperature in the wind region.
-        T_ISM: u.Quantity, optional
-            Temperature in the interstellar medium.
-        T_bubble: u.Quantity, optional
-            Temperature in the hot bubble.
-        T_shell: u.Quantity, optional
-            Temperature in the shell.
-        T_core: u.Quantity, optional
-            Temperature in the core.
+        T_w : astropy.units.Quantity, optional
+            Temperature in the wind region. Units compatible with :math:`\mathrm{K}`.
+        T_ISM : astropy.units.Quantity, optional
+            Temperature in the interstellar medium. Units compatible with :math:`\mathrm{K}`.
+        T_bubble : astropy.units.Quantity, optional
+            Temperature in the hot bubble. Units compatible with :math:`\mathrm{K}`.
+        T_shell : astropy.units.Quantity, optional
+            Temperature in the shell. Units compatible with :math:`\mathrm{K}`.
+        T_core : astropy.units.Quantity, optional
+            Temperature in the core. Units compatible with :math:`\mathrm{K}`.
 
         Returns
         -------
-        u.Quantity
-            Temperature profile (in K)
+        astropy.units.Quantity
+            Temperature profile. Units compatible with :math:`\mathrm{K}`.
         """
         if self.model in [BubbleModel.WEAVER77, BubbleModel.MORLINO21]:
             T_profile = np.zeros_like(self.r_grid.value)
@@ -259,8 +295,8 @@ class BubbleProfileCalculator:
 
         Returns
         -------
-        u.Quantity
-            Velocity profile (in km/s)
+        astropy.units.Quantity
+            Advection velocity profile. Units compatible with :py:data:`~saetass.units.VELOCITY`.
         """
         v_field = np.zeros_like(self.r_grid.value)
 
@@ -290,13 +326,13 @@ class BubbleProfileCalculator:
 
         Parameters
         ----------
-        eta_B : float
-            Magnetic field efficiency param (used in Morlino21)
+        eta_B : float, optional
+            Magnetic field efficiency parameter, used in the Morlino21 model. Default is ``0.1``.
 
         Returns
         -------
-        u.Quantity
-            Magnetic field profile (in G)
+        astropy.units.Quantity
+            Magnetic field profile. Units compatible with :py:data:`~saetass.units.MAGNETIC_FIELD`.
         """
         delta_B = np.zeros_like(self.r_grid.value) * u.G
 
@@ -347,6 +383,7 @@ class BubbleProfileCalculator:
         v_p = p * const.c**2 / E_tot
         return v_p
 
+    @u.quantity_input(E_k=su.ENERGY, r_Inj=su.LENGTH, D_ISM=su.DIFFUSION_COEFFICIENT)
     def compute_diffusion_profile(
         self,
         E_k: u.Quantity,
@@ -360,21 +397,21 @@ class BubbleProfileCalculator:
 
         Parameters
         ----------
-        E_k : u.Quantity
-            Particle kinetic energy
-        r_Inj : u.Quantity, optional
-            Injection scale for turbulence.
-        D_ISM : u.Quantity, optional
-            Diffusion coefficient in ISM. If None, it computes a default scaling.
+        E_k : astropy.units.Quantity
+            Particle kinetic energy. Units compatible with :py:data:`~saetass.units.ENERGY`.
+        r_Inj : astropy.units.Quantity, optional
+            Injection scale for turbulence. Units compatible with :py:data:`~saetass.units.LENGTH`. Default is ``1.0 * u.pc``.
+        D_ISM : astropy.units.Quantity, optional
+            Diffusion coefficient in the ISM. If ``None``, a default scaling is computed. Units compatible with :py:data:`~saetass.units.DIFFUSION_COEFFICIENT`. Default is ``None``.
         diffusion_model : str, optional
-            Diffusion model inside bubble ('kolmogorov', 'kraichnan' or 'bohm')
+            Diffusion model inside the bubble, ``'kolmogorov'``, ``'kraichnan'`` or ``'bohm'``. Default is ``'kolmogorov'``.
         eta_B : float, optional
-            Magnetic field efficiency param to compute B field if needed.
+            Magnetic field efficiency parameter to compute the magnetic field if needed. Default is ``0.1``.
 
         Returns
         -------
-        u.Quantity
-            Diffusion coefficient profile
+        astropy.units.Quantity
+            Diffusion coefficient profile. Units compatible with :py:data:`~saetass.units.DIFFUSION_COEFFICIENT`.
         """
         if self.model == BubbleModel.MORLINO21:
             B_field = self.compute_magnetic_field_profile(eta_B=eta_B)
@@ -403,6 +440,7 @@ class BubbleProfileCalculator:
                 f"Diffusion profile not implemented natively for {self.model}."
             )
 
+    @u.quantity_input(E_k=su.ENERGY)
     def compute_source_term(
         self, E_k: u.Quantity, eta_inj: float = 0.1, Q_amplitude: float = 1000.0
     ) -> np.ndarray:
@@ -435,6 +473,7 @@ class BubbleProfileCalculator:
         Q[injection_mask] = Q_amplitude
         return Q
 
+    @u.quantity_input(D_values=su.DIFFUSION_COEFFICIENT)
     def compute_analytical_CR_profile(
         self, D_values: u.Quantity, f_gal: float = 1.0, f_TS: float = 1.0
     ) -> np.ndarray:
@@ -444,12 +483,12 @@ class BubbleProfileCalculator:
 
         Parameters
         ----------
-        D_values : astropy Quantity array
-            Diffusion coefficient profile
+        D_values : astropy.units.Quantity
+            Diffusion coefficient profile. Units compatible with :py:data:`~saetass.units.DIFFUSION_COEFFICIENT`.
         f_gal : float, optional
-            Galactic background level. Default is 1.0.
+            Galactic background level. Default is ``1.0``.
         f_TS : float, optional
-            Termination shock level. Default is 1.0.
+            Termination shock level. Default is ``1.0``.
 
         Returns
         -------
@@ -536,20 +575,21 @@ class BubbleProfileCalculator:
 
         return np.concatenate([f_w, f_b, f_out])
 
+    @u.quantity_input(E_k=su.ENERGY)
     def get_all_profiles(self, E_k: u.Quantity, **kwargs) -> dict[str, Any]:
         """
         Compute all profiles and return them in a dictionary.
 
         Parameters
         ----------
-        E_k : u.Quantity
-            Particle kinetic energy
-        **kwargs:
-            Additional parameters (e.g. eta_B, diffusion_model, etc.)
+        E_k : astropy.units.Quantity
+            Particle kinetic energy. Units compatible with :py:data:`~saetass.units.ENERGY`.
+        **kwargs
+            Additional parameters (e.g. ``eta_B``, ``diffusion_model``).
 
         Returns
         -------
-        dict
+        dict of str to astropy.units.Quantity
             Dictionary containing all relevant profiles and parameters.
         """
         res = {
@@ -577,24 +617,3 @@ class BubbleProfileCalculator:
             res["Q"] = self.compute_source_term(E_k, eta_inj=eta_inj)
 
         return res
-
-
-class BubbleModel(StrEnum):
-    """Auxiliary class for correct particle types handling.
-
-    .. note::
-        Currently, the supported models are: ``"Weaver77"`` and ``"Morlino21"``.
-
-    Parameters
-    ----------
-    model_type : str
-        The model type (e.g., "Weaver77" or "Morlino21").
-    """
-
-    WEAVER77 = "Weaver77"
-    MORLINO21 = "Morlino21"
-
-    def __new__(cls, model_type: str):
-        obj = str.__new__(cls, model_type)
-        obj._value_ = model_type
-        return obj

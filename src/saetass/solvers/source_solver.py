@@ -1,23 +1,25 @@
 import logging
+from types import MappingProxyType
 
 import numpy as np
 
+from .. import units as su
 from ..grid import Grid
-from ..solver import SubSolver
+from ..solver import ParamSpec, SubSolver
 from ..state import State
 
 logger = logging.getLogger(__name__)
 
 
 class SourceSolver(SubSolver):
-    """
+    r"""
     Explicit Euler operator for a source term, inheriting from :py:class:`~saetass.solver.SubSolver`.
 
-    Advances the distribution function according to:
+    Advances the differential density according to:
 
     .. math::
 
-        \\frac{\\partial f}{\\partial t} = Q(t, r, p),
+        \frac{\partial \psi}{\partial t} = Q(t, r, p),
 
     using a single first-order explicit Euler step over the total requested
     time ``n_steps * dt``.
@@ -29,22 +31,26 @@ class SourceSolver(SubSolver):
     ----------
     grid : :py:class:`~saetass.grid.Grid`
         :py:class:`~saetass.grid.Grid` providing ``r_centers`` and/or ``p_centers`` depending on the problem dimension.
-    t_grid : ndarray
+    t_grid : numpy.ndarray
         Subproblem time grid.
         In the standard SAETASS workflow this is already subrefined during :py:class:`~saetass.solver.Solver` initialization.
     params : dict
-        Solver configuration.  Accepted keys are:
+        Solver configuration, already converted to canonical floats by :py:meth:`~saetass.solver.SubSolver.convert_params`. Accepted keys (and the units required at the :py:class:`~saetass.solver.Solver` level) are:
 
-        source : ndarray or callable
-            Source term, :math:`Q`.
-            If callable, the signature must be ``source(r_centers, p_centers, t) -> ndarray``, where either ``r_centers`` or ``p_centers`` may be ``None`` for 1D problems.
-            If an array, its shape must match the :py:class:`~saetass.state.State` distribution function.
+        source : astropy.units.Quantity or callable
+            Source term, :math:`Q`. Units compatible with :py:data:`~saetass.units.SOURCE_PSI_P`.
+            If callable, the signature must be ``source(r, p, t) -> Quantity``, where ``r`` and ``p`` are the physical cell-center coordinates (either may be ``None`` for 1D problems) and ``t`` is the time, all as Quantities.
+            Its shape must match the :py:class:`~saetass.state.State` differential density array.
     """
 
+    PARAM_SPECS = MappingProxyType(
+        {"source": ParamSpec(su.SOURCE_PSI_P, dynamic=True, coords=True)}
+    )
+
     def __init__(self, grid: Grid, t_grid: np.ndarray, params: dict, **kwargs):
+        self._validate_unit_free_inputs(t_grid, params)
         self.grid = grid
-        self.t_grid = t_grid
-        self.x_grid = grid.r_centers if grid.r_centers is not None else grid.p_centers
+        self.t_grid = np.asarray(t_grid, dtype=float)
         self.params = params or {}
 
         source_input = self.params.get("source", None)
@@ -55,20 +61,9 @@ class SourceSolver(SubSolver):
         if callable(source_input):
             self.is_source_dynamic = True
 
+            # Solver has already bound the physical coordinates: source_input(t) -> ndarray
             def _get_source_dynamic(t):
-                if self.grid.p_centers is not None and self.grid.r_centers is not None:
-                    return np.asarray(
-                        source_input(self.grid.r_centers, self.grid.p_centers, t),
-                        dtype=float,
-                    )
-                elif self.grid.r_centers is not None:
-                    return np.asarray(
-                        source_input(self.grid.r_centers, None, t), dtype=float
-                    )
-                else:
-                    return np.asarray(
-                        source_input(None, self.grid.p_centers, t), dtype=float
-                    )
+                return np.asarray(source_input(t), dtype=float)
 
             self._get_source = _get_source_dynamic
         else:
@@ -87,24 +82,25 @@ class SourceSolver(SubSolver):
         n_steps : int
             Number of time steps to advance.
         state : :py:class:`~saetass.state.State`
-            Current simulation state. The distribution function is updated in-place at the end of the call.
+            Current simulation state. The differential density is updated in-place at the end of the call.
         """
-        total_dt = float(n_steps) * np.diff(self.t_grid)[0]
+        diff_dt = float(np.diff(self.t_grid)[0])
+        total_dt = float(n_steps) * diff_dt
 
         # Process source term efficiently
         if self.is_source_dynamic:
-            S = self._get_source(state.t)
+            S = self._get_source(state.t_val)
         else:
             S = self.source_static
 
         # Ensure shape compatibility
-        if S.shape != state.get_f().shape:
+        if S.shape != state._get_values().shape:
             raise ValueError(
-                f"Source shape {S.shape} does not match state shape {state.f.shape}"
+                f"Source shape {S.shape} does not match state shape {state._values.shape}"
             )
 
         # Explicit update
-        f_new = state.f + total_dt * S
-        state.update_f(f_new)
+        values_new = state._values + total_dt * S
+        state._update_values(values_new)
 
         logger.debug(f"Advanced source operator by {n_steps} steps (dt={total_dt})")

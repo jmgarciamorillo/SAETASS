@@ -76,6 +76,8 @@ We welcome pull requests for:
    pytest
    ```
 
+   Single test files can be run with `pytest test/test_loss.py`, and the `--plot` option shows the diagnostic plots of the tests that produce them, e.g. `pytest test/test_advection.py --plot`.
+
 4. **Create a feature branch** for your work:
 
    ```bash
@@ -85,8 +87,14 @@ We welcome pull requests for:
 ## Code style and standards
 
 - **Dependencies versions**: See [`pyproject.toml`](pyproject.toml).
-- **Docstrings**: Use the [NumPy/SciPy docstring convention](https://numpydoc.readthedocs.io/en/latest/format.html) for all public classes and functions.
+- **Docstrings**: Use the [NumPy/SciPy docstring convention](https://numpydoc.readthedocs.io/en/latest/format.html) for all public classes and functions, with the following conventions:
+  - Write docstrings containing LaTeX as raw strings (`r"""`) with single backslashes.
+  - Spell types as `astropy.units.Quantity`, `numpy.ndarray`, `float`, `int`, `bool`, `str`, `dict` or `callable`, appending `, optional` to optional parameters.
+  - Do not hardcode units for Quantities, since SAETASS converts them internally. End their description with the accepted dimensions instead, referring to the canonical units of `saetass.units`, e.g. ``Units compatible with :py:data:`~saetass.units.LENGTH`.``, or to an example unit when no canonical one exists, e.g. ``Units compatible with :math:`\mathrm{K}`.``.
+  - State the unit explicitly only for bare numerical arrays, e.g. ``..., in :math:`\mathrm{GeV}`.``.
+  - End the description of optional parameters with `Default is ``value``.`.
 - **Type hints**: Encouraged for function signatures where they improve clarity.
+- **Physical inputs**: Validate physical function arguments with `@u.quantity_input`, targeting the canonical units of `saetass.units`, and any other physical input (dictionary entries, `**kwargs`, values returned by callables) with `saetass.units.validate_quantity`. Do not re-check units manually; only convert the validated inputs to the units used internally.
 - **Testing**: Every new feature or fix should include corresponding tests in the `test/` directory. Use `pytest` to run them.
 - **Naming**: Follow PEP 8 conventions. Use descriptive variable names — prefer `diffusion_coefficient` over `D` in public APIs.
 

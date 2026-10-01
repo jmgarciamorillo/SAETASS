@@ -58,3 +58,9 @@ _private/
 
 # Testing scripts (not part of main codebase)
 testing_scripts/
+
+# =========================================================
+# Users and developers AI agent instruction files
+# =========================================================
+AGENTS.md
+CLAUDE.md

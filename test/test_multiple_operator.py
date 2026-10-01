@@ -2,35 +2,86 @@ try:
     import matplotlib.pyplot as plt
 except ImportError:
     plt = None
+import astropy.units as u
 import numpy as np
-import pytest
 
-from saetass import Grid, Solver, State
+from saetass import Grid, Particle, Solver, State
+from saetass import units as su
 
 
 def run_solver_test(grid_params, operator_params, problem_types, initial_f):
     """
     Helper function to initialize and run the solver for multiple operators.
     """
-    grid = Grid(
-        r_centers=grid_params.get("r_grid", None),
-        t_grid=grid_params["t_grid"],
-        p_centers=grid_params.get("p_grid", None),
+    r_g = grid_params.get("r_grid", None)
+    if r_g is not None and not isinstance(r_g, u.Quantity):
+        r_g = r_g * su.LENGTH
+
+    t_g = (
+        grid_params["t_grid"]
+        if isinstance(grid_params["t_grid"], u.Quantity)
+        else grid_params["t_grid"] * su.TIME
     )
-    state = State(initial_f)
+
+    p_g = grid_params.get("p_grid", None)
+    if p_g is not None and not isinstance(p_g, u.Quantity):
+        p_g = p_g * su.MOMENTUM
+
+    init_f = initial_f if isinstance(initial_f, u.Quantity) else initial_f * su.PSI_P
+
+    # Ensure operator parameters have proper Quantities
+    op_params = {}
+    for op_name, op_dict in operator_params.items():
+        sub_p = op_dict.copy()
+        if op_name == "advection":
+            if (
+                "v_centers" in sub_p
+                and not isinstance(sub_p["v_centers"], u.Quantity)
+                and not callable(sub_p["v_centers"])
+            ):
+                sub_p["v_centers"] = sub_p["v_centers"] * su.VELOCITY
+        elif op_name == "diffusion":
+            if (
+                "D_values" in sub_p
+                and not isinstance(sub_p["D_values"], u.Quantity)
+                and not callable(sub_p["D_values"])
+            ):
+                sub_p["D_values"] = sub_p["D_values"] * su.DIFFUSION_COEFFICIENT
+        elif op_name == "source":
+            if (
+                "source" in sub_p
+                and not isinstance(sub_p["source"], u.Quantity)
+                and not callable(sub_p["source"])
+            ):
+                sub_p["source"] = sub_p["source"] * su.SOURCE_PSI_P
+        elif op_name == "loss":
+            if (
+                "P_dot" in sub_p
+                and not isinstance(sub_p["P_dot"], u.Quantity)
+                and not callable(sub_p["P_dot"])
+            ):
+                sub_p["P_dot"] = sub_p["P_dot"] * su.MOMENTUM_LOSS_RATE
+        op_params[op_name] = sub_p
+
+    grid = Grid(
+        r_centers=r_g,
+        t_grid=t_g,
+        p_centers=p_g,
+    )
+    state = State(psi_p=init_f, grid=grid, particle=Particle.PROTON)
 
     solver = Solver(
         grid=grid,
         state=state,
         problem_type=problem_types,
-        operator_params=operator_params,
+        operator_params=op_params,
         splitting_scheme="strang",
     )
 
-    num_timesteps = len(grid_params["t_grid"]) - 1
+    num_timesteps = len(t_g) - 1
     solver.step(num_timesteps)
 
-    return solver.state.f
+    return solver.state.psi_p.to_value(su.PSI_P)
 
 
 class TestAdvectionDiffusion:
@@ -51,23 +102,27 @@ class TestAdvectionDiffusion:
         sigma = 3.0
 
         # Grids
-        r_grid = np.linspace(0.0, r_end, num_r)
-        t_grid = np.linspace(0, t_final, 200)
+        r_grid = np.linspace(0.0, r_end, num_r) * su.LENGTH
+        t_grid = np.linspace(0, t_final, 200) * su.TIME
+        r_raw = r_grid.to_value(su.LENGTH)
 
         # Initial condition: Gaussian pulse
-        f_initial = np.exp(-((r_grid - r_initial_peak) ** 2) / (2 * sigma**2))
+        f_initial = np.exp(-((r_raw - r_initial_peak) ** 2) / (2 * sigma**2)) * su.PSI_P
 
         # --- Run 1: Advection + Diffusion ---
         grid_params = {"r_grid": r_grid, "t_grid": t_grid}
         op_params_both = {
             "advection": {
-                "v_centers": np.full(num_r, v_const),
+                "v_centers": np.full(num_r, v_const) * su.VELOCITY,
                 "limiter": "minmod",
                 "order": 2,
                 "cfl": 0.8,
-                "inflow_value_U": 1,
+                "inflow_value_U": 1.0 * su.AREA * su.PSI_P,
             },
-            "diffusion": {"D_values": np.full(num_r, D_const), "f_end": 0.0},
+            "diffusion": {
+                "D_values": np.full(num_r, D_const) * su.DIFFUSION_COEFFICIENT,
+                "psi_end": 0.0 * su.PSI_P,
+            },
         }
         f_final_both = run_solver_test(
             grid_params, op_params_both, "advection-diffusion", f_initial
@@ -87,28 +142,29 @@ class TestAdvectionDiffusion:
 
         # --- Analysis ---
         def get_width(dist):
-            # Use Full Width at Half Maximum (FWHM) as a robust measure of width
             half_max = np.max(dist) / 2.0
             indices = np.where(dist > half_max)[0]
             if len(indices) < 2:
                 return 0
-            return r_grid[indices[-1]] - r_grid[indices[0]]
+            return r_raw[indices[-1]] - r_raw[indices[0]]
 
-        width_initial = get_width(f_initial)
+        width_initial = get_width(f_initial.to_value(su.PSI_P))
         width_adv_only = get_width(f_final_adv_only)
         width_both = get_width(f_final_both)
 
-        peak_pos_adv_only = r_grid[np.argmax(f_final_adv_only)]
-        peak_pos_both = r_grid[np.argmax(f_final_both)]
+        peak_pos_adv_only = r_raw[np.argmax(f_final_adv_only)]
+        peak_pos_both = r_raw[np.argmax(f_final_both)]
 
         # --- Plotting ---
         if plot_results:
             plt.figure(figsize=(12, 8))
-            plt.plot(r_grid, f_initial, "k--", label="Initial Profile")
-            plt.plot(r_grid, f_final_diff_only, "g:", label="Final (Diffusion Only)")
-            plt.plot(r_grid, f_final_adv_only, "b-.", label="Final (Advection Only)")
             plt.plot(
-                r_grid, f_final_both, "r-", label="Final (Advection + Diffusion)", lw=2
+                r_raw, f_initial.to_value(su.PSI_P), "k--", label="Initial Profile"
+            )
+            plt.plot(r_raw, f_final_diff_only, "g:", label="Final (Diffusion Only)")
+            plt.plot(r_raw, f_final_adv_only, "b-.", label="Final (Advection Only)")
+            plt.plot(
+                r_raw, f_final_both, "r-", label="Final (Advection + Diffusion)", lw=2
             )
             plt.title("Combined Advection-Diffusion Test")
             plt.xlabel("Radius (pc)")
@@ -147,29 +203,31 @@ class TestAdvectionSource:
         v_const = 10.0  # pc/Myr
 
         # Grids
-        r_grid = np.linspace(0.0, r_end, num_r)
-        t_grid = np.linspace(0, t_final, 200)
+        r_grid = np.linspace(0.0, r_end, num_r) * su.LENGTH
+        t_grid = np.linspace(0, t_final, 200) * su.TIME
+        r_raw = r_grid.to_value(su.LENGTH)
 
         # Initial condition: zero everywhere
-        f_initial = np.zeros(num_r)
+        f_initial = np.zeros(num_r) * su.PSI_P
 
         # Source term: a spike at r=[0.9, 1.1]
         source_r_min, source_r_max = 0.9, 1.1
         Q_values = np.zeros(num_r)
-        source_mask = (r_grid >= source_r_min) & (r_grid <= source_r_max)
+        source_mask = (r_raw >= source_r_min) & (r_raw <= source_r_max)
         Q_values[source_mask] = 40.0
+        Q_qty = Q_values * su.SOURCE_PSI_P
 
         # SubSolver parameters
         grid_params = {"r_grid": r_grid, "t_grid": t_grid}
         op_params = {
             "advection": {
-                "v_centers": np.full(num_r, v_const),
+                "v_centers": np.full(num_r, v_const) * su.VELOCITY,
                 "order": 2,
                 "limiter": "minmod",
                 "cfl": 0.8,
-                "inflow_value_U": 0.0,
+                "inflow_value_U": 0.0 * su.AREA * su.PSI_P,
             },
-            "source": {"source": Q_values},
+            "source": {"source": Q_qty},
         }
 
         # Run simulation
@@ -180,7 +238,7 @@ class TestAdvectionSource:
         # Plotting
         if plot_results:
             plt.figure(figsize=(10, 6))
-            plt.plot(r_grid, f_final, label="Final Profile")
+            plt.plot(r_raw, f_final, label="Final Profile")
             plt.axvspan(
                 source_r_min,
                 source_r_max,
@@ -195,42 +253,23 @@ class TestAdvectionSource:
             plt.grid(True, alpha=0.5)
             plt.show()
 
-            # Additional plot: log-log to see 1/r^2 behavior
-            plt.figure(figsize=(10, 6))
-            plt.loglog(r_grid, f_final, label="Final Profile")
-            plt.axvspan(
-                source_r_min,
-                source_r_max,
-                color="red",
-                alpha=0.3,
-                label="Source Region",
-            )
-            plt.title("Advection-Source Test (Constant Velocity) - Log-Log Scale")
-            plt.xlabel("Radius (pc)")
-            plt.ylabel("f(r)")
-            plt.xlim(left=0.1)  # Avoid log(0) issues
-            plt.ylim(bottom=1e-6)
-            plt.legend()
-            plt.grid(True, alpha=0.5, which="both")
-            plt.show()
-
         # --- Assertions ---
         # 1. The distribution should be zero (or very close) upstream of the source.
-        upstream_mask = r_grid < source_r_min
+        upstream_mask = r_raw < source_r_min
         assert np.allclose(f_final[upstream_mask], 0, atol=1e-9)
 
         # 2. The distribution should be non-zero downstream of the source.
-        downstream_mask = r_grid > source_r_max
+        downstream_mask = r_raw > source_r_max
         assert np.any(f_final[downstream_mask] > 1e-9)
 
         # 3. Due to spherical geometry and constant velocity, f should decrease ~1/r^2.
-        plume_mask = (r_grid > source_r_max) & (f_final > 0)
+        plume_mask = (r_raw > source_r_max) & (f_final > 0)
         plume_indices = np.where(plume_mask)[0]
         if len(plume_indices) > 10:  # Only check if the plume is well-developed
             mid_point = plume_indices[0] + len(plume_indices) // 2
             slope = (
                 np.log(f_final[mid_point + 5]) - np.log(f_final[mid_point - 5])
-            ) / (np.log(r_grid[mid_point + 5]) - np.log(r_grid[mid_point - 5]))
+            ) / (np.log(r_raw[mid_point + 5]) - np.log(r_raw[mid_point - 5]))
             expected_slope = -2
             assert np.isclose(slope, expected_slope, rtol=1e-3)
 
@@ -243,34 +282,37 @@ class TestAdvectionSource:
         num_r, r_end, t_final = 800, 6.0, 10.0
 
         # Grids
-        r_grid = np.linspace(0.0, r_end, num_r)
-        t_grid = np.linspace(0, t_final, 1000)
+        r_grid = np.linspace(0.0, r_end, num_r) * su.LENGTH
+        t_grid = np.linspace(0, t_final, 1000) * su.TIME
+        r_raw = r_grid.to_value(su.LENGTH)
 
         # Initial condition: zero everywhere
-        f_initial = np.zeros(num_r)
+        f_initial = np.zeros(num_r) * su.PSI_P
 
         # Velocity field: v ~ 1/r^2, with a cap at small r (protect against division by zero at r=0)
-        r_safe = np.maximum(r_grid, 0.1)
+        r_safe = np.maximum(r_raw, 0.1)
         v_field = 1.0 / (r_safe**2)
         v_field[0] = 0.0  # Ensure velocity is zero at the origin
+        v_qty = v_field * su.VELOCITY
 
         # Source term: a spike at r=[0.9, 1.1]
         source_r_min, source_r_max = 0.9, 1.1
         Q_values = np.zeros(num_r)
-        source_mask = (r_grid >= source_r_min) & (r_grid <= source_r_max)
+        source_mask = (r_raw >= source_r_min) & (r_raw <= source_r_max)
         Q_values[source_mask] = 40.0
+        Q_qty = Q_values * su.SOURCE_PSI_P
 
         # SubSolver parameters
         grid_params = {"r_grid": r_grid, "t_grid": t_grid}
         op_params = {
             "advection": {
-                "v_centers": v_field,
+                "v_centers": v_qty,
                 "order": 2,
                 "limiter": "minmod",
                 "cfl": 0.8,
-                "inflow_value_U": 0.0,
+                "inflow_value_U": 0.0 * su.AREA * su.PSI_P,
             },
-            "source": {"source": Q_values},
+            "source": {"source": Q_qty},
         }
 
         # Run simulation
@@ -281,7 +323,7 @@ class TestAdvectionSource:
         # Plotting
         if plot_results:
             fig, ax1 = plt.subplots(figsize=(10, 6))
-            ax1.plot(r_grid, f_final, label="Final Profile", color="C0")
+            ax1.plot(r_raw, f_final, label="Final Profile", color="C0")
             ax1.axvspan(
                 source_r_min,
                 source_r_max,
@@ -296,7 +338,7 @@ class TestAdvectionSource:
             ax1.grid(True, alpha=0.3)
 
             ax2 = ax1.twinx()
-            ax2.plot(r_grid, v_field, "g--", label="Velocity Field")
+            ax2.plot(r_raw, v_field, "g--", label="Velocity Field")
             ax2.set_ylabel("Velocity (pc/Myr)", color="g")
             ax2.tick_params(axis="y", labelcolor="g")
             ax2.legend(loc="upper right")
@@ -307,21 +349,21 @@ class TestAdvectionSource:
 
         # --- Assertions ---
         # 1. The distribution should be zero upstream of the source.
-        upstream_mask = r_grid < source_r_min
+        upstream_mask = r_raw < source_r_min
         assert np.allclose(f_final[upstream_mask], 0, atol=1e-9)
 
         # 2. The distribution should be non-zero downstream of the source.
-        downstream_mask = r_grid > source_r_max
+        downstream_mask = r_raw > source_r_max
         assert np.any(f_final[downstream_mask] > 1e-9)
 
         # 3. Due to v decreasing, f should be more or less constant (spherical geometry).
         # We check that the average slope in the plume region is close to zero.
-        plume_mask = (r_grid > source_r_max) & (f_final > 0)
+        plume_mask = (r_raw > source_r_max) & (f_final > 0)
         plume_indices = np.where(plume_mask)[0]
         if len(plume_indices) > 10:  # Only check if the plume is well-developed
             mid_point = plume_indices[0] + len(plume_indices) // 2
             avg_slope = (f_final[mid_point + 5] - f_final[mid_point - 5]) / (
-                r_grid[mid_point + 5] - r_grid[mid_point - 5]
+                r_raw[mid_point + 5] - r_raw[mid_point - 5]
             )
             assert np.isclose(avg_slope, 0, atol=1e-2)
 
@@ -343,21 +385,24 @@ class TestDiffusionSource:
         eps = 0.01
 
         # Grids
-        r_grid = np.linspace(0.0, r_end, num_r)
-        t_grid = np.linspace(0, t_final, 100000)
+        r_grid = np.linspace(0.0, r_end, num_r) * su.LENGTH
+        t_grid = np.linspace(0, t_final, 100000) * su.TIME
+        r_raw = r_grid.to_value(su.LENGTH)
 
         # Initial condition: zero everywhere
-        f_initial = np.zeros(num_r)
+        f_initial = np.zeros(num_r) * su.PSI_P
 
         # Spatially-dependent diffusion and source
-        D_values = D_0 * (r_grid + eps) ** 2
-        Q_values = Q_0 * r_grid
+        D_values = D_0 * (r_raw + eps) ** 2
+        Q_values = Q_0 * r_raw
+        D_qty = D_values * su.DIFFUSION_COEFFICIENT
+        Q_qty = Q_values * su.SOURCE_PSI_P
 
         # SubSolver parameters
         grid_params = {"r_grid": r_grid, "t_grid": t_grid}
         op_params = {
-            "diffusion": {"D_values": D_values, "f_end": 0.0},
-            "source": {"source": Q_values},
+            "diffusion": {"D_values": D_qty, "psi_end": 0.0 * su.PSI_P},
+            "source": {"source": Q_qty},
         }
 
         # Run simulation
@@ -368,7 +413,7 @@ class TestDiffusionSource:
         # Analytical steady-state solution from DiffValidation4.py
         C1 = 1 - 2 * eps * np.log(eps + 1) - eps**2 / (eps + 1)
         analytical_steady_state = (Q_0 / (4 * D_0)) * (
-            C1 - (r_grid - 2 * eps * np.log(eps + r_grid) - eps**2 / (eps + r_grid))
+            C1 - (r_raw - 2 * eps * np.log(eps + r_raw) - eps**2 / (eps + r_raw))
         )
         # Ensure boundary condition is met
         analytical_steady_state[-1] = 0.0
@@ -376,9 +421,9 @@ class TestDiffusionSource:
         # Plotting
         if plot_results:
             plt.figure(figsize=(10, 6))
-            plt.plot(r_grid, f_final, label="Numerical Final State", lw=2)
+            plt.plot(r_raw, f_final, label="Numerical Final State", lw=2)
             plt.plot(
-                r_grid,
+                r_raw,
                 analytical_steady_state,
                 "r--",
                 label="Analytical Steady State",
@@ -395,8 +440,3 @@ class TestDiffusionSource:
         # Check that the final numerical solution is close to the analytical steady state.
         # A tolerance is needed as it's an approximation to a steady state.
         assert np.allclose(f_final, analytical_steady_state, atol=1e-3)
-
-
-if __name__ == "__main__":
-    print("Running tests with plotting enabled...")
-    pytest.main([__file__, "--plot"])

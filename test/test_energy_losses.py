@@ -19,14 +19,14 @@ class TestEnergyLossCalculator:
         calc_p = EnergyLossCalculator(**base_args, particle="proton")
         assert calc_p.particle == Particle.PROTON
 
-        # Test valid ndarray inputs without units (uses default)
-        calc_no_unit = EnergyLossCalculator(
-            E_grid=np.logspace(-1, 3, 50),
-            r_grid=np.linspace(0.1, 10, 20),
-            n_gas=np.ones(20),
-            particle="electron",
-        )
-        assert calc_no_unit.E_grid.unit.is_equivalent(u.GeV)
+        # Test raw ndarray inputs without units fail fail-fast boundary
+        with pytest.raises(TypeError):
+            EnergyLossCalculator(
+                E_grid=np.logspace(-1, 3, 50),
+                r_grid=np.linspace(0.1, 10, 20),
+                n_gas=np.ones(20),
+                particle="electron",
+            )
 
         with pytest.raises(ValueError):
             EnergyLossCalculator(**base_args, particle="invalid")
@@ -35,17 +35,17 @@ class TestEnergyLossCalculator:
         # Pass wrong units
         wrong_args = base_args.copy()
         wrong_args["E_grid"] = np.ones(50) * u.K
-        with pytest.raises(ValueError):
+        with pytest.raises((u.UnitsError, TypeError, ValueError)):
             EnergyLossCalculator(**wrong_args, particle="proton")
 
         wrong_args2 = base_args.copy()
         wrong_args2["r_grid"] = np.ones(50) * u.K
-        with pytest.raises(ValueError):
+        with pytest.raises((u.UnitsError, TypeError, ValueError)):
             EnergyLossCalculator(**wrong_args2, particle="proton")
 
         wrong_args3 = base_args.copy()
         wrong_args3["n_gas"] = np.ones(50) * u.K
-        with pytest.raises(ValueError):
+        with pytest.raises((u.UnitsError, TypeError, ValueError)):
             EnergyLossCalculator(**wrong_args3, particle="proton")
 
     def test_ionization_losses(self, base_args):
@@ -141,9 +141,3 @@ class TestEnergyLossCalculator:
 
         timescales_r = calc_e.get_loss_timescales(r_index=0)
         assert timescales_r["total"].shape == (len(base_args["E_grid"]),)
-
-
-if __name__ == "__main__":
-    # This block runs only when the script is executed directly.
-    print("Running tests...")
-    pytest.main([__file__])

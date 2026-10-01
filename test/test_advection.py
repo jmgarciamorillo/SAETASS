@@ -2,10 +2,12 @@ try:
     import matplotlib.pyplot as plt
 except ImportError:
     plt = None
+import astropy.units as u
 import numpy as np
 import pytest
 
-from saetass import Grid, Solver, State
+from saetass import Grid, Particle, Solver, State
+from saetass import units as su
 
 
 # Helper function to set up and run an advection problem
@@ -14,13 +16,29 @@ def run_advection_test(grid_params, solver_params, initial_f):
     Helper function to initialize and run the solver for an advection problem.
     Handles both 1D and 2D cases.
     """
+    r_g = (
+        grid_params["r_grid"]
+        if isinstance(grid_params["r_grid"], u.Quantity)
+        else grid_params["r_grid"] * su.LENGTH
+    )
+    t_g = (
+        grid_params["t_grid"]
+        if isinstance(grid_params["t_grid"], u.Quantity)
+        else grid_params["t_grid"] * su.TIME
+    )
+    p_g = grid_params.get("p_grid", None)
+    if p_g is not None and not isinstance(p_g, u.Quantity):
+        p_g = p_g * su.MOMENTUM
+
+    init_f = initial_f if isinstance(initial_f, u.Quantity) else initial_f * su.PSI_P
+
     # Create grid and initial state
     grid = Grid(
-        r_centers=grid_params["r_grid"],
-        t_grid=grid_params["t_grid"],
-        p_centers=grid_params.get("p_grid", None),
+        r_centers=r_g,
+        t_grid=t_g,
+        p_centers=p_g,
     )
-    state = State(initial_f)
+    state = State(psi_p=init_f, grid=grid, particle=Particle.PROTON)
 
     # Create solver
     solver = Solver(
@@ -33,10 +51,10 @@ def run_advection_test(grid_params, solver_params, initial_f):
     )
 
     # Run simulation
-    num_timesteps = len(grid_params["t_grid"]) - 1
+    num_timesteps = len(t_g) - 1
     solver.step(num_timesteps)
 
-    return solver.state.f
+    return solver.state.psi_p.to_value(su.PSI_P)
 
 
 class Test1DRadialAdvection:
@@ -53,21 +71,22 @@ class Test1DRadialAdvection:
         v_const = 5.0
         r_initial_peak = 20.0
         sigma = 2.0
-        r_grid = np.linspace(0.0, r_end, num_r)
-        t_grid = np.linspace(0, t_final, 7000)
+        r_grid = np.linspace(0.0, r_end, num_r) * su.LENGTH
+        t_grid = np.linspace(0, t_final, 7000) * su.TIME
 
         # Initial condition: Gaussian pulse
-        f_initial = np.exp(-((r_grid - r_initial_peak) ** 2) / (2 * sigma**2))
+        r_raw = r_grid.to_value(su.LENGTH)
+        f_initial = np.exp(-((r_raw - r_initial_peak) ** 2) / (2 * sigma**2)) * su.PSI_P
 
         # Advection parameters
-        v_field = np.full(num_r, v_const)
+        v_field = np.full(num_r, v_const) * su.VELOCITY
         grid_params = {"r_grid": r_grid, "t_grid": t_grid}
         solver_params = {
             "v_centers": v_field,
             "order": 2,
             "limiter": "minmod",
             "cfl": 0.8,
-            "inflow_value_U": 0.0,
+            "inflow_value_U": 0.0 * su.AREA * su.PSI_P,
         }
 
         f_final_numerical = run_advection_test(
@@ -75,20 +94,22 @@ class Test1DRadialAdvection:
         ).flatten()
 
         # Analytical solution at t_final for spherical advection
-        r_shifted = r_grid - v_const * t_final
-        f_analytical = np.zeros_like(r_grid)
+        r_shifted = r_raw - v_const * t_final
+        f_analytical = np.zeros_like(r_raw)
         # Mask for valid regions (r > 0 and r_shifted > 0)
-        mask = (r_grid > 0) & (r_shifted > 0)
-        f_analytical[mask] = ((r_shifted[mask] / r_grid[mask]) ** 2) * np.exp(
+        mask = (r_raw > 0) & (r_shifted > 0)
+        f_analytical[mask] = ((r_shifted[mask] / r_raw[mask]) ** 2) * np.exp(
             -((r_shifted[mask] - r_initial_peak) ** 2) / (2 * sigma**2)
         )
 
         if plot_results:
             plt.figure(figsize=(10, 6))
-            plt.plot(r_grid, f_initial, "k--", label="Initial Profile")
-            plt.plot(r_grid, f_final_numerical, label="Final (Numerical)", lw=2)
             plt.plot(
-                r_grid,
+                r_raw, f_initial.to_value(su.PSI_P), "k--", label="Initial Profile"
+            )
+            plt.plot(r_raw, f_final_numerical, label="Final (Numerical)", lw=2)
+            plt.plot(
+                r_raw,
                 f_analytical,
                 "r:",
                 label="Final (Analytical)",
@@ -110,20 +131,21 @@ class Test1DRadialAdvection:
         v_const = 5.0
         r_initial = 20.0
         sigma = 2.0
-        r_grid = np.linspace(0.0, r_end, num_r)
-        t_grid = np.linspace(0, t_final, 5000)
+        r_grid = np.linspace(0.0, r_end, num_r) * su.LENGTH
+        t_grid = np.linspace(0, t_final, 5000) * su.TIME
 
-        f_initial = np.exp(-((r_grid - r_initial) ** 2) / (2 * sigma**2))
-        peak_initial = np.max(f_initial)
+        r_raw = r_grid.to_value(su.LENGTH)
+        f_initial = np.exp(-((r_raw - r_initial) ** 2) / (2 * sigma**2)) * su.PSI_P
+        peak_initial = np.max(f_initial.to_value(su.PSI_P))
 
-        v_field = np.full(num_r, v_const)
+        v_field = np.full(num_r, v_const) * su.VELOCITY
         grid_params = {"r_grid": r_grid, "t_grid": t_grid}
         solver_params = {
             "v_centers": v_field,
             "order": 2,
             "limiter": "minmod",
             "cfl": 0.8,
-            "inflow_value_U": 0.0,
+            "inflow_value_U": 0.0 * su.AREA * su.PSI_P,
         }
 
         f_final = run_advection_test(grid_params, solver_params, f_initial).flatten()
@@ -137,9 +159,12 @@ class Test1DRadialAdvection:
         if plot_results:
             plt.figure(figsize=(10, 6))
             plt.plot(
-                r_grid, f_initial, "k--", label=f"Initial (Peak={peak_initial:.3f})"
+                r_raw,
+                f_initial.to_value(su.PSI_P),
+                "k--",
+                label=f"Initial (Peak={peak_initial:.3f})",
             )
-            plt.plot(r_grid, f_final, label=f"Final (Peak={peak_final_numerical:.3f})")
+            plt.plot(r_raw, f_final, label=f"Final (Peak={peak_final_numerical:.3f})")
             plt.axhline(
                 peak_final_analytical,
                 color="r",
@@ -169,16 +194,17 @@ class Test2DEnergyRadiusAdvection:
         num_r, num_E, r_end, t_final = 1000, 10, 50.0, 5.0
         v_const = 4.0
         r_initial = 10.0
-        r_grid = np.linspace(0.0, r_end, num_r)
-        p_grid = np.logspace(0, 2, num_E)  # Dummy momentum grid
-        t_grid = np.linspace(0, t_final, 1000)
+        r_grid = np.linspace(0.0, r_end, num_r) * su.LENGTH
+        p_grid = np.logspace(0, 2, num_E) * su.MOMENTUM  # Momentum grid
+        t_grid = np.linspace(0, t_final, 1000) * su.TIME
 
         # Same velocity field for all energies
-        v_field = np.full((num_E, num_r), v_const)
+        v_field = np.full((num_E, num_r), v_const) * su.VELOCITY
 
         # Initial condition: Gaussian in radius, same for all energies
-        f_initial_1d = np.exp(-((r_grid - r_initial) ** 2) / (2 * 1.0**2))
-        f_initial_2d = np.tile(f_initial_1d, (num_E, 1))
+        r_raw = r_grid.to_value(su.LENGTH)
+        f_initial_1d = np.exp(-((r_raw - r_initial) ** 2) / (2 * 1.0**2))
+        f_initial_2d = np.tile(f_initial_1d, (num_E, 1)) * su.PSI_P
 
         grid_params = {"r_grid": r_grid, "t_grid": t_grid, "p_grid": p_grid}
         solver_params = {
@@ -186,7 +212,7 @@ class Test2DEnergyRadiusAdvection:
             "order": 2,
             "limiter": "minmod",
             "cfl": 0.8,
-            "inflow_value_U": 0.0,
+            "inflow_value_U": 0.0 * su.AREA * su.PSI_P,
         }
 
         f_final_2d = run_advection_test(grid_params, solver_params, f_initial_2d)
@@ -197,9 +223,9 @@ class Test2DEnergyRadiusAdvection:
 
         if plot_results:
             plt.figure(figsize=(10, 6))
-            plt.plot(r_grid, f_initial_1d, "k--", label="Initial Profile")
-            plt.plot(r_grid, f_final_low_E, label="Final (Low E)", lw=3, alpha=0.8)
-            plt.plot(r_grid, f_final_high_E, "r:", label="Final (High E)", lw=3)
+            plt.plot(r_raw, f_initial_1d, "k--", label="Initial Profile")
+            plt.plot(r_raw, f_final_low_E, label="Final (Low E)", lw=3, alpha=0.8)
+            plt.plot(r_raw, f_final_high_E, "r:", label="Final (High E)", lw=3)
             plt.title("2D Energy-Independent Advection")
             plt.legend()
             plt.grid(True, alpha=0.5)
@@ -212,15 +238,19 @@ class Test2DEnergyRadiusAdvection:
 class TestAdvectionSolverExceptionsAndEdges:
     def test_invalid_parameters(self):
         grid = Grid(
-            r_centers=np.array([1.0, 2.0]), is_p_log=False, t_grid=np.array([0.0, 1.0])
+            r_centers=np.array([1.0, 2.0]) * su.LENGTH,
+            is_p_log=False,
+            t_grid=np.array([0.0, 1.0]) * su.TIME,
         )
-        state = State(np.ones((2,)))
+        state = State(
+            psi_p=np.ones((2,)) * su.PSI_P, grid=grid, particle=Particle.PROTON
+        )
         # missing cfl
         params = {
-            "v_centers": np.array([[1.0, 1.0]]),
+            "v_centers": np.array([[1.0, 1.0]]) * su.VELOCITY,
             "limiter": "minmod",
             "order": 1,
-            "inflow_value_U": 0.0,
+            "inflow_value_U": 0.0 * su.AREA * su.PSI_P,
         }
         with pytest.raises(ValueError, match="cfl must be"):
             Solver(
@@ -245,21 +275,21 @@ class TestAdvectionSolverExceptionsAndEdges:
 
     def test_other_limiters(self):
         grid = Grid(
-            r_centers=np.array([1.0, 3.0]),
-            p_centers=np.array([1.0]),
+            r_centers=np.array([1.0, 3.0]) * su.LENGTH,
+            p_centers=np.array([1.0]) * su.MOMENTUM,
             is_p_log=False,
-            t_grid=np.array([0.0, 1.0]),
+            t_grid=np.array([0.0, 1.0]) * su.TIME,
         )
-        f_init = np.array([[1.0, 2.0]])
-        state = State(f_init)
+        f_init = np.array([[1.0, 2.0]]) * su.PSI_P
+        state = State(psi_p=f_init, grid=grid, particle=Particle.PROTON)
 
         for limiter in ["vanleer", "mc"]:
             params = {
-                "v_centers": np.array([[1.0, 1.0]]),
+                "v_centers": np.array([[1.0, 1.0]]) * su.VELOCITY,
                 "limiter": limiter,
                 "order": 2,
                 "cfl": 0.5,
-                "inflow_value_U": 0.0,
+                "inflow_value_U": 0.0 * su.AREA * su.PSI_P,
             }
             solver = Solver(
                 grid=grid,
@@ -270,11 +300,4 @@ class TestAdvectionSolverExceptionsAndEdges:
             )
             solver.step(1)
             # Just test it executes successfully
-            assert np.any(solver.state.f)
-
-
-if __name__ == "__main__":
-    # This block runs only when the script is executed directly.
-    # It calls pytest and passes the --plot flag to enable plotting.
-    print("Running tests with plotting enabled...")
-    pytest.main([__file__, "--plot"])
+            assert np.any(solver.state.psi_p.to_value(su.PSI_P))

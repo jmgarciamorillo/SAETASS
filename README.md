@@ -75,15 +75,15 @@ For complete, more advanced examples, check the [Examples](https://saetass.readt
 
 SAETASS solves the following **astroparticle transport equation** in spherically symmetric geometry:
 
-$$\frac{\partial f}{\partial t}
-    + \frac{1}{r^2}\frac{\partial}{\partial r}\left(r^2 u_\mathrm{w}f\right)
-    + \frac{\partial}{\partial p}\left( \dot{p} f \right)
+$$\frac{\partial \psi}{\partial t}
+    + \frac{1}{r^2}\frac{\partial}{\partial r}\left(r^2 u_\mathrm{w}\psi\right)
+    + \frac{\partial}{\partial p}\left( \dot{p} \psi \right)
     = \frac{1}{r^2} \frac{\partial}{\partial r}
-    \left(r^2 D\frac{\partial f}{\partial r}\right)
+    \left(r^2 D\frac{\partial \psi}{\partial r}\right)
     + Q.$$
 
 Where:
-- $f(t,r, p)$ is the particle distribution function,
+- $\psi(t, r, p)$ is the differential (in momentum) density function ($\psi = 4\pi p^2 f_\mathrm{ps}$),
 - $u_\mathrm{w}(t,r,p)$ is the advection (wind) velocity,
 - $\dot{p}(t, r, p)$ is the rate of energy loss,
 - $D(t, r, p)$ is the spatial diffusion coefficient,
@@ -93,8 +93,7 @@ The equation is discretized using a **finite volume scheme** and solved by an **
 
 ### References
 
-<!-- TODO: Replace PLACEHOLDER_FOR_TECHNICAL_PAPER with the actual URL of the technical paper -->
-> For a detailed derivation of the numerical schemes, see the [technical paper](PLACEHOLDER_FOR_TECHNICAL_PAPER).
+For a detailed derivation of the numerical schemes, see the [technical paper](https://doi.org/10.1088/1475-7516/2026/09/133).
 
 
 ## Citation
@@ -102,13 +101,18 @@ The equation is discretized using a **finite volume scheme** and solved by an **
 If you use SAETASS in your research, **please cite the technical paper** to acknowledge the development effort:
 
 ```bibtex
-@article{PLACEHOLDER_FOR_TECHNICAL_PAPER,
-  author  = {Garcia-Morillo, J. M.},
+@article{saetass_technical_paper,
+  author  = {García-Morillo, José María and Menchiari, Stefano and López-Coto, Rubén},
   title   = {SAETASS: Solver for Astroparticle Equation of Transport Analysis in Spherical Symmetry},
-  journal = {XXXX},
+  journal = {Journal of Cosmology and Astroparticle Physics},
+  publisher = {IOP Publishing},
   year    = {2026},
-  volume  = {X},
-  doi     = {10.XXXX/XXXXX}
+  month   = {sep},
+  volume  = {2026},
+  number  = {09},
+  pages   = {133},
+  doi     = {10.1088/1475-7516/2026/09/133},
+  url     = {https://doi.org/10.1088/1475-7516/2026/09/133},
 }
 ```
 

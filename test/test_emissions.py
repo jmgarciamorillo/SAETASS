@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from pathlib import Path
 
 import astropy.constants as const
@@ -7,6 +5,8 @@ import astropy.units as u
 import numpy as np
 import pytest
 
+from saetass import units as su
+from saetass.grid import Grid
 from saetass.state import State
 from saetass.utils.emissions import EmissionCalculator
 from saetass.utils.energy_losses import Particle
@@ -86,13 +86,23 @@ def _create_powerlaw_state_and_naima_model(
     m_GeV = m.to(u.GeV)
 
     E_tot = E_cr + m_GeV
-    p = np.sqrt(E_tot**2 - m_GeV**2) / const.c
+    p = (np.sqrt(E_tot**2 - m_GeV**2) / const.c).to(su.MOMENTUM)
     dE_dp = (p * const.c**2) / E_tot
 
     N_p = dn_dE * dE_dp
-    f_cr_val = N_p.to_value(u.cm**-3 / (u.GeV / const.c))
+    f_cr_val = N_p.to_value(su.PSI_P)
     f_cr_2d = np.tile(f_cr_val, (len(r_grid), 1)).T
-    state_cr = State(f=f_cr_2d, stage_name=stage_name)
+    particle_spec = Particle.PROTON if particle == "proton" else Particle.ELECTRON
+    grid_cr = Grid(
+        r_centers=r_grid,
+        p_centers=p,
+    )
+    state_cr = State(
+        grid=grid_cr,
+        psi_p=f_cr_2d * su.PSI_P,
+        particle=particle_spec,
+        stage_name=stage_name,
+    )
 
     dr = np.gradient(r_grid.to_value(u.cm))
     total_volume_cm3 = np.sum(4 * np.pi * (r_grid.to_value(u.cm) ** 2) * dr)
@@ -119,10 +129,16 @@ def base_args():
 
 
 @pytest.fixture
-def state_cr():
+def state_cr(base_args):
     """Dummy cosmic ray state with shape (N_cr, N_r)."""
-    f = np.ones((200, 10)) * 1e-10
-    return State(f=f, stage_name="test_stage")
+    # Golden data was generated with psi_p = 1e-10 cm^-3 (GeV/c)^-1: keep that physics.
+    f = np.ones((200, 10)) * 1e-10 * u.cm**-3 / su.MOMENTUM
+    p_cr = (base_args["E_cr_grid"] / const.c).to(su.MOMENTUM)
+    grid = Grid(
+        r_centers=base_args["r_grid"],
+        p_centers=p_cr,
+    )
+    return State(grid=grid, psi_p=f, particle=Particle.PROTON, stage_name="test_stage")
 
 
 @pytest.fixture
@@ -160,17 +176,15 @@ class TestEmissionCalculator:
         assert calc_p.particle == Particle.PROTON
         assert calc_p.distance.unit.is_equivalent(u.kpc)
 
-        # Test valid ndarray inputs without units (auto-assigns defaults)
-        calc_no_unit = EmissionCalculator(
-            E_out_grid=np.logspace(-1, 3, 20),
-            E_cr_grid=np.logspace(-1, 4, 30),
-            r_grid=np.linspace(0.1, 10, 10),
-            n_gas=np.ones(10),
-            particle="electron",
-        )
-        assert calc_no_unit.E_out_grid.unit.is_equivalent(u.GeV)
-        assert calc_no_unit.particle_species == "leptonic"
-        assert calc_no_unit.distance is None
+        # Test valid ndarray inputs without units fail fail-fast boundary
+        with pytest.raises(TypeError):
+            EmissionCalculator(
+                E_out_grid=np.logspace(-1, 3, 20),
+                E_cr_grid=np.logspace(-1, 4, 30),
+                r_grid=np.linspace(0.1, 10, 10),
+                n_gas=np.ones(10),
+                particle="electron",
+            )
 
         with pytest.raises(ValueError):
             EmissionCalculator(**base_args, particle="invalid_particle")
@@ -178,10 +192,10 @@ class TestEmissionCalculator:
     def test_invalid_units(self, base_args):
         wrong_args = base_args.copy()
         wrong_args["E_out_grid"] = np.ones(20) * u.K
-        with pytest.raises(ValueError):
+        with pytest.raises((u.UnitsError, TypeError, ValueError)):
             EmissionCalculator(**wrong_args, particle="proton")
 
-        with pytest.raises(ValueError):
+        with pytest.raises((u.UnitsError, TypeError, ValueError)):
             EmissionCalculator(**base_args, particle="proton", distance=5 * u.kg)
 
     def test_pion_decay_emission(self, base_args, state_cr, dummy_sigma):
@@ -370,11 +384,29 @@ class TestEmissionCalculatorEdgeCases:
             **base_args, particle="electron", distance=1 * u.kpc
         )
 
-        bad_state_cr = State(f=np.ones((100, 10)), stage_name="bad_ncr")
+        grid_bad_cr = Grid(
+            r_centers=base_args["r_grid"],
+            p_centers=np.logspace(-1, 4, 100) * su.MOMENTUM,
+        )
+        bad_state_cr = State(
+            grid=grid_bad_cr,
+            psi_p=np.ones((100, 10)) * su.PSI_P,
+            particle=Particle.PROTON,
+            stage_name="bad_ncr",
+        )
         with pytest.raises(ValueError, match="Shape mismatch in cosmic ray State"):
             calc_p.compute_pion_decay_emission(bad_state_cr, custom_matrix=dummy_sigma)
 
-        bad_state_r = State(f=np.ones((200, 5)), stage_name="bad_nr")
+        grid_bad_r = Grid(
+            r_centers=np.linspace(0.1, 10, 5) * su.LENGTH,
+            p_centers=(base_args["E_cr_grid"] / const.c).to(su.MOMENTUM),
+        )
+        bad_state_r = State(
+            grid=grid_bad_r,
+            psi_p=np.ones((200, 5)) * su.PSI_P,
+            particle=Particle.ELECTRON,
+            stage_name="bad_nr",
+        )
         with pytest.raises(ValueError, match="Shape mismatch in cosmic ray State"):
             calc_e.compute_inverse_compton_emission(
                 bad_state_r, custom_kernel=dummy_ic_kernel
@@ -431,10 +463,14 @@ class TestEmissionRegression:
             base_args, state_cr, dummy_sigma, dummy_ic_kernel
         )
 
-        if update_golden or not golden_data_path.exists():
+        if update_golden:
             np.savez_compressed(golden_data_path, **results)
-            if update_golden:
-                pytest.skip("Golden dataset updated on disk.")
+            pytest.skip("Golden dataset updated on disk.")
+        if not golden_data_path.exists():
+            pytest.fail(
+                f"Golden dataset {golden_data_path} is missing; "
+                "regenerate it deliberately with --update-golden."
+            )
 
         golden = np.load(golden_data_path)
         for key, value in results.items():
@@ -442,7 +478,7 @@ class TestEmissionRegression:
                 value,
                 golden[key],
                 rtol=1e-5,
-                atol=1e-30,
+                atol=0.0,  # purely relative: an absolute floor hides scale errors
                 err_msg=f"Regression mismatch detected for channel '{key}'",
             )
 
@@ -638,7 +674,17 @@ class TestEmissionPerformance:
         r_grid = np.linspace(0.1, 10, N_r) * u.pc
         n_gas = np.ones(N_r) * u.cm**-3
         dummy_sigma = np.ones((N_out, N_cr)) * 1e-27 * u.cm**2 / u.GeV
-        state_large = State(f=np.ones((N_cr, N_r)) * 1e-10, stage_name="perf_test")
+        p_cr_large = (E_cr_grid / const.c).to(su.MOMENTUM)
+        grid_large = Grid(
+            r_centers=r_grid,
+            p_centers=p_cr_large,
+        )
+        state_large = State(
+            grid=grid_large,
+            psi_p=np.ones((N_cr, N_r)) * 1e-10 * su.PSI_P,
+            particle=Particle.PROTON,
+            stage_name="perf_test",
+        )
 
         calc = EmissionCalculator(
             E_out_grid=E_out_grid,

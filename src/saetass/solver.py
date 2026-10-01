@@ -11,16 +11,50 @@ Hence, it serves as the central orchestrator of the simulation workflow, while d
 
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any
+from types import MappingProxyType
+from typing import Any, ClassVar
 
+import astropy.units as u
 import numpy as np
 
+from . import units as su
 from .cli.banner import print_banner
 from .cli.progress import create_progress_bar
 from .grid import Grid
 from .splitting import create_splitting_scheme
 from .state import State
+
+
+@dataclass(frozen=True, slots=True)
+class ParamSpec:
+    """
+    Declaration of a single user-facing :py:class:`~saetass.solver.SubSolver` parameter.
+
+    Each :py:class:`~saetass.solver.SubSolver` declares its accepted parameters in
+    :py:attr:`~saetass.solver.SubSolver.PARAM_SPECS`. :py:class:`~saetass.solver.Solver`
+    uses these declarations to convert physical inputs into the bare canonical floats
+    consumed by the numerical kernels, rejecting anything undeclared.
+
+    Parameters
+    ----------
+    unit : astropy.units.UnitBase or None, optional
+        Canonical unit of a physical parameter, which must then be given as a
+        :py:class:`~astropy.units.Quantity` (or a callable returning one).
+        ``None`` marks a non-physical option (e.g. ``cfl``, ``limiter``), passed through unchanged.
+    dynamic : bool, optional
+        Whether a callable may be given instead of a fixed value. It is called with the
+        time as a Quantity, ``fn(t)``, and must return a Quantity.
+    coords : bool, optional
+        Whether a dynamic callable also receives the physical cell-center coordinates,
+        ``fn(r, p, t)``, where ``r`` or ``p`` is ``None`` for 1D grids.
+    """
+
+    unit: u.UnitBase | None = None
+    dynamic: bool = False
+    coords: bool = False
 
 
 class SubSolver(ABC):
@@ -35,11 +69,77 @@ class SubSolver(ABC):
     ----------
     grid : :py:class:`~saetass.grid.Grid`
         The :py:class:`~saetass.grid.Grid` object containing spatial and/or momentum nodes.
-    t_grid : np.ndarray
-        The refined time grid for this specific operator's integration steps.
-    params : Dict[str, Any]
-        Dictionary containing physical and numerical parameters specific to this :py:class:`~saetass.solver.SubSolver`.
+    t_grid : numpy.ndarray
+        The refined time grid for this specific operator's integration steps, in canonical :py:data:`~saetass.units.TIME` units.
+    params : dict
+        Dictionary containing numerical parameters specific to this :py:class:`~saetass.solver.SubSolver`, already converted to bare canonical floats (see :py:meth:`~saetass.solver.SubSolver.convert_params`).
     """
+
+    #: Accepted user-facing parameters and their canonical units.
+    PARAM_SPECS: ClassVar[Mapping[str, ParamSpec]] = MappingProxyType({})
+
+    @classmethod
+    def convert_params(cls, params: Mapping[str, Any], grid: Grid) -> dict[str, Any]:
+        """
+        Convert user-facing parameters into the bare canonical floats consumed by this subsolver.
+
+        Physical parameters must be Quantities (or, where declared dynamic, callables returning Quantities) with units equivalent to those declared in :py:attr:`PARAM_SPECS`.
+        Dynamic callables are wrapped into ``fn(t: float) -> ndarray`` in canonical units.
+
+        Parameters
+        ----------
+        params : dict
+            User-facing parameters.
+        grid : :py:class:`~saetass.grid.Grid`
+            Grid providing the physical coordinates passed to coordinate-dependent callables.
+
+        Returns
+        -------
+        dict
+            Parameters ready to be passed to the subsolver constructor.
+
+        Raises
+        ------
+        ValueError
+            If a parameter is not declared in :py:attr:`PARAM_SPECS`.
+        TypeError
+            If a physical parameter lacks units, a non-physical one has them, or a callable is given for a non-dynamic parameter.
+        astropy.units.UnitsError
+            If a parameter has units incompatible with its declared unit.
+        """
+        unknown = params.keys() - cls.PARAM_SPECS.keys()
+        if unknown:
+            raise ValueError(
+                f"Unknown {cls.__name__} parameter(s) {sorted(unknown)}. "
+                f"Accepted parameters are {sorted(cls.PARAM_SPECS)}."
+            )
+
+        converted = {}
+        for key, value in params.items():
+            spec = cls.PARAM_SPECS[key]
+            name = f"{cls.__name__} parameter '{key}'"
+            if spec.unit is None:
+                su.require_bare(value, name)
+                converted[key] = value
+            elif callable(value):
+                if not spec.dynamic:
+                    raise TypeError(f"{name} does not accept a callable.")
+                coords = (grid.r_centers, grid.p_centers_phys) if spec.coords else ()
+                converted[key] = _canonical_callable(value, spec.unit, coords, name)
+            else:
+                converted[key] = su.validate_quantity(value, spec.unit, name).value
+        return converted
+
+    @classmethod
+    def _validate_unit_free_inputs(
+        cls, t_grid: np.ndarray, params: dict[str, Any]
+    ) -> None:
+        """
+        Validate that subsolvers receive bare canonical floats, since unit conversions are performed by :py:meth:`convert_params`.
+        """
+        su.require_bare(t_grid, f"{cls.__name__} t_grid")
+        for key, value in (params or {}).items():
+            su.require_bare(value, f"{cls.__name__} parameter '{key}'")
 
     @abstractmethod
     def __init__(
@@ -60,6 +160,22 @@ class SubSolver(ABC):
             The global tracking :py:class:`~saetass.state.State` to be updated.
         """
         pass
+
+
+def _canonical_callable(
+    fn: Callable[..., u.Quantity],
+    unit: u.UnitBase,
+    coords: tuple[u.Quantity | None, ...],
+    name: str,
+) -> Callable[[float], Any]:
+    """Wrap a physical callable into ``f(t: float) -> bare floats in unit``."""
+
+    def numeric(t: float) -> Any:
+        return su.validate_quantity(
+            fn(*coords, t * su.TIME), unit, f"{name} (callable)"
+        ).value
+
+    return numeric
 
 
 from .solvers.advection_solver import AdvectionSolver  # noqa: E402
@@ -121,10 +237,10 @@ class Solver:
         For further details on expected parameters for each operator, refer to the documentation of the respective subsolver classes.
     substeps : dict, optional
         Dictionary specifying the number of substeps for each operator (e.g., ``{"advection": 2, "diffusion": 1}``).
-        Default is no subrefinement, this is, 1 substep per operator.
+        Default is ``None``, i.e. one substep per operator.
     splitting_scheme : str or :py:class:`~saetass.splitting.SplittingSchemeType`, optional
         String or :py:class:`~saetass.splitting.SplittingSchemeType` specifying the :py:class:`~saetass.splitting.SplittingScheme` to use. Valid schemes are defined in
-        :py:class:`~saetass.splitting.SplittingSchemeType` (e.g., "strang", "lie"). Default is "strang".
+        :py:class:`~saetass.splitting.SplittingSchemeType` (e.g., ``"strang"``, ``"lie"``). Default is ``"strang"``.
     """
 
     def __init__(
@@ -185,37 +301,28 @@ class Solver:
         self.operator_subsolvers = []
         self._initialize_subsolvers(**kwargs)
 
-    def _refined_t_grid(self, n_sub):
-        """Return a refined t_grid for n_sub substeps per global step."""
-        t_grid = self.grid.t_grid
-        num_timesteps = self.total_steps
-        t_grid_refined = []
-        for i in range(num_timesteps):
-            t_start = t_grid[i]
-            t_end = t_grid[i + 1]
-            t_grid_refined.extend(np.linspace(t_start, t_end, n_sub + 1)[:-1])
-        t_grid_refined.append(t_grid[-1])
-        return np.array(t_grid_refined)
-
     def _initialize_subsolvers(self, **kwargs):
-        """Initialize subsolvers with appropriate t_grids and parameters."""
+        """Initialize subsolvers with appropriate t_grids and canonical numeric parameters."""
+        # Grid enforces Quantity time grids: this is the single unit-stripping point for time.
+        t_grid_canonical = self.grid.t_grid.to_value(su.TIME)
         refined_t_grids = self.splitting_scheme.initialize_t_grid(
-            self.operator_list, self.substeps_per_op, self.grid.t_grid
+            self.operator_list, self.substeps_per_op, t_grid_canonical
         )
 
         logger.info(
             f"Lengths of refined t_grids: {[len(refined_t_grids[op]) for op in self.operator_list]}"
         )
 
-        for i, op in enumerate(self.operator_list):
+        for op in self.operator_list:
             solver_class = op.solver_class
-            t_grid_refined = refined_t_grids[op]
-            op_params = self.operator_params.get(op.value, {})
+            op_params = solver_class.convert_params(
+                self.operator_params.get(op.value, {}), self.grid
+            )
 
             self.operator_subsolvers.append(
                 solver_class(
                     self.grid,
-                    t_grid_refined,
+                    refined_t_grids[op],
                     op_params,
                     **kwargs,
                 )
@@ -240,13 +347,13 @@ class Solver:
         for _ in range(n_steps):
             self.global_step += 1
 
-            f_max = np.max(self.state.f)
-            f_min = np.min(self.state.f)
+            val_max = np.max(self.state._values)
+            val_min = np.min(self.state._values)
 
             self._progress.update(
                 self._task_id,
                 completed=self.global_step,
-                metrics=f"max={f_max:.4g} min={f_min:.4g}",
+                metrics=f"max={val_max:.4g} min={val_min:.4g}",
             )
 
             self.splitting_scheme.apply(
@@ -257,7 +364,7 @@ class Solver:
             )
 
         logger.debug(
-            f"Advance finished | max(f)={np.max(self.state.f):.4g} min(f)={np.min(self.state.f):.4g}"
+            f"Advance finished | max(psi)={np.max(self.state._values):.4g} min(psi)={np.min(self.state._values):.4g}"
         )
 
         if manage_progress or self.global_step >= self.total_steps:
@@ -283,7 +390,7 @@ class Solver:
         Parameters
         ----------
         n_steps : int, optional
-            The number of global time steps to advance. Default is 1.
+            The number of global time steps to advance. Default is ``1``.
         """
         self._advance(n_steps)
         return self.state

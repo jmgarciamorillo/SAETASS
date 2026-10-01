@@ -1,24 +1,26 @@
 import logging
+from types import MappingProxyType
 
 import numpy as np
 from numba import njit, prange
 
+from .. import units as su
 from ..grid import Grid
-from ..solver import SubSolver
+from ..solver import ParamSpec, SubSolver
 from ..state import State
 
 logger = logging.getLogger(__name__)
 
 
 class DiffusionSolver(SubSolver):
-    """
+    r"""
     Finite volume solver for spatial diffusion, inheriting from :py:class:`~saetass.solver.SubSolver`.
 
     Solves the spherical diffusion equation in conservative form,
 
     .. math::
 
-        \\frac{\\partial f}{\\partial t} = \\frac{1}{r^2}\\frac{\\partial}{\\partial r}\\!\\left(D(t,r,p)\\,r^2\\frac{\\partial f}{\\partial r}\\right),
+        \frac{\partial \psi}{\partial t} = \frac{1}{r^2}\frac{\partial}{\partial r}\!\left(D(t,r,p)\,r^2\frac{\partial \psi}{\partial r}\right),
 
     using a fully implicit Crank-Nicolson scheme with a batched tridiagonal Thomas solver, so that all momentum slices are advanced simultaneously without any loop over :math:`p`.
 
@@ -26,7 +28,7 @@ class DiffusionSolver(SubSolver):
 
     .. math::
 
-        D_{i+1/2} = \\frac{h_L + h_R}{h_L / D_i + h_R / D_{i+1}},
+        D_{i+1/2} = \frac{h_L + h_R}{h_L / D_i + h_R / D_{i+1}},
 
     where :math:`h_L` and :math:`h_R` are the distances from the face to the
     left and right cell centres respectively. At :math:`r = 0` a symmetry (zero-flux) condition is always enforced.
@@ -36,22 +38,30 @@ class DiffusionSolver(SubSolver):
     grid : :py:class:`~saetass.grid.Grid`
         :py:class:`~saetass.grid.Grid` containing at least ``r_centers`` and ``r_faces``.  The first centre must be at :math:`r = 0`.
         Optionally includes ``p_centers`` and ``p_faces`` for 2D problems.
-    t_grid : ndarray
+    t_grid : numpy.ndarray
         Subproblem time grid.
         In the standard SAETASS workflow this is already subrefined during :py:class:`~saetass.solver.Solver` initialization.
     params : dict
-        Solver configuration.  Accepted keys are:
+        Solver configuration, already converted to canonical floats by :py:meth:`~saetass.solver.SubSolver.convert_params`. Accepted keys (and the units required at the :py:class:`~saetass.solver.Solver` level) are:
 
-        D_values : ndarray or callable
-            Diffusion coefficient at cell centres.  Shape must match the grid (``(nr,)`` for 1D or ``(np, nr)`` for 2D).  A callable must have signature ``D_values(t) -> ndarray``.
+        D_values : astropy.units.Quantity or callable
+            Diffusion coefficient at cell centres. Units compatible with :py:data:`~saetass.units.DIFFUSION_COEFFICIENT`. Shape must match the grid (``(nr,)`` for 1D or ``(np, nr)`` for 2D).  A callable must have signature ``D_values(t: Quantity) -> Quantity``.
         boundary_condition : ``{'dirichlet', 'neumann', 'outflow'}``, optional
-            Outer boundary condition (default: ``'dirichlet'``).
-        f_end : float or callable, optional
-            Value of :math:`f` at the outer boundary for the Dirichlet condition (default: 0).
-            A callable must have signature ``f_end(t) -> float``.
+            Outer boundary condition. Default is ``'dirichlet'``.
+        psi_end : astropy.units.Quantity or callable, optional
+            Differential density :math:`\psi` at the outer boundary for the Dirichlet condition. Units compatible with :py:data:`~saetass.units.PSI_P`. A callable must have signature ``psi_end(t: Quantity) -> Quantity``. Default is zero.
     """
 
+    PARAM_SPECS = MappingProxyType(
+        {
+            "D_values": ParamSpec(su.DIFFUSION_COEFFICIENT, dynamic=True),
+            "psi_end": ParamSpec(su.PSI_P, dynamic=True),
+            "boundary_condition": ParamSpec(),
+        }
+    )
+
     def __init__(self, grid: Grid, t_grid: np.ndarray, params: dict, **kwargs) -> None:
+        self._validate_unit_free_inputs(t_grid, params)
         self._unpack_grid(grid)
         self.t_grid = np.asarray(t_grid, dtype=float)
         if self.r_centers.ndim != 1 or self.r_centers.size < 2:
@@ -132,19 +142,27 @@ class DiffusionSolver(SubSolver):
 
             self.D_values = self.D_values_static
 
-        f_end_input = self.params.get("f_end", 0.0)
-        if callable(f_end_input):
-            self.is_f_end_dynamic = True
+        boundary_input = self.params.get("psi_end", 0.0)
+        if callable(boundary_input):
+            self.is_psi_end_dynamic = True
 
-            def _get_f_end_dynamic(t):
-                f_e = f_end_input(t)
-                return float(f_e) if np.isscalar(f_e) else np.asarray(f_e, dtype=float)
+            def _get_psi_end_dynamic(t):
+                b_val = boundary_input(t)
+                return (
+                    float(b_val)
+                    if np.isscalar(b_val)
+                    else np.asarray(b_val, dtype=float)
+                )
 
-            self._get_f_end = _get_f_end_dynamic
-            self.f_end = self._get_f_end(self.t_grid[0])
+            self._get_psi_end = _get_psi_end_dynamic
+            self.psi_end = self._get_psi_end(self.t_grid[0])
         else:
-            self.is_f_end_dynamic = False
-            self.f_end = float(f_end_input)
+            self.is_psi_end_dynamic = False
+            self.psi_end = (
+                float(boundary_input)
+                if np.isscalar(boundary_input)
+                else np.asarray(boundary_input, dtype=float)
+            )
 
     def _init_buffers(self):
         # Buffers for batched Thomas solver
@@ -183,45 +201,46 @@ class DiffusionSolver(SubSolver):
         n_steps : int
             Number of time steps to advance.
         state : :py:class:`~saetass.state.State`
-            Current simulation state. The distribution function is update in-place at the end of the call.
+            Current simulation state. The differential density is updated in-place at the end of the call.
         """
         dt = float(np.diff(self.t_grid)[0]) * n_steps
 
-        f_all = state.get_f()
+        values_all = state._get_values()
 
         # If no momentum grid or state is 1D, use scalar path
         if (
             self.p_centers is None
-            or getattr(state, "f", None) is None
-            or state.get_f().ndim == 1
+            or getattr(state, "_values", None) is None
+            or state._get_values().ndim == 1
         ):
-            # Promote a 1D f(r) into shape (1, N)
-            f_all = state.get_f()
+            # Promote a 1D psi(r) into shape (1, N)
+            values_all = state._get_values()
 
-            if f_all.ndim == 1:
+            if values_all.ndim == 1:
                 # 1D case → promote
-                if f_all.size != self.N:
-                    raise ValueError("1D state f must have size N")
-                f_all = f_all[None, :]  # shape = (1, N)
+                if values_all.size != self.N:
+                    raise ValueError("1D state values must have size N")
+                values_all = values_all[None, :]  # shape = (1, N)
 
-        if f_all.shape != (self.n_p, self.N):
+        if values_all.shape != (self.n_p, self.N):
             raise ValueError(
-                f"State f shape {f_all.shape} does not match expected {(self.n_p, self.N)}"
+                f"State values shape {values_all.shape} does not match expected {(self.n_p, self.N)}"
             )
 
         # Dynamic update
+        t_current = state.t_val
         if self.is_D_dynamic:
-            D_values = self._get_D(state.t)
+            D_values = self._get_D(t_current)
             self._update_conductances(D_values)
 
-        if getattr(self, "is_f_end_dynamic", False):
-            self.f_end = self._get_f_end(state.t)
+        if self.is_psi_end_dynamic:
+            self.psi_end = self._get_psi_end(t_current)
 
         # Vectorized batched solve for all slices
-        f_new_all = self._advance_all_slices_batched(dt, f_all)
+        values_new_all = self._advance_all_slices_batched(dt, values_all)
 
         # Update state natively using the 2D array capability
-        state.update_f(f_new_all)
+        state._update_values(values_new_all)
 
     # ------------------- Core batched advance -------------------
     def _update_conductances(self, D_values: np.ndarray) -> None:
@@ -304,7 +323,7 @@ class DiffusionSolver(SubSolver):
         self._rhs[:, :-1] += self._B_upper[:, :-1] * f[:, 1:]
 
         if self.boundary_condition == "dirichlet":
-            self._rhs[:, -1] = self.f_end
+            self._rhs[:, -1] = self.psi_end
 
         # Solve batched tridiagonal systems A * f_new = rhs
         f_new = _thomas_batched_numba(

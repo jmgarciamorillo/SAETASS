@@ -8,4 +8,5 @@ API Reference
     state
     grid
     splitting
+    units
     utils

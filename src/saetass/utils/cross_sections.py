@@ -27,16 +27,18 @@ import astropy.units as u
 import numpy as np
 import scipy.special
 
+from .. import units as su
+
 # -----------------
 # BASE CLASSES
 # -----------------
 
 
 class HadronicCrossSectionModel(abc.ABC):
-    """
+    r"""
     Abstract Base Class for hadronic differential cross-section models.
 
-    Defines the interface for computing 2D differential cross-section matrices :math:`\\frac{d\\sigma}{dE_{\\mathrm{out}}}(E_{\\mathrm{out}}, E_{\\mathrm{cr}})` for inelastic hadron-hadron collisions.
+    Defines the interface for computing 2D differential cross-section matrices :math:`\frac{d\sigma}{dE_{\mathrm{out}}}(E_{\mathrm{out}}, E_{\mathrm{cr}})` for inelastic hadron-hadron collisions.
     """
 
     @abc.abstractmethod
@@ -47,15 +49,15 @@ class HadronicCrossSectionModel(abc.ABC):
         secondary: str = "gamma",
         **kwargs,
     ) -> np.ndarray:
-        """
+        r"""
         Compute the 2D differential cross-section matrix.
 
         Parameters
         ----------
-        E_out_grid : np.ndarray
-            1D array of secondary particle energies in GeV. Shape: ``(N_out,)``.
-        E_cr_kin_grid : np.ndarray
-            1D array of primary proton kinetic energies in GeV. Shape: ``(N_cr,)``.
+        E_out_grid : numpy.ndarray
+            Secondary particle energies with shape ``(N_out,)``, in :math:`\mathrm{GeV}`.
+        E_cr_kin_grid : numpy.ndarray
+            Primary proton kinetic energies with shape ``(N_cr,)``, in :math:`\mathrm{GeV}`.
         secondary : str, optional
             Secondary particle channel to compute (e.g., ``"gamma"`` or ``"neutrino"``).
             Default is ``"gamma"``.
@@ -64,18 +66,18 @@ class HadronicCrossSectionModel(abc.ABC):
 
         Returns
         -------
-        sigma_matrix : np.ndarray
-            Differential cross-section matrix with shape ``(N_out, N_cr)`` in units of mb / GeV.
+        sigma_matrix : numpy.ndarray
+            Differential cross-section matrix with shape ``(N_out, N_cr)``, in :math:`\mathrm{mb\,GeV^{-1}}`.
             Kinematically forbidden transitions are set to zero.
         """
         pass
 
 
 class LeptonicCrossSectionModel(abc.ABC):
-    """
+    r"""
     Abstract Base Class for leptonic emission kernels and differential cross-sections.
 
-    Defines the interface for computing 2D differential emission kernels :math:`\\frac{d\\sigma}{dE_\\gamma}(E_\\gamma, E_e)` or :math:`\\frac{d^2 N}{dt \\, dE_\\gamma}(E_\\gamma, E_e)` for relativistic electron interactions.
+    Defines the interface for computing 2D differential emission kernels :math:`\frac{d\sigma}{dE_\gamma}(E_\gamma, E_e)` or :math:`\frac{d^2 N}{dt \, dE_\gamma}(E_\gamma, E_e)` for relativistic electron interactions.
     """
 
     @abc.abstractmethod
@@ -85,24 +87,24 @@ class LeptonicCrossSectionModel(abc.ABC):
         E_e_grid: np.ndarray,
         **kwargs,
     ) -> np.ndarray:
-        """
+        r"""
         Compute the 2D differential emission kernel matrix.
 
         Parameters
         ----------
-        E_gamma_grid : np.ndarray
-            1D array of emitted secondary photon energies in GeV. Shape: ``(N_gamma,)``.
-        E_e_grid : np.ndarray
-            1D array of primary electron total energies in GeV. Shape: ``(N_e,)``.
+        E_gamma_grid : numpy.ndarray
+            Emitted secondary photon energies with shape ``(N_gamma,)``, in :math:`\mathrm{GeV}`.
+        E_e_grid : numpy.ndarray
+            Primary electron total energies with shape ``(N_e,)``, in :math:`\mathrm{GeV}`.
         **kwargs : dict
             Additional physical parameters required by the specific leptonic mechanism
             (e.g., ambient photon fields, magnetic field strength, shielding regime).
 
         Returns
         -------
-        kernel_matrix : np.ndarray
+        kernel_matrix : numpy.ndarray
             Differential interaction matrix with shape ``(N_gamma, N_e)``.
-            Units depend on the specific physical process (e.g., :math:`\\mathrm{cm^2 \\cdot GeV^{-1}}` for Bremsstrahlung or :math:`\\mathrm{s^{-1} \\cdot GeV^{-1}}` for Inverse Compton / Synchrotron).
+            Units depend on the specific physical process (e.g., :math:`\mathrm{cm^2\,GeV^{-1}}` for Bremsstrahlung or :math:`\mathrm{s^{-1}\,GeV^{-1}}` for Inverse Compton / Synchrotron).
         """
         pass
 
@@ -113,37 +115,37 @@ class LeptonicCrossSectionModel(abc.ABC):
 
 
 class Kafexhiu2014(HadronicCrossSectionModel):
-    """
+    r"""
     Kafexhiu et al. (2014) parametrization for inelastic :math:`p+p` collisions.
 
-    This model provides semi-analytical parametrizations for gamma-ray production from neutral pion decay (:math:`p + p \\to \\pi^0 + X \\to 2\\gamma + X`) spanning from the kinematic threshold (:math:`T_{p,\\mathrm{th}} \\approx 0.2797\\text{ GeV}`) up to PeV energies (:cite:p:`Kafexhiu2014`).
+    This model provides semi-analytical parametrizations for gamma-ray production from neutral pion decay (:math:`p + p \to \pi^0 + X \to 2\gamma + X`) spanning from the kinematic threshold (:math:`T_{p,\mathrm{th}} \approx 0.2797\text{ GeV}`) up to PeV energies (:cite:p:`Kafexhiu2014`).
 
     The differential cross-section is formulated as:
 
     .. math::
 
-        \\frac{d\\sigma}{dE_\\gamma}(T_p, E_\\gamma) = A_{\\mathrm{max}}(T_p) \\, F(T_p, E_\\gamma)
+        \frac{d\sigma}{dE_\gamma}(T_p, E_\gamma) = A_{\mathrm{max}}(T_p) \, F(T_p, E_\gamma)
 
-    where :math:`A_{\\mathrm{max}}(T_p)` is the maximum peak value of the differential cross-section and :math:`F(T_p, E_\\gamma)` is the normalized spectral shape function.
+    where :math:`A_{\mathrm{max}}(T_p)` is the maximum peak value of the differential cross-section and :math:`F(T_p, E_\gamma)` is the normalized spectral shape function.
 
     Parameters
     ----------
     he_model : str, optional
-        High-energy interaction generator to use for primary proton energies :math:`T_p > 50\\text{--}100\\text{ GeV}`.
-        Supported options are ``'sibyll'`` (default), ``'geant4'``, ``'pythia8'``, and ``'qgsjet'``.
+        High-energy interaction generator to use for primary proton energies :math:`T_p > 50\text{--}100\text{ GeV}`.
+        Supported options are ``'sibyll'``, ``'geant4'``, ``'pythia8'`` and ``'qgsjet'``. Default is ``'sibyll'``.
 
     Attributes
     ----------
     M_P : float
-        Rest mass of the proton in GeV (:math:`m_p = 0.938272\\text{ GeV}`).
+        Rest mass energy of the proton, :math:`m_p c^2 = 0.938272\,\mathrm{GeV}`, in :math:`\mathrm{GeV}`.
     M_PI : float
-        Rest mass of the neutral pion in GeV (:math:`m_{\\pi^0} = 0.134976\\text{ GeV}`).
+        Rest mass energy of the neutral pion, :math:`m_{\pi^0} c^2 = 0.134976\,\mathrm{GeV}`, in :math:`\mathrm{GeV}`.
     TP_TH : float
-        Kinematic threshold proton kinetic energy in the laboratory frame in GeV:
+        Kinematic threshold proton kinetic energy in the laboratory frame, in :math:`\mathrm{GeV}`:
 
         .. math::
 
-            T_{p,\\mathrm{th}} = 2 m_{\\pi^0} + \\frac{m_{\\pi^0}^2}{2 m_p} \\approx 0.2797\\text{ GeV}
+            T_{p,\mathrm{th}} = 2 m_{\pi^0} + \frac{m_{\pi^0}^2}{2 m_p} \approx 0.2797\text{ GeV}
     """
 
     # Fundamental Constants (PDG)
@@ -152,13 +154,13 @@ class Kafexhiu2014(HadronicCrossSectionModel):
     TP_TH = 2.0 * M_PI + (M_PI**2) / (2.0 * M_P)
 
     def __init__(self, he_model: str = "sibyll"):
-        """
+        r"""
         Initialize the Kafexhiu (2014) cross-section model.
 
         Parameters
         ----------
         he_model : str, optional
-            High-energy hadronic generator parameterization to apply at :math:`T_p > 50\\text{--}100\\text{ GeV}`.
+            High-energy hadronic generator parameterization to apply at :math:`T_p > 50\text{--}100\text{ GeV}`.
             Must be one of ``'geant4'``, ``'pythia8'``, ``'sibyll'``, or ``'qgsjet'``. Default is ``'sibyll'``.
 
         Raises
@@ -175,18 +177,18 @@ class Kafexhiu2014(HadronicCrossSectionModel):
         self.he_model = he_clean
 
     def _epi0_max_lab(self, Tp: np.ndarray) -> np.ndarray:
-        """
+        r"""
         Compute the maximum neutral pion energy allowed by kinematics in the laboratory frame.
 
         Parameters
         ----------
-        Tp : np.ndarray
-            Primary proton kinetic energy in GeV.
+        Tp : numpy.ndarray
+            Primary proton kinetic energy, in :math:`\mathrm{GeV}`.
 
         Returns
         -------
-        E_pi_max : np.ndarray
-            Maximum neutral pion energy :math:`E_{\\pi^0,\\mathrm{max}}^{\\mathrm{LAB}}` in GeV.
+        E_pi_max : numpy.ndarray
+            Maximum neutral pion energy :math:`E_{\pi^0,\mathrm{max}}^{\mathrm{LAB}}`, in :math:`\mathrm{GeV}`.
         """
         s = 2.0 * self.M_P * (Tp + 2.0 * self.M_P)
         gamma_cm = (Tp + 2.0 * self.M_P) / np.sqrt(s)
@@ -196,36 +198,36 @@ class Kafexhiu2014(HadronicCrossSectionModel):
         return gamma_cm * (e_pi_cm + p_pi_cm * beta_cm)
 
     def _egamma_max(self, Tp: np.ndarray) -> np.ndarray:
-        """
+        r"""
         Compute the maximum gamma-ray photon energy allowed by kinematics in the laboratory frame.
 
         Parameters
         ----------
-        Tp : np.ndarray
-            Primary proton kinetic energy in GeV.
+        Tp : numpy.ndarray
+            Primary proton kinetic energy, in :math:`\mathrm{GeV}`.
 
         Returns
         -------
-        E_gamma_max : np.ndarray
-            Maximum gamma-ray energy :math:`E_{\\gamma,\\mathrm{max}}` in GeV.
+        E_gamma_max : numpy.ndarray
+            Maximum gamma-ray energy :math:`E_{\gamma,\mathrm{max}}`, in :math:`\mathrm{GeV}`.
         """
         gamma_pi_lab = self._epi0_max_lab(Tp) / self.M_PI
         beta_pi_lab = np.sqrt(np.clip(1.0 - gamma_pi_lab ** (-2.0), 0.0, None))
         return (self.M_PI / 2.0) * gamma_pi_lab * (1.0 + beta_pi_lab)
 
     def _sigma_inel(self, Tp: np.ndarray) -> np.ndarray:
-        """
-        Compute the total inelastic proton-proton cross-section :math:`\\sigma_{\\mathrm{inel}}(T_p)`.
+        r"""
+        Compute the total inelastic proton-proton cross-section :math:`\sigma_{\mathrm{inel}}(T_p)`.
 
         Parameters
         ----------
-        Tp : np.ndarray
-            Primary proton kinetic energy in GeV.
+        Tp : numpy.ndarray
+            Primary proton kinetic energy, in :math:`\mathrm{GeV}`.
 
         Returns
         -------
-        sigma_inel : np.ndarray
-            Total inelastic cross-section in mb.
+        sigma_inel : numpy.ndarray
+            Total inelastic cross-section, in :math:`\mathrm{mb}`.
         """
         xs = np.zeros_like(Tp)
         mask = Tp > self.TP_TH
@@ -239,20 +241,20 @@ class Kafexhiu2014(HadronicCrossSectionModel):
         return xs
 
     def _sigma_1pi(self, Tp: np.ndarray) -> np.ndarray:
-        """
-        Compute the single neutral pion production cross-section :math:`\\sigma_{1\\pi^0}(T_p)` (:math:`p + p \\to p + p + \\pi^0`).
+        r"""
+        Compute the single neutral pion production cross-section :math:`\sigma_{1\pi^0}(T_p)` (:math:`p + p \to p + p + \pi^0`).
 
-        Valid near the kinematic threshold (:math:`T_{p,\\mathrm{th}} < T_p \\le 2\\text{ GeV}`) using the relativistic Breit-Wigner resonance formulation.
+        Valid near the kinematic threshold (:math:`T_{p,\mathrm{th}} < T_p \le 2\text{ GeV}`) using the relativistic Breit-Wigner resonance formulation.
 
         Parameters
         ----------
-        Tp : np.ndarray
-            Primary proton kinetic energy in GeV.
+        Tp : numpy.ndarray
+            Primary proton kinetic energy, in :math:`\mathrm{GeV}`.
 
         Returns
         -------
-        sigma_1pi : np.ndarray
-            Single-pion production cross-section in mb.
+        sigma_1pi : numpy.ndarray
+            Single-pion production cross-section, in :math:`\mathrm{mb}`.
         """
         m_res = 1.1883
         gamma_res = 0.2264
@@ -291,20 +293,20 @@ class Kafexhiu2014(HadronicCrossSectionModel):
         return xs
 
     def _sigma_2pi(self, Tp: np.ndarray) -> np.ndarray:
-        """
-        Compute the two-pion production cross-section :math:`\\sigma_{2\\pi}(T_p)`.
+        r"""
+        Compute the two-pion production cross-section :math:`\sigma_{2\pi}(T_p)`.
 
-        Valid in the low-energy multi-pion regime (:math:`0.56\\text{ GeV} \\le T_p \\le 2.0\\text{ GeV}`).
+        Valid in the low-energy multi-pion regime (:math:`0.56\text{ GeV} \le T_p \le 2.0\text{ GeV}`).
 
         Parameters
         ----------
-        Tp : np.ndarray
-            Primary proton kinetic energy in GeV.
+        Tp : numpy.ndarray
+            Primary proton kinetic energy, in :math:`\mathrm{GeV}`.
 
         Returns
         -------
-        sigma_2pi : np.ndarray
-            Two-pion production cross-section in mb.
+        sigma_2pi : numpy.ndarray
+            Two-pion production cross-section, in :math:`\mathrm{mb}`.
         """
         xs = np.zeros_like(Tp)
         mask = (Tp >= 0.56) & (Tp <= 2.0)
@@ -312,17 +314,17 @@ class Kafexhiu2014(HadronicCrossSectionModel):
         return xs
 
     def _multip_pi0(self, Tp: np.ndarray) -> np.ndarray:
-        """
-        Compute the average neutral pion production multiplicity :math:`\\langle n_{\\pi^0} \\rangle(T_p)`.
+        r"""
+        Compute the average neutral pion production multiplicity :math:`\langle n_{\pi^0} \rangle(T_p)`.
 
         Parameters
         ----------
-        Tp : np.ndarray
-            Primary proton kinetic energy in GeV.
+        Tp : numpy.ndarray
+            Primary proton kinetic energy, in :math:`\mathrm{GeV}`.
 
         Returns
         -------
-        multiplicity : np.ndarray
+        multiplicity : numpy.ndarray
             Average neutral pion multiplicity.
         """
         multip = np.zeros_like(Tp)
@@ -374,24 +376,24 @@ class Kafexhiu2014(HadronicCrossSectionModel):
         return multip
 
     def _sigma_pi(self, Tp: np.ndarray) -> np.ndarray:
-        """
-        Compute the total neutral pion production cross-section :math:`\\sigma_{\\pi^0}(T_p)`.
+        r"""
+        Compute the total neutral pion production cross-section :math:`\sigma_{\pi^0}(T_p)`.
 
         Combines resonant channels, two-pion production, and inclusive inelastic multiplicities:
 
         .. math::
 
-            \\sigma_{\\pi^0}(T_p) = \\sigma_{1\\pi^0}(T_p) + \\sigma_{2\\pi}(T_p) + \\sigma_{\\mathrm{inel}}(T_p) \\, \\langle n_{\\pi^0} \\rangle(T_p)
+            \sigma_{\pi^0}(T_p) = \sigma_{1\pi^0}(T_p) + \sigma_{2\pi}(T_p) + \sigma_{\mathrm{inel}}(T_p) \, \langle n_{\pi^0} \rangle(T_p)
 
         Parameters
         ----------
-        Tp : np.ndarray
-            Primary proton kinetic energy in GeV.
+        Tp : numpy.ndarray
+            Primary proton kinetic energy, in :math:`\mathrm{GeV}`.
 
         Returns
         -------
-        sigma_pi : np.ndarray
-            Total neutral pion production cross-section in mb.
+        sigma_pi : numpy.ndarray
+            Total neutral pion production cross-section, in :math:`\mathrm{mb}`.
         """
         return (
             self._sigma_1pi(Tp)
@@ -400,18 +402,18 @@ class Kafexhiu2014(HadronicCrossSectionModel):
         )
 
     def _amax(self, Tp: np.ndarray) -> np.ndarray:
-        """
-        Compute the peak value :math:`A_{\\mathrm{max}}(T_p)` of the differential cross-section.
+        r"""
+        Compute the peak value :math:`A_{\mathrm{max}}(T_p)` of the differential cross-section.
 
         Parameters
         ----------
-        Tp : np.ndarray
-            Primary proton kinetic energy in GeV.
+        Tp : numpy.ndarray
+            Primary proton kinetic energy, in :math:`\mathrm{GeV}`.
 
         Returns
         -------
-        amax : np.ndarray
-            Peak differential cross-section value in mb / GeV.
+        amax : numpy.ndarray
+            Peak differential cross-section value, in :math:`\mathrm{mb\,GeV^{-1}}`.
         """
         amax = np.zeros_like(Tp)
         theta_p = np.clip(Tp / self.M_P, 1e-9, None)
@@ -480,19 +482,19 @@ class Kafexhiu2014(HadronicCrossSectionModel):
         return amax
 
     def _f_shape(self, Tp: np.ndarray, Egamma: np.ndarray) -> np.ndarray:
-        """
-        Compute the dimensionless spectral shape function :math:`F(T_p, E_\\gamma)`.
+        r"""
+        Compute the dimensionless spectral shape function :math:`F(T_p, E_\gamma)`.
 
         Parameters
         ----------
-        Tp : np.ndarray
-            1D array of primary proton kinetic energies in GeV. Shape: ``(N_cr,)``.
-        Egamma : np.ndarray
-            1D array of secondary photon energies in GeV. Shape: ``(N_out,)``.
+        Tp : numpy.ndarray
+            Primary proton kinetic energies with shape ``(N_cr,)``, in :math:`\mathrm{GeV}`.
+        Egamma : numpy.ndarray
+            Secondary photon energies with shape ``(N_out,)``, in :math:`\mathrm{GeV}`.
 
         Returns
         -------
-        FF : np.ndarray
+        FF : numpy.ndarray
             2D array of spectral shape values with shape ``(N_out, N_cr)``.
         """
         # Broadcast grids to 2D: Tp across columns (1, N_cr), Egamma across rows (N_out, 1)
@@ -579,15 +581,15 @@ class Kafexhiu2014(HadronicCrossSectionModel):
         secondary: str = "gamma",
         **kwargs,
     ) -> np.ndarray:
-        """
-        Compute the 2D differential cross-section matrix :math:`\\frac{d\\sigma}{dE_\\gamma}(E_\\gamma, T_p)`.
+        r"""
+        Compute the 2D differential cross-section matrix :math:`\frac{d\sigma}{dE_\gamma}(E_\gamma, T_p)`.
 
         Parameters
         ----------
-        E_out_grid : np.ndarray
-            1D array of secondary gamma-ray photon energies in GeV. Shape: ``(N_out,)``.
-        E_cr_kin_grid : np.ndarray
-            1D array of primary proton **kinetic** energies in GeV. Shape: ``(N_cr,)``.
+        E_out_grid : numpy.ndarray
+            Secondary gamma-ray photon energies with shape ``(N_out,)``, in :math:`\mathrm{GeV}`.
+        E_cr_kin_grid : numpy.ndarray
+            Primary proton **kinetic** energies with shape ``(N_cr,)``, in :math:`\mathrm{GeV}`.
         secondary : str, optional
             Secondary particle type to compute. Must be ``"gamma"`` (or ``"gam"``) for this model.
             Default is ``"gamma"``.
@@ -596,8 +598,8 @@ class Kafexhiu2014(HadronicCrossSectionModel):
 
         Returns
         -------
-        sigma_matrix : np.ndarray
-            Differential cross-section matrix with shape ``(N_out, N_cr)`` in units of mb / GeV.
+        sigma_matrix : numpy.ndarray
+            Differential cross-section matrix with shape ``(N_out, N_cr)``, in :math:`\mathrm{mb\,GeV^{-1}}`.
             Kinematically forbidden transitions are strictly zero-padded.
 
         Raises
@@ -635,15 +637,15 @@ class AAFragPyModel(HadronicCrossSectionModel):
         secondary: str = "gamma",
         **kwargs,
     ) -> np.ndarray:
-        """
+        r"""
         Compute the 2D differential cross-section matrix using AAFRAG.
 
         Parameters
         ----------
-        E_out_grid : np.ndarray
-            1D array of secondary particle energies in GeV. Shape: ``(N_out,)``.
-        E_cr_kin_grid : np.ndarray
-            1D array of primary proton kinetic energies in GeV. Shape: ``(N_cr,)``.
+        E_out_grid : numpy.ndarray
+            Secondary particle energies with shape ``(N_out,)``, in :math:`\mathrm{GeV}`.
+        E_cr_kin_grid : numpy.ndarray
+            Primary proton kinetic energies with shape ``(N_cr,)``, in :math:`\mathrm{GeV}`.
         secondary : str, optional
             Secondary particle type to compute: ``"gamma"`` (neutral pion decay photons)
             or ``"neutrino"`` (all-flavor neutrinos from charged pion decay chains).
@@ -653,8 +655,8 @@ class AAFragPyModel(HadronicCrossSectionModel):
 
         Returns
         -------
-        sigma_matrix : np.ndarray
-            Differential cross-section matrix with shape ``(N_out, N_cr)`` in units of mb / GeV.
+        sigma_matrix : numpy.ndarray
+            Differential cross-section matrix with shape ``(N_out, N_cr)``, in :math:`\mathrm{mb\,GeV^{-1}}`.
 
         Raises
         ------
@@ -701,23 +703,23 @@ class AAFragPyModel(HadronicCrossSectionModel):
 
 
 class AnalyticalBremsstrahlung(LeptonicCrossSectionModel):
-    """
+    r"""
     Analytical differential cross-section for relativistic electron Bremsstrahlung.
 
     Implements the relativistic Bethe-Heitler formulation for electron-ion
-    (:math:`e^- + Z \\to e^- + Z + \\gamma`) and electron-electron
-    (:math:`e^- + e^- \\to e^- + e^- + \\gamma`) Bremsstrahlung (:cite:p:`BetheHeitler1934`, :cite:p:`BlumenthalGould1970`).
+    (:math:`e^- + Z \to e^- + Z + \gamma`) and electron-electron
+    (:math:`e^- + e^- \to e^- + e^- + \gamma`) Bremsstrahlung (:cite:p:`BetheHeitler1934`, :cite:p:`BlumenthalGould1970`).
 
     Supports both weak-shielding (fully ionized plasma) and strong-shielding
     (neutral atomic gas) regimes:
 
     .. math::
 
-        \\frac{d\\sigma_{\\mathrm{ep}}}{dE_\\gamma} = 4 \\alpha r_0^2 Z^2 \\frac{1}{E_\\gamma}
-        \\left[ 1 + (1-y)^2 - \\frac{2}{3}(1-y) \\right] L_{\\mathrm{rad}}
+        \frac{d\sigma_{\mathrm{ep}}}{dE_\gamma} = 4 \alpha r_0^2 Z^2 \frac{1}{E_\gamma}
+        \left[ 1 + (1-y)^2 - \frac{2}{3}(1-y) \right] L_{\mathrm{rad}}
 
-    where :math:`y = E_\\gamma / E_e`, :math:`r_0` is the classical electron radius,
-    :math:`\\alpha` is the fine-structure constant, and :math:`L_{\\mathrm{rad}}` is the radiation logarithm.
+    where :math:`y = E_\gamma / E_e`, :math:`r_0` is the classical electron radius,
+    :math:`\alpha` is the fine-structure constant, and :math:`L_{\mathrm{rad}}` is the radiation logarithm.
     """
 
     def compute_matrix(
@@ -726,37 +728,37 @@ class AnalyticalBremsstrahlung(LeptonicCrossSectionModel):
         E_e_grid: np.ndarray,
         **kwargs,
     ) -> np.ndarray:
-        """
+        r"""
         Compute the 2D differential cross-section matrix for electron Bremsstrahlung.
 
         Parameters
         ----------
-        E_gamma_grid : np.ndarray
-            1D array of emitted secondary photon energies in GeV. Shape: ``(N_gamma,)``.
-        E_e_grid : np.ndarray
-            1D array of primary electron total energies in GeV. Shape: ``(N_e,)``.
+        E_gamma_grid : numpy.ndarray
+            Emitted secondary photon energies with shape ``(N_gamma,)``, in :math:`\mathrm{GeV}`.
+        E_e_grid : numpy.ndarray
+            Primary electron total energies with shape ``(N_e,)``, in :math:`\mathrm{GeV}`.
         **kwargs : dict
             Additional physical parameters controlling the interaction regime:
 
             - ``ionised`` : bool, optional
                 If True, uses the weak-shielding formula appropriate for ionized plasma.
-                If False, uses the strong-shielding formula for neutral gas (default: True).
+                If False, uses the strong-shielding formula for neutral gas. Default is ``True``.
             - ``Z`` : float, optional
-                Mean nuclear charge of the ambient medium (default: 1.0).
+                Mean nuclear charge of the ambient medium. Default is ``1.0``.
             - ``include_ee`` : bool, optional
-                Whether to include electron-electron Bremsstrahlung contributions (default: True).
+                Whether to include electron-electron Bremsstrahlung contributions. Default is ``True``.
             - ``weight_ep`` : float, optional
-                Abundance-weighted multiplicity factor for electron-ion interactions
-                (default: 1.263, standard ISM solar metallicity).
+                Abundance-weighted multiplicity factor for electron-ion interactions.
+                Default is ``1.263``, the value for the standard ISM solar metallicity.
             - ``weight_ee`` : float, optional
-                Abundance-weighted multiplicity factor for electron-electron interactions
-                (default: 1.088, standard ISM solar metallicity).
+                Abundance-weighted multiplicity factor for electron-electron interactions.
+                Default is ``1.088``, the value for the standard ISM solar metallicity.
 
         Returns
         -------
-        sigma_matrix : np.ndarray
-            Differential cross-section matrix with shape ``(N_gamma, N_e)`` in units of :math:`\\mathrm{cm^2 \\cdot GeV^{-1}}`.
-            Kinematically forbidden transitions (:math:`E_\\gamma \\ge E_e`) are strictly set to zero.
+        sigma_matrix : numpy.ndarray
+            Differential cross-section matrix with shape ``(N_gamma, N_e)``, in :math:`\mathrm{cm^2\,GeV^{-1}}`.
+            Kinematically forbidden transitions (:math:`E_\gamma \ge E_e`) are strictly set to zero.
         """
         ionised = kwargs.get("ionised", True)
         Z = kwargs.get("Z", 1.0)
@@ -801,25 +803,25 @@ class AnalyticalBremsstrahlung(LeptonicCrossSectionModel):
 
 
 class AnalyticalInverseCompton(LeptonicCrossSectionModel):
-    """
+    r"""
     Analytical differential emission rate kernel for Inverse Compton scattering.
 
     Implements the exact Klein-Nishina cross-section formulation from :cite:ct:`BlumenthalGould1970`
-    integrated over an arbitrary target background photon field :math:`\\frac{dn}{d\\varepsilon}(\\varepsilon)`:
+    integrated over an arbitrary target background photon field :math:`\frac{dn}{d\varepsilon}(\varepsilon)`:
 
     .. math::
 
-        e^- + \\gamma_{\\mathrm{target}} \\to e^- + \\gamma
+        e^- + \gamma_{\mathrm{target}} \to e^- + \gamma
 
     The differential photon production rate per electron is computed via:
 
     .. math::
 
-        \\frac{d^2 N}{dt \\, dE_\\gamma}(E_\\gamma, E_e) = \\frac{3 \\sigma_{\\mathrm{T}} c (m_e c^2)^2}{4 E_e^2}
-        \\int \\frac{dn/d\\varepsilon}{\\varepsilon} \\, F(q, \\Gamma) \\, d\\varepsilon
+        \frac{d^2 N}{dt \, dE_\gamma}(E_\gamma, E_e) = \frac{3 \sigma_{\mathrm{T}} c (m_e c^2)^2}{4 E_e^2}
+        \int \frac{dn/d\varepsilon}{\varepsilon} \, F(q, \Gamma) \, d\varepsilon
 
-    where :math:`\\Gamma = \\frac{4 E_e \\varepsilon}{(m_e c^2)^2}`, :math:`q = \\frac{E_\\gamma}{\\Gamma (E_e - E_\\gamma)}`,
-    and :math:`F(q, \\Gamma)` is the dimensionless Blumenthal & Gould kernel.
+    where :math:`\Gamma = \frac{4 E_e \varepsilon}{(m_e c^2)^2}`, :math:`q = \frac{E_\gamma}{\Gamma (E_e - E_\gamma)}`,
+    and :math:`F(q, \Gamma)` is the dimensionless Blumenthal & Gould kernel.
     """
 
     def compute_matrix(
@@ -828,29 +830,29 @@ class AnalyticalInverseCompton(LeptonicCrossSectionModel):
         E_e_grid: np.ndarray,
         **kwargs,
     ) -> np.ndarray:
-        """
+        r"""
         Compute the 2D differential emission kernel matrix for Inverse Compton scattering.
 
         Parameters
         ----------
-        E_gamma_grid : np.ndarray
-            1D array of upscattered secondary photon energies in GeV. Shape: ``(N_gamma,)``.
-        E_e_grid : np.ndarray
-            1D array of primary electron total energies in GeV. Shape: ``(N_e,)``.
+        E_gamma_grid : numpy.ndarray
+            Upscattered secondary photon energies with shape ``(N_gamma,)``, in :math:`\mathrm{GeV}`.
+        E_e_grid : numpy.ndarray
+            Primary electron total energies with shape ``(N_e,)``, in :math:`\mathrm{GeV}`.
         **kwargs : dict
             Required physical background photon field inputs:
 
-            - ``eps_grid`` : u.Quantity
-                1D array representing the target seed photon energy grid (e.g., in eV or GeV).
-            - ``dn_deps`` : u.Quantity
-                1D or 2D array representing the target photon differential number density
-                in units compatible with :math:`\\mathrm{cm^{-3} \\cdot eV^{-1}}`.
+            - ``eps_grid`` : astropy.units.Quantity
+                Target seed photon energy grid. Units compatible with :py:data:`~saetass.units.ENERGY`.
+            - ``dn_deps`` : astropy.units.Quantity
+                1D or 2D target photon differential number density.
+                Units compatible with :math:`\mathrm{cm^{-3}\,eV^{-1}}`.
 
         Returns
         -------
-        kernel_matrix : np.ndarray
-            Differential emission rate kernel with shape ``(N_gamma, N_e)`` in units of :math:`\\mathrm{s^{-1} \\cdot GeV^{-1}}`.
-            Kinematically forbidden transitions (:math:`E_\\gamma \\ge E_e` or :math:`q > 1`) are set to zero.
+        kernel_matrix : numpy.ndarray
+            Differential emission rate kernel with shape ``(N_gamma, N_e)``, in :math:`\mathrm{s^{-1}\,GeV^{-1}}`.
+            Kinematically forbidden transitions (:math:`E_\gamma \ge E_e` or :math:`q > 1`) are set to zero.
 
         Raises
         ------
@@ -866,8 +868,12 @@ class AnalyticalInverseCompton(LeptonicCrossSectionModel):
             )
 
         # Convert physical quantities to consistent GeV-based numerical units
-        eps_GeV = eps_grid.to_value(u.GeV)
-        dn_deps_GeV = dn_deps.to_value(u.cm**-3 / u.GeV)
+        eps_GeV = su.validate_quantity(
+            eps_grid, u.GeV, "AnalyticalInverseCompton argument 'eps_grid'"
+        ).value
+        dn_deps_GeV = su.validate_quantity(
+            dn_deps, u.cm**-3 / u.GeV, "AnalyticalInverseCompton argument 'dn_deps'"
+        ).value
 
         # Broadcast grids to 3D for integration: (N_gamma, N_e, N_eps)
         Eg = E_gamma_grid[:, np.newaxis, np.newaxis]
@@ -915,11 +921,11 @@ class AnalyticalInverseCompton(LeptonicCrossSectionModel):
 
 
 class AnalyticalSynchrotron(LeptonicCrossSectionModel):
-    """
+    r"""
     Analytical differential emission rate kernel for Synchrotron radiation.
 
     Computes the photon production rate for relativistic electrons moving in an ambient
-    magnetic field (:math:`e^- + B \\to e^- + \\gamma_{\\mathrm{syn}}`) (:cite:p:`BlumenthalGould1970`, :cite:p:`Aharonian2010`).
+    magnetic field (:math:`e^- + B \to e^- + \gamma_{\mathrm{syn}}`) (:cite:p:`BlumenthalGould1970`, :cite:p:`Aharonian2010`).
 
     Supports two pitch-angle treatments:
     - ``'isotropic'``: Standard pitch-angle averaged approximation (:cite:ct:`Aharonian2010`).
@@ -932,27 +938,27 @@ class AnalyticalSynchrotron(LeptonicCrossSectionModel):
         E_e_grid: np.ndarray,
         **kwargs,
     ) -> np.ndarray:
-        """
+        r"""
         Compute the 2D differential emission kernel matrix for Synchrotron radiation.
 
         Parameters
         ----------
-        E_gamma_grid : np.ndarray
-            1D array of emitted synchrotron photon energies in GeV. Shape: ``(N_gamma,)``.
-        E_e_grid : np.ndarray
-            1D array of primary electron total energies in GeV. Shape: ``(N_e,)``.
+        E_gamma_grid : numpy.ndarray
+            Emitted synchrotron photon energies with shape ``(N_gamma,)``, in :math:`\mathrm{GeV}`.
+        E_e_grid : numpy.ndarray
+            Primary electron total energies with shape ``(N_e,)``, in :math:`\mathrm{GeV}`.
         **kwargs : dict
             Required physical magnetic field parameters:
 
-            - ``B_field`` : u.Quantity
-                Ambient magnetic field strength (e.g., in :math:`\\mathrm{\\mu G}` or :math:`\\mathrm{G}`).
+            - ``B_field`` : astropy.units.Quantity
+                Ambient magnetic field strength. Units compatible with :py:data:`~saetass.units.MAGNETIC_FIELD`.
             - ``pitch_angle`` : str, optional
-                Pitch-angle averaging model: ``'isotropic'`` (default) or ``'perpendicular'``.
+                Pitch-angle averaging model, ``'isotropic'`` or ``'perpendicular'``. Default is ``'isotropic'``.
 
         Returns
         -------
-        kernel_matrix : np.ndarray
-            Differential emission rate kernel with shape ``(N_gamma, N_e)`` in units of :math:`\\mathrm{s^{-1} \\cdot GeV^{-1}}`.
+        kernel_matrix : numpy.ndarray
+            Differential emission rate kernel with shape ``(N_gamma, N_e)``, in :math:`\mathrm{s^{-1}\,GeV^{-1}}`.
 
         Raises
         ------
@@ -965,7 +971,9 @@ class AnalyticalSynchrotron(LeptonicCrossSectionModel):
         if B_field is None:
             raise ValueError("AnalyticalSynchrotron requires 'B_field' in kwargs.")
 
-        B_G = B_field.to_value(u.G)
+        B_G = su.validate_quantity(
+            B_field, u.G, "AnalyticalSynchrotron argument 'B_field'"
+        ).value
 
         Eg = E_gamma_grid[:, np.newaxis]
         Ee = E_e_grid[np.newaxis, :]

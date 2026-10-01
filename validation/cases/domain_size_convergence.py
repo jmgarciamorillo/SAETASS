@@ -14,7 +14,8 @@ from plot_style import (
     get_quantitative_style,
 )
 
-from saetass import Grid, Solver, State
+from saetass import Grid, Particle, Solver, State
+from saetass import units as su
 from saetass.cli.palette import SAETASS_GREEN
 from saetass.utils.bubble_profiles import BubbleProfileCalculator
 
@@ -93,9 +94,9 @@ def run_convergence_sim(factor, base_points=400, E_k=10 * u.GeV):
     # 3. Solver Setup
     num_timesteps = 50000
     t_grid = np.linspace(0, t_end, num_timesteps)
-    f_values = np.zeros(len(r))
+    psi_values = np.zeros(len(r))
 
-    grid = Grid(r_centers=r, t_grid=t_grid, p_centers=None)
+    grid = Grid(r_centers=setup["r_grid"], t_grid=t_grid * u.Myr)
 
     op_params = {
         "advection": {
@@ -103,18 +104,19 @@ def run_convergence_sim(factor, base_points=400, E_k=10 * u.GeV):
             "order": 2,
             "limiter": "minmod",
             "cfl": 0.8,
-            "inflow_value_U": 0.0,
+            "inflow_value_U": 0.0 * su.AREA * su.PSI_P,
         },
         "diffusion": {
-            "D_values": setup["D_values"].to("pc**2/Myr").value,
-            "f_end": 0.0,
+            "D_values": setup["D_values"],
+            "psi_end": 0.0 * su.PSI_P,
         },
-        "source": {"source": setup["Q"]},
+        # The bubble source term is a bare array in canonical units
+        "source": {"source": setup["Q"] * su.SOURCE_PSI_P},
     }
 
     solver = Solver(
         grid=grid,
-        state=State(f_values),
+        state=State(psi_p=psi_values * su.PSI_P, grid=grid, particle=Particle.PROTON),
         problem_type="advection-source-diffusion",
         operator_params=op_params,
         substeps={"advection": 1, "diffusion": 1, "source": 1},
@@ -123,22 +125,28 @@ def run_convergence_sim(factor, base_points=400, E_k=10 * u.GeV):
     # 4. Execute simulation step
     solver.step(len(t_grid) - 1)
 
-    f_final = solver.state.f.copy()[0]
+    psi_final = solver.state.psi_p.to_value(su.PSI_P)
 
     # Normalize with respect to forward shock interface (Termination shock)
     ts_idx = np.where(r >= R_TS.to("pc").value)[0][0] + 5
-    ts_level = f_final[ts_idx] if f_final[ts_idx] > 0 else 1.0
-    f_normalized = f_final / ts_level
+    ts_level = psi_final[ts_idx] if psi_final[ts_idx] > 0 else 1.0
+    psi_normalized = psi_final / ts_level
 
     # 5. Theoretical Configuration
-    f_theoretical_raw = calculator.compute_analytical_CR_profile(
+    psi_theoretical_raw = calculator.compute_analytical_CR_profile(
         D_values=setup["D_values"],
         f_gal=0.0,
         f_TS=1.0,
     )
 
     # Return everything needed for plotting
-    return r, f_normalized, f_theoretical_raw, R_TS.to("pc").value, R_b.to("pc").value
+    return (
+        r,
+        psi_normalized,
+        psi_theoretical_raw,
+        R_TS.to("pc").value,
+        R_b.to("pc").value,
+    )
 
 
 def run_validation():
@@ -148,18 +156,18 @@ def run_validation():
     # 1. Run computations
     print("Testing Domain Size effect on Distribution Tail...")
     for factor in factors:
-        r, f_num, f_theo, R_TS, R_b = run_convergence_sim(factor, base_points=500)
+        r, psi_num, psi_theo, R_TS, R_b = run_convergence_sim(factor, base_points=500)
 
         # Calculate relative error in the ISM tail (r >= R_b)
         mask = r >= R_b
-        relL2 = compute_relative_L2(f_num, f_theo, mask=mask)
+        relL2 = compute_relative_L2(psi_num, psi_theo, mask=mask)
 
         results.append(
             {
                 "factor": factor,
                 "r": r,
-                "f_num": f_num,
-                "f_theo": f_theo,
+                "psi_num": psi_num,
+                "psi_theo": psi_theo,
                 "R_TS": R_TS,
                 "R_b": R_b,
                 "relL2": relL2,
@@ -173,8 +181,6 @@ def run_validation():
     min_domain = min_factor_res["r"][-1] * 1.05
 
     factors_array = np.array([res["factor"] for res in results])
-
-    # Plot theoretical only once for the largest domain
 
     # Vertical lines
     last_res = results[-1]
@@ -206,17 +212,22 @@ def run_validation():
         lw = 4.0 if is_final else 4.0
 
         ax1.semilogy(
-            res["r"], res["f_num"], color=color, linestyle=ls, linewidth=lw, label=label
+            res["r"],
+            res["psi_num"],
+            color=color,
+            linestyle=ls,
+            linewidth=lw,
+            label=label,
         )
 
     ax1.semilogy(
-        results[-1]["r"], results[-1]["f_theo"], "k--", lw=3, label="Steady state"
+        results[-1]["r"], results[-1]["psi_theo"], "k--", lw=3, label="Steady state"
     )
 
     ax1.set_xlim(0, min_domain)
     ax1.set_ylim(1e-4, 2)
     ax1.set_xlabel(r"Radial coordinate: $r$ (pc)")
-    ax1.set_ylabel(r"Norm. dist.: $f(t,r)/f_\mathrm{TS}$")
+    ax1.set_ylabel(r"Norm. dens.: $\psi(t,r)/\psi_\mathrm{TS}$")
     ax1.grid(True, alpha=0.3)
     ax1.legend(loc="lower center")
 

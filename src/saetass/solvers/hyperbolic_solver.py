@@ -1,9 +1,9 @@
-"""
+r"""
 The :py:class:`~saetass.solvers.hyperbolic_solver.HyperbolicSolver` class implements a finite volume method for solving hyperbolic PDEs of the general form
 
 .. math::
 
-    \\frac{\\partial U}{\\partial t} + \\frac{\\partial}{\\partial y}\\big(V(t,y)\\, U\\big) = 0,
+    \frac{\partial U}{\partial t} + \frac{\partial}{\partial y}\big(V(t,y)\, U\big) = 0,
 
 where :math:`V(t,y)` is a generalized velocity that can depend on time and on the variable :math:`y`.
 It supports both first-order upwind and second-order MUSCL-Hancock schemes with various slope limiters (minmod, van Leer, MC) to ensure stability and non-oscillatory behavior.
@@ -16,13 +16,14 @@ Thus, :py:class:`~saetass.solvers.advection_solver.AdvectionSolver` and :py:clas
 
 import logging
 from abc import ABC, abstractmethod
+from types import MappingProxyType
 from typing import Literal
 
 import numpy as np
 from numba import njit, prange
 
 from ..grid import Grid
-from ..solver import SubSolver
+from ..solver import ParamSpec, SubSolver
 from ..state import State
 
 logger = logging.getLogger(__name__)
@@ -65,24 +66,24 @@ class HyperbolicSolver(SubSolver, ABC):
 
     Parameters
     ----------
-    grid : :class:`~saetass.grid.Grid`
+    grid : :py:class:`~saetass.grid.Grid`
         A grid object containing both spatial and momentum grids.
-    t_grid : ndarray
-        Time grid for integration.
-        In the standard SAETASS workflow, this is typically subrefined during :class:`~saetass.solver.Solver` initialization.
+    t_grid : numpy.ndarray
+        Time grid for integration, in canonical :py:data:`~saetass.units.TIME` units.
+        In the standard SAETASS workflow, this is typically subrefined during :py:class:`~saetass.solver.Solver` initialization.
     params : dict
-        A dictionary of solver configuration parameters:
+        Solver configuration as bare floats in canonical units. Accepted keys are:
 
-        V_centers : ndarray
+        V_centers : numpy.ndarray or callable
             Generalized velocities at cell centers. Shape must match
-            grid dimensions.
+            grid dimensions. A callable must have signature ``V_centers(t: float) -> numpy.ndarray``.
         limiter : ``{'minmod', 'vanleer', 'mc'}``
             Slope limiter used for second-order schemes.
         cfl : float
             CFL (Courant-Friedrichs-Lewy) number for stable time
             step calculation.
-        inflow_value_U : float
-            Value of the conservative variable $U$ at the outer boundary
+        inflow_value_U : float or numpy.ndarray
+            Value of the conservative variable :math:`U` at the outer boundary
             for inflow conditions.
         order : ``{1, 2}``
             Order of the numerical scheme:
@@ -94,6 +95,11 @@ class HyperbolicSolver(SubSolver, ABC):
             * 1: Spatial axis.
     """
 
+    #: Numerical options shared by all hyperbolic subsolvers (extended by subclasses).
+    PARAM_SPECS = MappingProxyType(
+        {"limiter": ParamSpec(), "cfl": ParamSpec(), "order": ParamSpec()}
+    )
+
     def __init__(
         self,
         grid: Grid,
@@ -101,7 +107,7 @@ class HyperbolicSolver(SubSolver, ABC):
         params: dict,
         **kwargs,
     ) -> None:
-
+        self._validate_unit_free_inputs(t_grid, params)
         self._unpack_params(params)
         self._unpack_grid(grid)
         self.t_grid = np.asarray(t_grid, dtype=float)
@@ -177,19 +183,19 @@ class HyperbolicSolver(SubSolver, ABC):
         n_steps : int
             Number of time steps to advance.
         state : :py:class:`~saetass.state.State`
-            Current simulation state. The distribution function is updated in-place at the end of the call.
+            Current simulation state. The differential density is updated in-place at the end of the call.
         """
-        f = np.asarray(state.get_f(), dtype=float)
+        values = np.asarray(state._get_values(), dtype=float)
         if self.axis == 0:
-            f = f.T
+            values = values.T
 
-        U = self._generalized_variable(f, self.grid)
+        U = self._generalized_variable(values, self.grid)
 
         dx = self.dx if self.M is None else self.dx[None, :]
 
-        dt_requested = np.diff(self.t_grid)[0]
-        total_time = n_steps * dt_requested
-        t_local = state.t
+        dt_requested = float(np.diff(self.t_grid)[0])
+        total_time = float(n_steps) * dt_requested
+        t_local = state.t_val
 
         while total_time > 1e-40:
             V_centers, V_faces = self._get_velocities(t_local)
@@ -218,14 +224,14 @@ class HyperbolicSolver(SubSolver, ABC):
             total_time -= dt_step
             t_local += dt_step
 
-        f_new = self._inverse_generalized_variable(U, self.grid)
+        values_new = self._inverse_generalized_variable(U, self.grid)
 
         # Positivity floor: MUSCL-Hancock is TVD but not strictly positive-definite;
         # clip machine-precision negatives that arise at steep gradient fronts.
-        f_new = np.maximum(f_new, 0.0)
-        state.update_f(f_new.T if self.axis == 0 else f_new)
+        values_new = np.maximum(values_new, 0.0)
+        state._update_values(values_new.T if self.axis == 0 else values_new)
 
-        logger.debug(f"max(|f|) after step: {np.max(np.abs(f_new)):.4g}")
+        logger.debug(f"max(|values|) after step: {np.max(np.abs(values_new)):.4g}")
 
     # ---------------- internal helpers ----------------
     def _unpack_params(self, params: dict = None) -> None:
@@ -310,7 +316,8 @@ class HyperbolicSolver(SubSolver, ABC):
             centers = getattr(self, f"{name}_centers")
             faces = getattr(self, f"{name}_faces")
             self.N = len(centers)
-            self.dx = getattr(grid, f"d{name}", None)  # for compatibility (dr or dp)
+            dx = getattr(grid, f"d{name}", None)  # for compatibility (dr or dp)
+            self.dx = np.asarray(dx, dtype=float) if dx is not None else None
             self.dx_c = centers[1:] - centers[:-1]  # Δ between centers
             self.dx_R = faces[1:] - centers  # distance center to right face
             self.dx_L = centers - faces[:-1]  # distance center to left face
@@ -348,7 +355,7 @@ class HyperbolicSolver(SubSolver, ABC):
 
         Returns
         -------
-        V_face : np.ndarray
+        V_face : numpy.ndarray
             Interpolated generalized velocities at faces, length N-1.
         """
         if self.N <= 1:
