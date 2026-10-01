@@ -420,3 +420,27 @@ class Test2DEnergyRadiusDiffusion:
 
         # The results should be identical
         assert np.allclose(f_final_1d, f_slice_from_2d, atol=1e-7)
+
+
+def test_state_size_must_match_solver_grid():
+    grid = Grid.uniform(
+        r_min=0.0 * su.LENGTH,
+        r_max=1.0 * su.LENGTH,
+        num_r_cells=10,
+        t_min=0.0 * su.TIME,
+        t_max=1.0 * su.TIME,
+        num_timesteps=2,
+    )
+    other_grid = Grid.uniform(
+        r_min=0.0 * su.LENGTH, r_max=1.0 * su.LENGTH, num_r_cells=12
+    )
+    solver = Solver(
+        grid=grid,
+        state=State(psi_p=np.ones(12) * su.PSI_P, grid=other_grid),
+        problem_type="diffusion",
+        operator_params={
+            "diffusion": {"D_values": np.ones(10) * su.DIFFUSION_COEFFICIENT}
+        },
+    )
+    with pytest.raises(ValueError, match="1D state values must have size N"):
+        solver.step(1)

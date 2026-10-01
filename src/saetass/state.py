@@ -136,15 +136,17 @@ class State:
 
     @staticmethod
     def _parse_particle(particle: Particle | str) -> Particle:
-        if isinstance(particle, str):
-            p_str = particle.lower()
-            if p_str in ("proton", "hadronic", "p"):
-                return Particle.PROTON
-            elif p_str in ("electron", "leptonic", "e"):
-                return Particle.ELECTRON
-            else:
-                return Particle(particle)
-        return particle
+        # Particle is a StrEnum, so its members are handled as strings too.
+        if not isinstance(particle, str):
+            raise TypeError(
+                f"particle must be a Particle or a str, got {type(particle).__name__}."
+            )
+        p_str = particle.lower()
+        if p_str in ("proton", "hadronic", "p"):
+            return Particle.PROTON
+        if p_str in ("electron", "leptonic", "e"):
+            return Particle.ELECTRON
+        return Particle(p_str)
 
     @classmethod
     def _resolve_input_representation(
@@ -258,24 +260,13 @@ class State:
                 raise ValueError(
                     "Conversion between representations requires a Grid with momentum coordinates (p_centers)."
                 )
-            four_pi_p2_val = (
-                four_pi_p2.to_value(su.MOMENTUM**2)
-                if isinstance(four_pi_p2, u.Quantity)
-                else four_pi_p2
-            )
-            return raw_arr_2d * four_pi_p2_val[p_factor_dim]
+            return raw_arr_2d * four_pi_p2.to_value(su.MOMENTUM**2)[p_factor_dim]
 
-        if rep_type == "psi_E":
-            # psi_p = psi_E * dE/dp = psi_E * p / E_tot
-            return raw_arr_2d * self.dE_dp[p_factor_dim]
-
-        raise ValueError(f"Unknown representation type: {rep_type}")
+        # psi_E (representation names are validated by the callers):
+        # psi_p = psi_E * dE/dp = psi_E * p / E_tot
+        return raw_arr_2d * self.dE_dp[p_factor_dim]
 
     def _get_p_coords(self) -> np.ndarray:
-        if self.grid is None:
-            raise ValueError(
-                "Conversion between representations requires a Grid with momentum coordinates (p_centers)."
-            )
         p = self.grid.p_centers_phys
         if p is None:
             raise ValueError(
@@ -677,11 +668,7 @@ class State:
             raise ValueError(
                 "Conversion between representations requires a Grid with momentum coordinates (p_centers)."
             )
-        four_pi_p2_val = (
-            four_pi_p2.to_value(su.MOMENTUM**2)
-            if isinstance(four_pi_p2, u.Quantity)
-            else four_pi_p2
-        )
+        four_pi_p2_val = four_pi_p2.to_value(su.MOMENTUM**2)
         p_factor_dim = slice(None) if self.ndim == 1 else (slice(None), np.newaxis)
         f_ps_arr = self._values / four_pi_p2_val[p_factor_dim]
         res = f_ps_arr[0] if self.ndim == 1 else f_ps_arr

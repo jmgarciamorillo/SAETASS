@@ -474,3 +474,66 @@ class TestLossSolverExceptionsAndEdges:
                 operator_params={"loss": params},
                 substeps={"loss": 1},
             )
+
+
+class TestLossSolver2D:
+    params = {
+        "limiter": "minmod",
+        "order": 1,
+        "cfl": 0.5,
+        "inflow_value_psi": 0.0 * su.PSI_P,
+    }
+
+    def test_requires_momentum_grid(self):
+        grid = Grid(
+            r_centers=np.linspace(0.0, 1.0, 5) * su.LENGTH,
+            t_grid=np.array([0.0, 1.0]) * su.TIME,
+        )
+        with pytest.raises(ValueError, match="requires a Grid with a momentum axis"):
+            Solver(
+                grid=grid,
+                state=State(psi_p=np.ones(5) * su.PSI_P, grid=grid),
+                problem_type="loss",
+                operator_params={
+                    "loss": {**self.params, "P_dot": np.ones(5) * su.MOMENTUM_LOSS_RATE}
+                },
+            )
+
+    def test_2d_matches_1d_slices(self):
+        """Each radial column of a 2D loss problem evolves as the 1D problem."""
+        p = np.logspace(0, 2, 30) * su.MOMENTUM
+        t_grid = np.linspace(0.0, 0.05, 11) * su.TIME
+        log_p = np.log10(p.to_value(su.MOMENTUM))
+        profile = np.exp(-((log_p - 1.0) ** 2) / (2 * 0.3**2))
+        amplitudes = np.array([1.0, 2.0, 3.0])
+        P_dot = -0.3 * p.to_value(su.MOMENTUM)
+
+        grid_2d = Grid(
+            r_centers=np.array([1.0, 2.0, 3.0]) * su.LENGTH, p_centers=p, t_grid=t_grid
+        )
+        solver_2d = Solver(
+            grid=grid_2d,
+            state=State(psi_p=np.outer(profile, amplitudes) * su.PSI_P, grid=grid_2d),
+            problem_type="loss",
+            operator_params={
+                "loss": {
+                    **self.params,
+                    "P_dot": np.tile(P_dot[:, None], (1, 3)) * su.MOMENTUM_LOSS_RATE,
+                }
+            },
+        )
+        psi_2d = solver_2d.run().psi_p.to_value(su.PSI_P)
+
+        for j, amplitude in enumerate(amplitudes):
+            grid_1d = Grid(p_centers=p, t_grid=t_grid)
+            solver_1d = Solver(
+                grid=grid_1d,
+                state=State(psi_p=amplitude * profile * su.PSI_P, grid=grid_1d),
+                problem_type="loss",
+                operator_params={
+                    "loss": {**self.params, "P_dot": P_dot * su.MOMENTUM_LOSS_RATE}
+                },
+            )
+            np.testing.assert_allclose(
+                psi_2d[:, j], solver_1d.run().psi_p.to_value(su.PSI_P), rtol=1e-12
+            )

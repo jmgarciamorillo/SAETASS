@@ -494,3 +494,27 @@ class TestState:
         )
         assert "State" in repr(state)
         assert "hadronic" in repr(state)
+
+
+class TestStateInputValidation:
+    @staticmethod
+    def _grid_r():
+        return Grid(r_centers=np.linspace(0, 10, 5) * su.LENGTH)
+
+    def test_particle_parsing(self):
+        grid = self._grid_r()
+        psi = np.ones(5) * su.PSI_P
+        assert State(grid, psi_p=psi, particle="leptonic").particle == Particle.ELECTRON
+        assert State(grid, psi_p=psi, particle="Proton").particle == Particle.PROTON
+        with pytest.raises(ValueError):
+            State(grid, psi_p=psi, particle="muon")
+        with pytest.raises(TypeError, match="particle must be a Particle or a str"):
+            State(grid, psi_p=psi, particle=None)
+
+    def test_rejects_arrays_with_more_than_two_dimensions(self):
+        with pytest.raises(NotImplementedError, match="must be 1D or 2D"):
+            State(self._grid_r(), psi_p=np.ones((2, 2, 5)) * su.PSI_P)
+
+    def test_f_ps_requires_momentum_grid(self):
+        with pytest.raises(ValueError, match="requires a Grid with momentum"):
+            State(self._grid_r(), f_ps=np.ones(5) * su.F_PS)

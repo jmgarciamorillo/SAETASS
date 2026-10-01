@@ -258,8 +258,6 @@ class Solver:
 
         self.grid = grid
         self.state = state
-        if getattr(self.state, "grid", None) is None:
-            self.state.grid = self.grid
         self.problem_type = problem_type.lower()
 
         # Store operator parameters (nested dict)

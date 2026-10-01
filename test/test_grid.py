@@ -196,3 +196,19 @@ class TestGrid:
         assert "Spatial range:" in s
         assert "Momentum range:" in s
         assert "Temporal range:" in s
+
+
+def test_physical_momentum_coordinates():
+    # Linear momentum grids store physical momenta directly
+    linear = Grid(p_centers=np.linspace(1.0, 5.0, 5) * su.MOMENTUM, is_p_log=False)
+    np.testing.assert_allclose(
+        linear.p_faces_phys.to_value(su.MOMENTUM), [0.5, 1.5, 2.5, 3.5, 4.5, 5.5]
+    )
+    assert linear.p_centers_phys is linear.p_centers
+
+    # Logarithmic grids store log10(p) but expose the physical momenta
+    log = Grid(p_faces=np.array([1.0, 10.0, 100.0]) * su.MOMENTUM)
+    np.testing.assert_allclose(log.p_faces, [0.0, 1.0, 2.0])
+    np.testing.assert_allclose(
+        log.p_faces_phys.to_value(su.MOMENTUM), [1.0, 10.0, 100.0]
+    )
