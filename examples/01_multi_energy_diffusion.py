@@ -24,6 +24,7 @@ from matplotlib.gridspec import GridSpec
 
 # 0. Import SAETASS modules
 from saetass import Grid, Particle, Solver, State
+from saetass import units as su
 from saetass.cli.palette import SAETASS_BLUE, SAETASS_GREEN, SAETASS_ORANGE
 from saetass.utils.bubble_profiles import BubbleProfileCalculator
 
@@ -279,7 +280,7 @@ if __name__ == "__main__":
             f_values = np.zeros(len(r))  # Initially no distribution
 
             # We create an instance of Grid class
-            grid = Grid(r_centers=r, t_grid=t_grid, p_centers=None)
+            grid = Grid(r_centers=setup["r_grid"], t_grid=t_grid * u.Myr)
 
             # We generate the parameters for the subsolvers
             op_params = {
@@ -288,20 +289,23 @@ if __name__ == "__main__":
                     "order": 2,
                     "limiter": "minmod",
                     "cfl": 0.8,
-                    "inflow_value_U": 0.0,
+                    "inflow_value_U": 0.0 * su.AREA * su.PSI_P,
                 },
                 "diffusion": {
-                    "D_values": setup["D_values"].to("pc**2/Myr").value,
-                    "f_end": 0.0,
+                    "D_values": setup["D_values"],
+                    "psi_end": 0.0 * su.PSI_P,
                 },
-                "source": {"source": setup["Q"]},
+                # The bubble source term is a bare array in canonical units
+                "source": {"source": setup["Q"] * su.SOURCE_PSI_P},
             }
 
             # 3. Instantiate Solver
             # We then instantiate Solver class
             solver = Solver(
                 grid=grid,
-                state=State(psi_p=f_values, grid=grid, particle=Particle.PROTON),
+                state=State(
+                    psi_p=f_values * su.PSI_P, grid=grid, particle=Particle.PROTON
+                ),
                 problem_type="advection-source-diffusion",
                 operator_params=op_params,
                 substeps={"advection": 1, "diffusion": 1, "source": 1},
@@ -316,7 +320,7 @@ if __name__ == "__main__":
                 )
             )
 
-            stored_curves = [solver.state.psi_p.copy()[0]]
+            stored_curves = [solver.state.psi_p.to_value(su.PSI_P)]
             stored_times = [t_grid[0]]
 
             # 5. Simulation loop
@@ -327,7 +331,7 @@ if __name__ == "__main__":
                     solver.step(steps_to_advance)  # SIMULATION CORE
                     current_step = next_step
 
-                stored_curves.append(solver.state.psi_p.copy()[0])
+                stored_curves.append(solver.state.psi_p.to_value(su.PSI_P))
                 stored_times.append(t_grid[current_step])
 
             # 6. Result Normalization
