@@ -11,6 +11,7 @@ The module provides an extensible framework using :py:class:`~saetass.utils.bubb
 import logging
 import math
 from enum import StrEnum
+from types import MappingProxyType
 from typing import Any
 
 import astropy.constants as const
@@ -71,6 +72,17 @@ class BubbleProfileCalculator:
         Other optional kwargs: ``R_c`` (core radius). Units compatible with :py:data:`~saetass.units.LENGTH`.
     """
 
+    #: Canonical units of the physical model parameters accepted as keyword arguments.
+    _KWARG_UNITS = MappingProxyType(
+        {
+            "L_wind": su.LUMINOSITY,
+            "M_dot": su.MASS_LOSS_RATE,
+            "rho_0": su.MASS_DENSITY,
+            "t_b": su.TIME,
+            "R_c": su.LENGTH,
+        }
+    )
+
     @u.quantity_input(r_grid=su.LENGTH)
     def __init__(
         self,
@@ -87,6 +99,11 @@ class BubbleProfileCalculator:
                     break
         self.model = BubbleModel(model)
 
+        for key, unit in self._KWARG_UNITS.items():
+            if key in kwargs:
+                su.validate_quantity(
+                    kwargs[key], unit, f"BubbleProfileCalculator argument '{key}'"
+                )
         self.kwargs = kwargs
 
         self.R_TS = None
@@ -227,6 +244,7 @@ class BubbleProfileCalculator:
                 f"Density profile for {self.model} not implemented."
             )
 
+    @u.quantity_input(T_w=u.K, T_ISM=u.K, T_bubble=u.K, T_shell=u.K, T_core=u.K)
     def compute_temperature_profile(
         self,
         T_w: u.Quantity = 2e2 * u.K,
@@ -365,6 +383,7 @@ class BubbleProfileCalculator:
         v_p = p * const.c**2 / E_tot
         return v_p
 
+    @u.quantity_input(E_k=su.ENERGY, r_Inj=su.LENGTH, D_ISM=su.DIFFUSION_COEFFICIENT)
     def compute_diffusion_profile(
         self,
         E_k: u.Quantity,
@@ -421,6 +440,7 @@ class BubbleProfileCalculator:
                 f"Diffusion profile not implemented natively for {self.model}."
             )
 
+    @u.quantity_input(E_k=su.ENERGY)
     def compute_source_term(
         self, E_k: u.Quantity, eta_inj: float = 0.1, Q_amplitude: float = 1000.0
     ) -> np.ndarray:
@@ -453,6 +473,7 @@ class BubbleProfileCalculator:
         Q[injection_mask] = Q_amplitude
         return Q
 
+    @u.quantity_input(D_values=su.DIFFUSION_COEFFICIENT)
     def compute_analytical_CR_profile(
         self, D_values: u.Quantity, f_gal: float = 1.0, f_TS: float = 1.0
     ) -> np.ndarray:
@@ -554,6 +575,7 @@ class BubbleProfileCalculator:
 
         return np.concatenate([f_w, f_b, f_out])
 
+    @u.quantity_input(E_k=su.ENERGY)
     def get_all_profiles(self, E_k: u.Quantity, **kwargs) -> dict[str, Any]:
         """
         Compute all profiles and return them in a dictionary.

@@ -411,6 +411,7 @@ class EmissionCalculator:
 
         return flux
 
+    @u.quantity_input(custom_matrix=su.DIFFERENTIAL_CROSS_SECTION)
     def compute_pion_decay_emission(
         self,
         state: State,
@@ -465,6 +466,7 @@ class EmissionCalculator:
         logger.debug(f"Computed pion decay emission at stage: {state.stage_name}")
         return flux
 
+    @u.quantity_input(custom_matrix=su.DIFFERENTIAL_CROSS_SECTION)
     def compute_neutrino_emission(
         self,
         state: State,
@@ -527,6 +529,7 @@ class EmissionCalculator:
         logger.debug(f"Computed neutrino emission at stage: {state.stage_name}")
         return flux
 
+    @u.quantity_input(custom_matrix=su.DIFFERENTIAL_CROSS_SECTION)
     def compute_bremsstrahlung_emission(
         self,
         state: State,
@@ -583,6 +586,7 @@ class EmissionCalculator:
         logger.debug(f"Computed Bremsstrahlung emission at stage: {state.stage_name}")
         return flux
 
+    @u.quantity_input(custom_kernel=u.s**-1 / u.GeV)
     def compute_inverse_compton_emission(
         self,
         state: State,
@@ -639,6 +643,7 @@ class EmissionCalculator:
         logger.debug(f"Computed Inverse Compton emission at stage: {state.stage_name}")
         return flux
 
+    @u.quantity_input(custom_kernel=u.s**-1 / u.GeV)
     def compute_synchrotron_emission(
         self,
         state: State,

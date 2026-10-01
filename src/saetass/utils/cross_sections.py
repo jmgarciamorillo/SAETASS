@@ -27,6 +27,8 @@ import astropy.units as u
 import numpy as np
 import scipy.special
 
+from .. import units as su
+
 # -----------------
 # BASE CLASSES
 # -----------------
@@ -866,8 +868,12 @@ class AnalyticalInverseCompton(LeptonicCrossSectionModel):
             )
 
         # Convert physical quantities to consistent GeV-based numerical units
-        eps_GeV = eps_grid.to_value(u.GeV)
-        dn_deps_GeV = dn_deps.to_value(u.cm**-3 / u.GeV)
+        eps_GeV = su.validate_quantity(
+            eps_grid, u.GeV, "AnalyticalInverseCompton argument 'eps_grid'"
+        ).value
+        dn_deps_GeV = su.validate_quantity(
+            dn_deps, u.cm**-3 / u.GeV, "AnalyticalInverseCompton argument 'dn_deps'"
+        ).value
 
         # Broadcast grids to 3D for integration: (N_gamma, N_e, N_eps)
         Eg = E_gamma_grid[:, np.newaxis, np.newaxis]
@@ -965,7 +971,9 @@ class AnalyticalSynchrotron(LeptonicCrossSectionModel):
         if B_field is None:
             raise ValueError("AnalyticalSynchrotron requires 'B_field' in kwargs.")
 
-        B_G = B_field.to_value(u.G)
+        B_G = su.validate_quantity(
+            B_field, u.G, "AnalyticalSynchrotron argument 'B_field'"
+        ).value
 
         Eg = E_gamma_grid[:, np.newaxis]
         Ee = E_e_grid[np.newaxis, :]

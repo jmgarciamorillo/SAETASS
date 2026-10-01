@@ -241,6 +241,7 @@ class EnergyLossCalculator:
 
         return E_dot_pion.to(u.GeV / u.s)
 
+    @u.quantity_input(B_field=su.MAGNETIC_FIELD, U_B=u.erg / u.cm**3)
     def compute_sychrotron_losses(
         self, B_field: u.Quantity = None, U_B: u.Quantity = None
     ) -> u.Quantity:
@@ -441,6 +442,7 @@ class EnergyLossCalculator:
 
         return E_dot_coulomb.to(u.GeV / u.s)
 
+    @u.quantity_input(eps_grid=su.ENERGY, dn_deps=u.cm**-3 / u.eV)
     def compute_inverse_compton_losses(
         self,
         eps_grid: u.Quantity,

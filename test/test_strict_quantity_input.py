@@ -243,3 +243,60 @@ class TestSolverParameterConversion:
         )
         np.testing.assert_allclose(seen["r"].to_value(u.pc), np.linspace(0.0, 10.0, 5))
         assert seen["t"] == 0.5 * u.Myr
+
+
+class TestUtilityInputs:
+    """Physical inputs of the utility calculators are validated consistently."""
+
+    bubble_kwargs = {
+        "L_wind": 1e38 * u.erg / u.s,
+        "M_dot": 1e-5 * u.M_sun / u.yr,
+        "rho_0": 1e-24 * u.g / u.cm**3,
+        "t_b": 1e6 * u.yr,
+    }
+
+    def test_bubble_model_kwargs_validated(self):
+        from saetass.utils.bubble_profiles import BubbleProfileCalculator
+
+        r_grid = np.linspace(0.1, 100, 50) * u.pc
+        bare = {**self.bubble_kwargs, "L_wind": 1e38}
+        with pytest.raises(TypeError, match="'L_wind' has no 'unit' attribute"):
+            BubbleProfileCalculator(r_grid, **bare)
+        wrong = {**self.bubble_kwargs, "t_b": 1.0 * u.pc}
+        with pytest.raises(u.UnitsError, match="'t_b' must be in units convertible"):
+            BubbleProfileCalculator(r_grid, **wrong)
+
+    def test_bubble_methods_validated(self):
+        from saetass.utils.bubble_profiles import BubbleProfileCalculator
+
+        calc = BubbleProfileCalculator(
+            np.linspace(0.1, 100, 50) * u.pc, **self.bubble_kwargs
+        )
+        with pytest.raises(TypeError):
+            calc.compute_diffusion_profile(E_k=10.0)
+        with pytest.raises(u.UnitsError):
+            calc.compute_temperature_profile(T_w=200 * u.m)
+
+    def test_energy_loss_methods_validated(self):
+        from saetass.utils.energy_losses import EnergyLossCalculator
+
+        calc = EnergyLossCalculator(
+            E_grid=np.logspace(-1, 3, 10) * u.GeV,
+            r_grid=np.linspace(0.1, 10, 5) * u.pc,
+            n_gas=np.ones(5) * u.cm**-3,
+            particle="electron",
+        )
+        with pytest.raises(TypeError):
+            calc.compute_sychrotron_losses(B_field=np.full(5, 10.0))
+        with pytest.raises(u.UnitsError):
+            calc.compute_inverse_compton_losses(
+                eps_grid=np.logspace(-4, 1, 20) * u.eV,
+                dn_deps=np.ones((20, 5)) * u.cm**-3,
+            )
+
+    def test_cross_section_kwargs_validated(self):
+        from saetass.utils.cross_sections import AnalyticalSynchrotron
+
+        E = np.logspace(-1, 2, 4)
+        with pytest.raises(TypeError, match="'B_field' has no 'unit' attribute"):
+            AnalyticalSynchrotron().compute_matrix(E, E, B_field=10.0)
