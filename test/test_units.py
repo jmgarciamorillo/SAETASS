@@ -1,5 +1,6 @@
 import astropy.constants as const
 import astropy.units as u
+import numpy as np
 import pytest
 
 from saetass import units as su
@@ -76,3 +77,30 @@ def test_momentum_unit_string_roundtrip():
     """Unit strings of composite canonical units must be parseable back."""
     for unit in (su.MOMENTUM, su.PSI_P, su.F_PS, su.SOURCE_PSI_P):
         assert u.Unit(unit.to_string()) == unit
+
+
+def test_validate_quantity_converts_without_copying():
+    """validate_quantity returns the input in the requested unit, as a view if possible."""
+    r = np.linspace(1.0, 2.0, 5) * u.kpc
+    out = su.validate_quantity(r, su.LENGTH, "r")
+    assert out.unit == su.LENGTH
+    np.testing.assert_allclose(out.value, r.to_value(u.pc))
+
+    r_pc = np.linspace(1.0, 2.0, 5) * su.LENGTH
+    assert np.shares_memory(su.validate_quantity(r_pc, su.LENGTH, "r"), r_pc)
+
+
+def test_validate_quantity_errors_match_quantity_input():
+    """validate_quantity raises the same error types as astropy's quantity_input."""
+    with pytest.raises(TypeError, match="'r' has no 'unit' attribute"):
+        su.validate_quantity(np.ones(3), su.LENGTH, "'r'")
+    with pytest.raises(u.UnitsError, match="'r' must be in units convertible to 'pc'"):
+        su.validate_quantity(np.ones(3) * u.s, su.LENGTH, "'r'")
+
+
+def test_require_bare():
+    """require_bare accepts bare values and rejects Quantities."""
+    su.require_bare(0.5, "cfl")
+    su.require_bare(np.ones(3), "values")
+    with pytest.raises(TypeError, match="cfl must be a bare number or array"):
+        su.require_bare(0.5 * u.s, "cfl")

@@ -58,7 +58,7 @@ Quantities built as ``p * u.GeV / const.c`` are converted to it automatically.
 --------------
 """
 
-from typing import Final
+from typing import Any, Final
 
 import astropy.constants as const
 import astropy.units as u
@@ -155,6 +155,76 @@ SOURCE_PSI_P: Final[u.Unit] = PSI_P / TIME
 SOURCE_PSI_E: Final[u.Unit] = PSI_E / TIME
 
 
+# =============================================================================
+# 5. Validation of Physical Inputs
+# =============================================================================
+def validate_quantity(value: Any, unit: u.UnitBase, name: str) -> u.Quantity:
+    """
+    Validate a physical input and return it expressed in ``unit``.
+
+    Function arguments are validated with :py:func:`astropy.units.quantity_input`.
+    This function applies the same rules, and raises the same errors, to the physical
+    inputs that the decorator cannot see, such as entries of parameter dictionaries,
+    ``**kwargs``, values returned by user callables or property assignments.
+
+    Parameters
+    ----------
+    value : astropy.units.Quantity
+        Physical input to validate.
+    unit : astropy.units.UnitBase
+        Unit in which the input is returned, typically one of the canonical units of this module.
+    name : str
+        Description of the input, used in error messages.
+
+    Returns
+    -------
+    astropy.units.Quantity
+        The input expressed in ``unit``, without copying it when it already is.
+
+    Raises
+    ------
+    TypeError
+        If ``value`` is not a Quantity.
+    astropy.units.UnitsError
+        If ``value`` has units incompatible with ``unit``.
+    """
+    if not hasattr(value, "unit"):
+        raise TypeError(
+            f"{name} has no 'unit' attribute. You should pass in an astropy Quantity instead."
+        )
+    try:
+        return u.Quantity(value, copy=False).to(unit, copy=False)
+    except u.UnitConversionError:
+        raise u.UnitsError(
+            f"{name} must be in units convertible to '{unit}'."
+        ) from None
+
+
+def require_bare(value: Any, name: str) -> None:
+    """
+    Reject a Quantity where a bare number or array is expected.
+
+    Used at the internal boundary of SAETASS, where numerical kernels receive bare floats
+    in canonical units, and for non-physical options such as CFL numbers.
+
+    Parameters
+    ----------
+    value : Any
+        Input to validate.
+    name : str
+        Description of the input, used in error messages.
+
+    Raises
+    ------
+    TypeError
+        If ``value`` is a Quantity.
+    """
+    if hasattr(value, "unit"):
+        raise TypeError(
+            f"{name} must be a bare number or array, not an astropy Quantity ({value!r})."
+        )
+
+
 __all__ = [
     "LENGTH",
     "TIME",
@@ -181,4 +251,6 @@ __all__ = [
     "PSI_E",
     "SOURCE_PSI_P",
     "SOURCE_PSI_E",
+    "validate_quantity",
+    "require_bare",
 ]
