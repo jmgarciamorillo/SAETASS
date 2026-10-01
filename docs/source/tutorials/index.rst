@@ -8,6 +8,7 @@ These tutorials are written as Jupyter Notebooks, allowing you to see the code, 
 .. toctree::
    :maxdepth: 2
 
+   tutorials_folder/01_unit_system
    tutorials_folder/02_grids_and_states
    tutorials_folder/03_running_simulations
    tutorials_folder/04_physics_features
