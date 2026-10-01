@@ -4,7 +4,6 @@ except ImportError:
     plt = None
 import astropy.units as u
 import numpy as np
-import pytest
 
 from saetass import Grid, Particle, Solver, State
 from saetass import units as su
@@ -441,8 +440,3 @@ class TestDiffusionSource:
         # Check that the final numerical solution is close to the analytical steady state.
         # A tolerance is needed as it's an approximation to a steady state.
         assert np.allclose(f_final, analytical_steady_state, atol=1e-3)
-
-
-if __name__ == "__main__":
-    print("Running tests with plotting enabled...")
-    pytest.main([__file__, "--plot"])

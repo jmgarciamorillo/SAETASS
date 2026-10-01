@@ -301,10 +301,3 @@ class TestAdvectionSolverExceptionsAndEdges:
             solver.step(1)
             # Just test it executes successfully
             assert np.any(solver.state.psi_p.to_value(su.PSI_P))
-
-
-if __name__ == "__main__":
-    # This block runs only when the script is executed directly.
-    # It calls pytest and passes the --plot flag to enable plotting.
-    print("Running tests with plotting enabled...")
-    pytest.main([__file__, "--plot"])

@@ -124,9 +124,3 @@ class TestBubbleProfileCalculator:
     def test_bubble_model_enum(self):
         assert BubbleModel.WEAVER77 == "Weaver77"
         assert BubbleModel.MORLINO21 == "Morlino21"
-
-
-if __name__ == "__main__":
-    # This block runs only when the script is executed directly.
-    print("Running tests...")
-    pytest.main([__file__])

@@ -474,7 +474,3 @@ class TestLossSolverExceptionsAndEdges:
                 operator_params={"loss": params},
                 substeps={"loss": 1},
             )
-
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])

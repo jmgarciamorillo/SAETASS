@@ -76,6 +76,8 @@ We welcome pull requests for:
    pytest
    ```
 
+   Single test files can be run with `pytest test/test_loss.py`, and the `--plot` option shows the diagnostic plots of the tests that produce them, e.g. `pytest test/test_advection.py --plot`.
+
 4. **Create a feature branch** for your work:
 
    ```bash

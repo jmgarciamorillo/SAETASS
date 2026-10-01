@@ -1,5 +1,4 @@
 import numpy as np
-import pytest
 
 from saetass import Grid, Particle, Solver, State
 from saetass import units as su
@@ -677,9 +676,3 @@ class TestTimeDependence:
 
             plt.tight_layout()
             plt.show()
-
-
-if __name__ == "__main__":
-    # This block runs only when the script is executed directly.
-    print("Running tests...")
-    pytest.main([__file__, "--plot"])

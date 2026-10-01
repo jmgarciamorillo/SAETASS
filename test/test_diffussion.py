@@ -420,10 +420,3 @@ class Test2DEnergyRadiusDiffusion:
 
         # The results should be identical
         assert np.allclose(f_final_1d, f_slice_from_2d, atol=1e-7)
-
-
-if __name__ == "__main__":
-    # This block runs only when the script is executed directly.
-    # It calls pytest and passes the --plot flag to enable plotting.
-    print("Running tests with plotting enabled...")
-    pytest.main([__file__, "--plot"])

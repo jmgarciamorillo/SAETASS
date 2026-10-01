@@ -141,9 +141,3 @@ class TestEnergyLossCalculator:
 
         timescales_r = calc_e.get_loss_timescales(r_index=0)
         assert timescales_r["total"].shape == (len(base_args["E_grid"]),)
-
-
-if __name__ == "__main__":
-    # This block runs only when the script is executed directly.
-    print("Running tests...")
-    pytest.main([__file__])
