@@ -93,8 +93,7 @@ The equation is discretized using a **finite volume scheme** and solved by an **
 
 ### References
 
-<!-- TODO: Replace PLACEHOLDER_FOR_TECHNICAL_PAPER with the actual URL of the technical paper -->
-> For a detailed derivation of the numerical schemes, see the [technical paper](PLACEHOLDER_FOR_TECHNICAL_PAPER).
+For a detailed derivation of the numerical schemes, see the [technical paper](https://doi.org/10.1088/1475-7516/2026/09/133).
 
 
 ## Citation
@@ -102,13 +101,18 @@ The equation is discretized using a **finite volume scheme** and solved by an **
 If you use SAETASS in your research, **please cite the technical paper** to acknowledge the development effort:
 
 ```bibtex
-@article{PLACEHOLDER_FOR_TECHNICAL_PAPER,
-  author  = {Garcia-Morillo, J. M.},
+@article{saetass_technical_paper,
+  author  = {García-Morillo, José María and Menchiari, Stefano and López-Coto, Rubén},
   title   = {SAETASS: Solver for Astroparticle Equation of Transport Analysis in Spherical Symmetry},
-  journal = {XXXX},
+  journal = {Journal of Cosmology and Astroparticle Physics},
+  publisher = {IOP Publishing},
   year    = {2026},
-  volume  = {X},
-  doi     = {10.XXXX/XXXXX}
+  month   = {sep},
+  volume  = {2026},
+  number  = {09},
+  pages   = {133},
+  doi     = {10.1088/1475-7516/2026/09/133},
+  url     = {https://doi.org/10.1088/1475-7516/2026/09/133},
 }
 ```
 
