@@ -15,6 +15,7 @@ from plot_style import (
 )
 
 from saetass import Grid, Particle, Solver, State
+from saetass import units as su
 
 apply_plot_style()
 
@@ -24,8 +25,8 @@ def run_loss_simulation(p_grid, t_grid, psi_initial, operator_params, sample_cou
     Run a loss+source simulation on the momentum axis (p_grid) and collect
     sampled snapshots. Returns final psi, snapshots list, snapshot times, and solver.
     """
-    grid = Grid(r_centers=None, t_grid=t_grid, p_centers=p_grid)
-    state = State(psi_p=psi_initial, grid=grid, particle=Particle.PROTON)
+    grid = Grid(p_centers=p_grid * su.MOMENTUM, t_grid=t_grid * su.TIME)
+    state = State(psi_p=psi_initial * su.PSI_P, grid=grid, particle=Particle.PROTON)
 
     # decide problem type
     if "source" in operator_params:
@@ -44,7 +45,7 @@ def run_loss_simulation(p_grid, t_grid, psi_initial, operator_params, sample_cou
 
     num_timesteps = len(t_grid) - 1
 
-    snapshots = [np.copy(state.psi_p.flatten())]
+    snapshots = [state.psi_p.to_value(su.PSI_P).flatten()]
     times = [t_grid[0]]
 
     if sample_count > 0 and num_timesteps > 0:
@@ -59,10 +60,10 @@ def run_loss_simulation(p_grid, t_grid, psi_initial, operator_params, sample_cou
         if steps_to_advance > 0:
             solver.step(steps_to_advance)
             current_step = next_step
-        snapshots.append(np.copy(solver.state.psi_p.flatten()))
+        snapshots.append(solver.state.psi_p.to_value(su.PSI_P).flatten())
         times.append(t_grid[current_step])
 
-    return solver.state.psi_p.flatten(), snapshots, times, solver
+    return solver.state.psi_p.to_value(su.PSI_P).flatten(), snapshots, times, solver
 
 
 def analytical_steady_state_loss(p_grid, Q0, b0, alpha, beta, p0, p_end):
@@ -122,14 +123,17 @@ def validation_loss_source_steady_state(
 
     # pack operator params
     loss_params = {
-        "P_dot": P_dot,
+        "P_dot": P_dot * su.MOMENTUM_LOSS_RATE,
         "limiter": "minmod",
         "cfl": 0.2,
         "order": 2,
-        "inflow_value_U": 0.0,
+        "inflow_value_U": 0.0 * su.MOMENTUM * su.PSI_P,
         "adiabatic_losses": False,
     }
-    operator_params = {"loss": loss_params, "source": {"source": Q_values}}
+    operator_params = {
+        "loss": loss_params,
+        "source": {"source": Q_values * su.SOURCE_PSI_P},
+    }
 
     # analytical steady state (same for all times)
     ana = analytical_steady_state_loss(p_grid, Q0, b0, alpha, beta, p0, p_max)

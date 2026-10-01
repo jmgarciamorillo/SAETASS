@@ -15,6 +15,7 @@ from plot_style import (
 )
 
 from saetass import Grid, Particle, Solver, State
+from saetass import units as su
 
 apply_plot_style()
 
@@ -22,8 +23,8 @@ apply_plot_style()
 def run_simulation(
     r_grid, t_grid, psi_initial, solver_params, source_params, sample_count=0
 ):
-    grid = Grid(r_centers=r_grid, t_grid=t_grid, p_centers=None)
-    state = State(psi_p=psi_initial, grid=grid, particle=Particle.PROTON)
+    grid = Grid(r_centers=r_grid * su.LENGTH, t_grid=t_grid * su.TIME)
+    state = State(psi_p=psi_initial * su.PSI_P, grid=grid, particle=Particle.PROTON)
 
     solver = Solver(
         grid=grid,
@@ -36,7 +37,7 @@ def run_simulation(
 
     num_timesteps = len(t_grid) - 1
 
-    snapshots = [np.copy(state.psi_p.flatten())]
+    snapshots = [state.psi_p.to_value(su.PSI_P).flatten()]
     times = [t_grid[0]]
 
     if sample_count > 0 and num_timesteps > 0:
@@ -51,10 +52,10 @@ def run_simulation(
         if steps_to_advance > 0:
             solver.step(steps_to_advance)
             current_step = next_step
-        snapshots.append(np.copy(solver.state.psi_p.flatten()))
+        snapshots.append(solver.state.psi_p.to_value(su.PSI_P).flatten())
         times.append(t_grid[current_step])
 
-    return solver.state.psi_p.flatten(), snapshots, times
+    return solver.state.psi_p.to_value(su.PSI_P).flatten(), snapshots, times
 
 
 def compute_relative_L2(numerical, analytical):
@@ -94,19 +95,21 @@ def validation_time_dependent_advection(
             psi_initial = psi_exact(r_grid, 0.0)
 
             def u_w_func(t):
-                return r_grid / (1.0 + t)
+                t = t.to_value(su.TIME)
+                return r_grid / (1.0 + t) * su.VELOCITY
 
             def Q_src_func(r, p, t):
+                r, t = r.to_value(su.LENGTH), t.to_value(su.TIME)
                 term1 = -np.sin(t)
                 term2 = ((2.0 + np.cos(t)) / (1.0 + t)) * (3.0 - r)
-                return np.exp(-r) * (term1 + term2)
+                return np.exp(-r) * (term1 + term2) * su.SOURCE_PSI_P
 
             solver_params = {
                 "v_centers": u_w_func,
                 "order": 2,
                 "limiter": "minmod",
                 "cfl": 0.8,
-                "inflow_value_U": 0.0,
+                "inflow_value_U": 0.0 * su.AREA * su.PSI_P,
             }
 
             source_params = {"source": Q_src_func}

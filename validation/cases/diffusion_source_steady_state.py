@@ -15,6 +15,7 @@ from plot_style import (
 )
 
 from saetass import Grid, Particle, Solver, State
+from saetass import units as su
 
 apply_plot_style()
 
@@ -22,8 +23,8 @@ apply_plot_style()
 def run_diffusion_simulation(
     r_grid, t_grid, psi_initial, operator_params, sample_count=0
 ):
-    grid = Grid(r_centers=r_grid, t_grid=t_grid, p_centers=None)
-    state = State(psi_p=psi_initial, grid=grid, particle=Particle.PROTON)
+    grid = Grid(r_centers=r_grid * su.LENGTH, t_grid=t_grid * su.TIME)
+    state = State(psi_p=psi_initial * su.PSI_P, grid=grid, particle=Particle.PROTON)
 
     # Decide problem_type depending on whether a source operator is present
     if "source" in operator_params:
@@ -43,7 +44,7 @@ def run_diffusion_simulation(
     num_timesteps = len(t_grid) - 1
 
     # sampled snapshot collection (include initial and final)
-    snapshots = [np.copy(state.psi_p.flatten())]
+    snapshots = [state.psi_p.to_value(su.PSI_P).flatten()]
     times = [t_grid[0]]
 
     if sample_count > 0 and num_timesteps > 0:
@@ -58,10 +59,10 @@ def run_diffusion_simulation(
         if steps_to_advance > 0:
             solver.step(steps_to_advance)
             current_step = next_step
-        snapshots.append(np.copy(solver.state.psi_p.flatten()))
+        snapshots.append(solver.state.psi_p.to_value(su.PSI_P).flatten())
         times.append(t_grid[current_step])
 
-    return solver.state.psi_p.flatten(), snapshots, times, solver
+    return solver.state.psi_p.to_value(su.PSI_P).flatten(), snapshots, times, solver
 
 
 def compute_relative_L2(numerical, analytical, mask=None):
@@ -125,8 +126,14 @@ def validation_diffusion_source_steady_state(
     D_values = D_0 * (r_grid + eps) ** 2
     Q_values = Q_0 * r_grid
 
-    solver_params = {"D_values": D_values, "f_end": 0.0}
-    operator_params = {"diffusion": solver_params, "source": {"source": Q_values}}
+    solver_params = {
+        "D_values": D_values * su.DIFFUSION_COEFFICIENT,
+        "psi_end": 0.0 * su.PSI_P,
+    }
+    operator_params = {
+        "diffusion": solver_params,
+        "source": {"source": Q_values * su.SOURCE_PSI_P},
+    }
 
     ana = analytical_steady_state(r_grid, D_0, Q_0, eps)
 

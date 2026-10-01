@@ -15,6 +15,7 @@ from plot_style import (
 )
 
 from saetass import Grid, Particle, Solver, State
+from saetass import units as su
 
 apply_plot_style()
 
@@ -26,8 +27,8 @@ def run_advection_simulation(
     Create and run an advection Solver for the provided grids and params.
     Returns the final distribution (numpy array), the snapshots, and snap times.
     """
-    grid = Grid(r_centers=r_grid, t_grid=t_grid, p_centers=None)
-    state = State(psi_p=psi_initial, grid=grid, particle=Particle.PROTON)
+    grid = Grid(r_centers=r_grid * su.LENGTH, t_grid=t_grid * su.TIME)
+    state = State(psi_p=psi_initial * su.PSI_P, grid=grid, particle=Particle.PROTON)
 
     solver = Solver(
         grid=grid,
@@ -40,7 +41,7 @@ def run_advection_simulation(
 
     num_timesteps = len(t_grid) - 1
 
-    snapshots = [np.copy(state.psi_p.flatten())]
+    snapshots = [state.psi_p.to_value(su.PSI_P).flatten()]
     times = [t_grid[0]]
 
     if sample_count > 0 and num_timesteps > 0:
@@ -55,10 +56,10 @@ def run_advection_simulation(
         if steps_to_advance > 0:
             solver.step(steps_to_advance)
             current_step = next_step
-        snapshots.append(np.copy(solver.state.psi_p.flatten()))
+        snapshots.append(solver.state.psi_p.to_value(su.PSI_P).flatten())
         times.append(t_grid[current_step])
 
-    return solver.state.psi_p.flatten(), snapshots, times
+    return solver.state.psi_p.to_value(su.PSI_P).flatten(), snapshots, times
 
 
 def analytical_spherical_advection(r_grid, psi_initial_func, v_const, t_final):
@@ -131,11 +132,11 @@ def validation_sweep(
         # solver params
         v_field = np.full(N, v_const)
         solver_params = {
-            "v_centers": v_field,
+            "v_centers": v_field * su.VELOCITY,
             "order": 2,
             "limiter": "minmod",
             "cfl": cfl,
-            "inflow_value_U": 0.0,
+            "inflow_value_U": 0.0 * su.AREA * su.PSI_P,
         }
 
         psi_num, snapshots, snap_times = run_advection_simulation(

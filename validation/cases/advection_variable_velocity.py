@@ -15,6 +15,7 @@ from plot_style import (
 )
 
 from saetass import Grid, Particle, Solver, State
+from saetass import units as su
 
 apply_plot_style()
 
@@ -48,8 +49,8 @@ def get_steady_state_analytical(r_grid, r_c, v_c, r_a, r_b, Q0):
 def run_advection_simulation(
     r_grid, t_grid, psi_initial, solver_params, source_params=None, sample_count=0
 ):
-    grid = Grid(r_centers=r_grid, t_grid=t_grid, p_centers=None)
-    state = State(psi_p=psi_initial, grid=grid, particle=Particle.PROTON)
+    grid = Grid(r_centers=r_grid * su.LENGTH, t_grid=t_grid * su.TIME)
+    state = State(psi_p=psi_initial * su.PSI_P, grid=grid, particle=Particle.PROTON)
 
     operator_params = {"advection": solver_params}
     if source_params is not None:
@@ -68,7 +69,7 @@ def run_advection_simulation(
     )
 
     num_timesteps = len(t_grid) - 1
-    snapshots = [np.copy(state.psi_p.flatten())]
+    snapshots = [state.psi_p.to_value(su.PSI_P).flatten()]
     times = [t_grid[0]]
 
     if sample_count > 0 and num_timesteps > 0:
@@ -83,10 +84,10 @@ def run_advection_simulation(
         if steps_to_advance > 0:
             solver.step(steps_to_advance)
             current_step = next_step
-        snapshots.append(np.copy(solver.state.psi_p.flatten()))
+        snapshots.append(solver.state.psi_p.to_value(su.PSI_P).flatten())
         times.append(t_grid[current_step])
 
-    return solver.state.psi_p.flatten(), snapshots, times
+    return solver.state.psi_p.to_value(su.PSI_P).flatten(), snapshots, times
 
 
 def validation_piecewise_velocity(
@@ -125,11 +126,11 @@ def validation_piecewise_velocity(
         v_field = np.where(r_grid < r_c, v_c, v_c * (r_c / r_safe) ** 2)
 
         solver_params = {
-            "v_centers": v_field,
+            "v_centers": v_field * su.VELOCITY,
             "order": 2,
             "limiter": "minmod",
             "cfl": 0.8,
-            "inflow_value_U": 0.0,
+            "inflow_value_U": 0.0 * su.AREA * su.PSI_P,
         }
 
         psi_num, snapshots, snap_times = run_advection_simulation(
@@ -137,7 +138,7 @@ def validation_piecewise_velocity(
             t_grid,
             psi_initial,
             solver_params,
-            source_params={"source": Q_values},
+            source_params={"source": Q_values * su.SOURCE_PSI_P},
             sample_count=8,
         )
 

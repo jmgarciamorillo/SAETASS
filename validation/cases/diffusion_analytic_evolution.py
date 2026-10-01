@@ -15,6 +15,7 @@ from plot_style import (
 )
 
 from saetass import Grid, Particle, Solver, State
+from saetass import units as su
 
 apply_plot_style()
 
@@ -30,8 +31,8 @@ def run_diffusion_simulation(
     Returns the final distribution (numpy array), a list of snapshots and
     the corresponding snapshot times.
     """
-    grid = Grid(r_centers=r_grid, t_grid=t_grid, p_centers=None)
-    state = State(psi_p=psi_initial, grid=grid, particle=Particle.PROTON)
+    grid = Grid(r_centers=r_grid * su.LENGTH, t_grid=t_grid * su.TIME)
+    state = State(psi_p=psi_initial * su.PSI_P, grid=grid, particle=Particle.PROTON)
 
     solver = Solver(
         grid=grid,
@@ -45,7 +46,7 @@ def run_diffusion_simulation(
     num_timesteps = len(t_grid) - 1
 
     # snapshots: include initial
-    snapshots = [np.copy(state.psi_p.flatten())]
+    snapshots = [state.psi_p.to_value(su.PSI_P).flatten()]
     times = [t_grid[0]]
 
     if sample_count > 0 and num_timesteps > 0:
@@ -60,10 +61,10 @@ def run_diffusion_simulation(
         if steps_to_advance > 0:
             solver.step(steps_to_advance)
             current_step = next_step
-        snapshots.append(np.copy(solver.state.psi_p.flatten()))
+        snapshots.append(solver.state.psi_p.to_value(su.PSI_P).flatten())
         times.append(t_grid[current_step])
 
-    return solver.state.psi_p.flatten(), snapshots, times
+    return solver.state.psi_p.to_value(su.PSI_P).flatten(), snapshots, times
 
 
 def compute_relative_L2(numerical, analytical, mask=None):
@@ -106,7 +107,10 @@ def validation_diffusion_analytic(
         # sinc-like initial condition (as in tests)
         psi_initial = (np.pi / 2.0) * np.sinc(r_grid)
 
-        solver_params = {"D_values": np.full(N, D_const), "f_end": 0.0}
+        solver_params = {
+            "D_values": np.full(N, D_const) * su.DIFFUSION_COEFFICIENT,
+            "psi_end": 0.0 * su.PSI_P,
+        }
 
         psi_num, snapshots, snap_times = run_diffusion_simulation(
             r_grid, t_grid, psi_initial, solver_params, sample_count=6
