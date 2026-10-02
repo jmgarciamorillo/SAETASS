@@ -28,6 +28,11 @@ from ..state import State
 
 logger = logging.getLogger(__name__)
 
+# The limiters compare signs instead of testing products such as ``a * b > 0``: a
+# product squares the magnitude of the slopes, so it underflows to zero (silently
+# dropping the scheme to first order) or overflows for slopes beyond ~1e+-154, which
+# would make the kernels depend on the units in which U is expressed.
+
 
 @njit(parallel=True, fastmath=True)
 def _minmod_multi_arr(A, B, C):
@@ -38,7 +43,7 @@ def _minmod_multi_arr(A, B, C):
     n = a.size
     for i in prange(n):
         ai, bi, ci = a.flat[i], b.flat[i], c.flat[i]
-        if ai * bi > 0.0 and ai * ci > 0.0:
+        if (ai > 0.0 and bi > 0.0 and ci > 0.0) or (ai < 0.0 and bi < 0.0 and ci < 0.0):
             s = 1.0 if ai > 0 else -1.0
             out.flat[i] = s * min(abs(ai), abs(bi), abs(ci))
         else:
@@ -49,13 +54,25 @@ def _minmod_multi_arr(A, B, C):
 def _minmod_multi(a, b, c):
 
     if np.isscalar(a) and np.isscalar(b) and np.isscalar(c):
-        if a * b > 0.0 and a * c > 0.0:
+        if (a > 0.0 and b > 0.0 and c > 0.0) or (a < 0.0 and b < 0.0 and c < 0.0):
             s = 1.0 if a > 0 else -1.0
             return s * min(abs(a), abs(b), abs(c))
         else:
             return 0.0
 
     return _minmod_multi_arr(a, b, c)
+
+
+def _vanleer(a, b):
+    """
+    Van Leer limited slope, the harmonic mean ``2ab / (a + b)`` of same-sign slopes and zero otherwise.
+
+    It is evaluated as ``2 sign(a) |a| (|b| / (|a| + |b|))`` so that no intermediate value squares the magnitude of the slopes.
+    """
+    abs_a, abs_b = np.abs(a), np.abs(b)
+    same_sign = ((a > 0.0) & (b > 0.0)) | ((a < 0.0) & (b < 0.0))
+    total = np.where(same_sign, abs_a + abs_b, np.inf)
+    return np.where(same_sign, np.copysign(2.0 * abs_a * (abs_b / total), a), 0.0)
 
 
 class HyperbolicSolver(SubSolver, ABC):
@@ -517,11 +534,7 @@ class HyperbolicSolver(SubSolver, ABC):
         if self.limiter == "minmod":
             slopes_interior = _minmod_multi(dL, dR, dC)
         elif self.limiter == "vanleer":  # generalized
-            prod = dL * dR
-            summ = dL + dR
-            slopes_interior = np.where(
-                prod > 0.0, (2.0 * prod) / np.where(summ != 0, summ, 1.0), 0.0
-            )
+            slopes_interior = _vanleer(dL, dR)
         elif self.limiter == "mc":
             slopes_interior = _minmod_multi(2.0 * dL, 2.0 * dR, 0.5 * dC)
         else:  # should not happen due to earlier check, but just in case
@@ -539,11 +552,7 @@ class HyperbolicSolver(SubSolver, ABC):
         if self.limiter == "minmod":
             slopes[..., 0] = _minmod_multi(d_fwd, d_fwd2, d_fwd)
         elif self.limiter == "vanleer":
-            prod = d_fwd * d_fwd2
-            summ = d_fwd + d_fwd2
-            slopes[..., 0] = np.where(
-                prod > 0.0, (2.0 * prod) / (summ if summ != 0 else 1.0), 0.0
-            )
+            slopes[..., 0] = _vanleer(d_fwd, d_fwd2)
         elif self.limiter == "mc":
             slopes[..., 0] = _minmod_multi(2.0 * d_fwd, 2.0 * d_fwd2, 0.5 * d_fwd2)
         else:
@@ -560,11 +569,7 @@ class HyperbolicSolver(SubSolver, ABC):
         if self.limiter == "minmod":
             slopes[..., -1] = _minmod_multi(d_bwd, d_bwd2, d_bwd)
         elif self.limiter == "vanleer":
-            prod = d_bwd * d_bwd2
-            summ = d_bwd + d_bwd2
-            slopes[..., -1] = np.where(
-                prod > 0.0, (2.0 * prod) / (summ if summ != 0 else 1.0), 0.0
-            )
+            slopes[..., -1] = _vanleer(d_bwd, d_bwd2)
         elif self.limiter == "mc":
             slopes[..., -1] = _minmod_multi(2.0 * d_bwd, 2.0 * d_bwd2, 0.5 * d_bwd2)
         else:
