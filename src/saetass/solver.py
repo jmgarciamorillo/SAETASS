@@ -23,6 +23,8 @@ import numpy as np
 from . import units as su
 from .cli.banner import print_banner
 from .cli.progress import create_progress_bar
+from .diagnostics import CharacteristicScales, SimulationDiagnostics, diagnose
+from .diagnostics import warn as _warn
 from .grid import Grid
 from .splitting import create_splitting_scheme
 from .state import State
@@ -160,6 +162,26 @@ class SubSolver(ABC):
             The global tracking :py:class:`~saetass.state.State` to be updated.
         """
         pass
+
+    def characteristic_scales(self, t: float, dt: float) -> CharacteristicScales:
+        """
+        Characteristic timescale and dimensionless numbers of the operator, used by :py:mod:`saetass.diagnostics`.
+
+        Operators without meaningful scales keep this default, which reports none.
+
+        Parameters
+        ----------
+        t : float
+            Time at which time-dependent parameters are evaluated, as a bare float in canonical :py:data:`~saetass.units.TIME` units.
+        dt : float
+            Time step integrated by the operator in each call, as a bare float in canonical :py:data:`~saetass.units.TIME` units.
+
+        Returns
+        -------
+        :py:class:`~saetass.diagnostics.CharacteristicScales`
+            The characteristic scales of the operator.
+        """
+        return CharacteristicScales()
 
 
 def _canonical_callable(
@@ -394,3 +416,28 @@ class Solver:
         """
         self._advance(n_steps)
         return self.state
+
+    def diagnostics(
+        self, n_samples: int = 3, warn: bool = True
+    ) -> SimulationDiagnostics:
+        """
+        Analyze the characteristic scales of the simulation to detect time steps that compromise its accuracy.
+
+        See :py:mod:`saetass.diagnostics` for the quantities reported.
+
+        Parameters
+        ----------
+        n_samples : int, optional
+            Number of times, evenly spread over the time grid, at which time-dependent parameters are evaluated. Default is ``3``.
+        warn : bool, optional
+            Whether to issue a :py:class:`~saetass.diagnostics.DiagnosticsWarning` for each problem found. Default is ``True``.
+
+        Returns
+        -------
+        :py:class:`~saetass.diagnostics.SimulationDiagnostics`
+            The diagnostics of the simulation.
+        """
+        result = diagnose(self, n_samples=n_samples)
+        if warn:
+            _warn(result)
+        return result

@@ -4,11 +4,15 @@ from types import MappingProxyType
 import numpy as np
 
 from .. import units as su
+from ..diagnostics import CharacteristicScales
 from ..grid import Grid
 from ..solver import ParamSpec, SubSolver
 from ..state import State
 
 logger = logging.getLogger(__name__)
+
+#: Evaluations of a time-dependent source per step used to estimate its variation.
+_VARIATION_SAMPLES = 5
 
 
 class SourceSolver(SubSolver):
@@ -104,3 +108,27 @@ class SourceSolver(SubSolver):
         state._update_values(values_new)
 
         logger.debug(f"Advanced source operator by {n_steps} steps (dt={total_dt})")
+
+    def characteristic_scales(self, t: float, dt: float) -> CharacteristicScales:
+        r"""
+        Variation timescale of a time-dependent source, :math:`\tau_Q = \max |Q| / \max |\partial_t Q|`.
+
+        Each call injects :math:`Q` evaluated at the start of the step, so its error is controlled by how much :math:`Q` changes within the step, not by its magnitude: since the transport equation is linear, scaling :math:`Q` only scales the part of the solution it produces.
+        The time derivative is estimated by finite differences over quarters of the step, and ``source_variation`` is :math:`\Delta t / \tau_Q`, the relative change of the source over one step.
+        Static sources report no scales.
+        See :py:meth:`~saetass.solver.SubSolver.characteristic_scales`.
+        """
+        if not self.is_source_dynamic:
+            return CharacteristicScales()
+        times = t + dt * np.linspace(0.0, 1.0, _VARIATION_SAMPLES)
+        samples = np.stack([self._get_source(time) for time in times])
+        magnitude = float(np.max(np.abs(samples)))
+        change = float(np.max(np.abs(np.diff(samples, axis=0)), initial=0.0))
+        # Relative change per step, extrapolated from the largest change between samples
+        variation = (
+            change / magnitude * (_VARIATION_SAMPLES - 1) if magnitude > 0.0 else 0.0
+        )
+        return CharacteristicScales(
+            timescale=dt / variation if variation > 0.0 else np.inf,
+            numbers={"source_variation": variation},
+        )

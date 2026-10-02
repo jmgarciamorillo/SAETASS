@@ -83,6 +83,12 @@ class AdvectionSolver(HyperbolicSolver):
         r = self.r_centers
         return f * r**2  # broadcasting automatically handles ND arrays
 
+    def _characteristic_timescale(self, V_centers: np.ndarray) -> float:
+        """Time to cross the radial domain at the largest velocity."""
+        v_max = float(np.max(np.abs(V_centers)))
+        length = float(self.r_faces[-1] - self.r_faces[0])
+        return length / v_max if v_max > 0.0 else np.inf
+
     def _inverse_generalized_variable(
         self,
         U: np.ndarray,

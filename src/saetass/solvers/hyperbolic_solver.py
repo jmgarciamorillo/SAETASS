@@ -15,6 +15,7 @@ Thus, :py:class:`~saetass.solvers.advection_solver.AdvectionSolver` and :py:clas
 """
 
 import logging
+import math
 from abc import ABC, abstractmethod
 from types import MappingProxyType
 from typing import Literal
@@ -22,11 +23,21 @@ from typing import Literal
 import numpy as np
 from numba import njit, prange
 
+from ..diagnostics import CharacteristicScales
 from ..grid import Grid
 from ..solver import ParamSpec, SubSolver
 from ..state import State
 
 logger = logging.getLogger(__name__)
+
+#: Fraction of a step below which the remaining time of a CFL sub-cycling loop is rounding residue.
+_TIME_TOLERANCE = 1e-12
+
+
+# The limiters compare signs instead of testing products such as ``a * b > 0``: a
+# product squares the magnitude of the slopes, so it underflows to zero (silently
+# dropping the scheme to first order) or overflows for slopes beyond ~1e+-154, which
+# would make the kernels depend on the units in which U is expressed.
 
 
 @njit(parallel=True, fastmath=True)
@@ -38,7 +49,7 @@ def _minmod_multi_arr(A, B, C):
     n = a.size
     for i in prange(n):
         ai, bi, ci = a.flat[i], b.flat[i], c.flat[i]
-        if ai * bi > 0.0 and ai * ci > 0.0:
+        if (ai > 0.0 and bi > 0.0 and ci > 0.0) or (ai < 0.0 and bi < 0.0 and ci < 0.0):
             s = 1.0 if ai > 0 else -1.0
             out.flat[i] = s * min(abs(ai), abs(bi), abs(ci))
         else:
@@ -49,13 +60,25 @@ def _minmod_multi_arr(A, B, C):
 def _minmod_multi(a, b, c):
 
     if np.isscalar(a) and np.isscalar(b) and np.isscalar(c):
-        if a * b > 0.0 and a * c > 0.0:
+        if (a > 0.0 and b > 0.0 and c > 0.0) or (a < 0.0 and b < 0.0 and c < 0.0):
             s = 1.0 if a > 0 else -1.0
             return s * min(abs(a), abs(b), abs(c))
         else:
             return 0.0
 
     return _minmod_multi_arr(a, b, c)
+
+
+def _vanleer(a, b):
+    """
+    Van Leer limited slope, the harmonic mean ``2ab / (a + b)`` of same-sign slopes and zero otherwise.
+
+    It is evaluated as ``2 sign(a) |a| (|b| / (|a| + |b|))`` so that no intermediate value squares the magnitude of the slopes.
+    """
+    abs_a, abs_b = np.abs(a), np.abs(b)
+    same_sign = ((a > 0.0) & (b > 0.0)) | ((a < 0.0) & (b < 0.0))
+    total = np.where(same_sign, abs_a + abs_b, np.inf)
+    return np.where(same_sign, np.copysign(2.0 * abs_a * (abs_b / total), a), 0.0)
 
 
 class HyperbolicSolver(SubSolver, ABC):
@@ -196,8 +219,10 @@ class HyperbolicSolver(SubSolver, ABC):
         dt_requested = float(np.diff(self.t_grid)[0])
         total_time = float(n_steps) * dt_requested
         t_local = state.t_val
+        # Remaining time below this relative tolerance is rounding residue, not a step to take
+        time_tolerance = _TIME_TOLERANCE * total_time
 
-        while total_time > 1e-40:
+        while total_time > time_tolerance:
             V_centers, V_faces = self._get_velocities(t_local)
             dt_step = min(total_time, float(self._compute_dt(V_faces=V_faces)))
 
@@ -387,7 +412,9 @@ class HyperbolicSolver(SubSolver, ABC):
         V_face = (V_left * dist_right_b + V_right * dist_left_b) / denom
         return V_face
 
-    def _compute_dt(self, V_faces: np.ndarray = None) -> float:
+    def _compute_dt(
+        self, V_faces: np.ndarray = None, V_centers: np.ndarray = None
+    ) -> float:
         """
         Compute a stable time step based on the CFL condition:
 
@@ -398,6 +425,8 @@ class HyperbolicSolver(SubSolver, ABC):
         # Interpolated velocities at faces along the active axis
         if V_faces is None:
             V_faces = self._face_generalized_velocity_interpolated()
+        if V_centers is None:
+            V_centers = self.V_centers
 
         # Take absolute max over all entries (works for scalar, 1D, or 2D)
         if V_faces.size:
@@ -407,12 +436,12 @@ class HyperbolicSolver(SubSolver, ABC):
 
         # Include outermost face proxy using last cell center along the active axis
         # Take max across slices if multidimensional
-        if self.V_centers.ndim == 1:
-            last_center_vel = abs(self.V_centers[-1])
+        if V_centers.ndim == 1:
+            last_center_vel = abs(V_centers[-1])
         else:
             # Take the last index along the active axis, all slices on the other axis
             last_center_vel = np.max(
-                np.abs(np.take(self.V_centers, indices=-1, axis=self.axis))
+                np.abs(np.take(V_centers, indices=-1, axis=self.axis))
             )
 
         Vmax = max(Vmax, float(last_center_vel))
@@ -425,6 +454,47 @@ class HyperbolicSolver(SubSolver, ABC):
         dx_min = np.min(self.dx)
 
         return float(self.cfl * dx_min / Vmax)
+
+    def velocities(self, t: float) -> np.ndarray:
+        """
+        Generalized velocities at cell centers at time ``t``, without modifying the solver state.
+
+        Parameters
+        ----------
+        t : float
+            Time, as a bare float in canonical :py:data:`~saetass.units.TIME` units.
+
+        Returns
+        -------
+        numpy.ndarray
+            Generalized velocities :math:`V` at cell centers, in canonical units.
+        """
+        return self._get_V_centers(t)
+
+    def characteristic_scales(self, t: float, dt: float) -> CharacteristicScales:
+        """
+        Courant number and CFL sub-cycles per call, and the timescale defined by the subclass.
+
+        See :py:meth:`~saetass.solver.SubSolver.characteristic_scales`.
+        """
+        V_centers = self.velocities(t)
+        dt_cfl = self._compute_dt(
+            self._face_generalized_velocity_interpolated(V_centers), V_centers
+        )
+        if np.isfinite(dt_cfl):
+            courant = self.cfl * dt / dt_cfl
+            # Same count as the sub-cycling loop in advance(), which ignores rounding residues
+            subcycles = max(1, math.ceil(dt * (1.0 - _TIME_TOLERANCE) / dt_cfl))
+        else:
+            courant, subcycles = 0.0, 1
+        return CharacteristicScales(
+            timescale=self._characteristic_timescale(V_centers),
+            numbers={"courant_number": courant, "cfl_subcycles": float(subcycles)},
+        )
+
+    def _characteristic_timescale(self, V_centers: np.ndarray) -> float | None:
+        """Characteristic timescale of the operator for the given velocities, if it has one."""
+        return None
 
     def _get_velocities(self, t: float) -> tuple[np.ndarray, np.ndarray]:
         """Return the current generalized velocities at centers and faces."""
@@ -517,11 +587,7 @@ class HyperbolicSolver(SubSolver, ABC):
         if self.limiter == "minmod":
             slopes_interior = _minmod_multi(dL, dR, dC)
         elif self.limiter == "vanleer":  # generalized
-            prod = dL * dR
-            summ = dL + dR
-            slopes_interior = np.where(
-                prod > 0.0, (2.0 * prod) / np.where(summ != 0, summ, 1.0), 0.0
-            )
+            slopes_interior = _vanleer(dL, dR)
         elif self.limiter == "mc":
             slopes_interior = _minmod_multi(2.0 * dL, 2.0 * dR, 0.5 * dC)
         else:  # should not happen due to earlier check, but just in case
@@ -539,11 +605,7 @@ class HyperbolicSolver(SubSolver, ABC):
         if self.limiter == "minmod":
             slopes[..., 0] = _minmod_multi(d_fwd, d_fwd2, d_fwd)
         elif self.limiter == "vanleer":
-            prod = d_fwd * d_fwd2
-            summ = d_fwd + d_fwd2
-            slopes[..., 0] = np.where(
-                prod > 0.0, (2.0 * prod) / (summ if summ != 0 else 1.0), 0.0
-            )
+            slopes[..., 0] = _vanleer(d_fwd, d_fwd2)
         elif self.limiter == "mc":
             slopes[..., 0] = _minmod_multi(2.0 * d_fwd, 2.0 * d_fwd2, 0.5 * d_fwd2)
         else:
@@ -560,11 +622,7 @@ class HyperbolicSolver(SubSolver, ABC):
         if self.limiter == "minmod":
             slopes[..., -1] = _minmod_multi(d_bwd, d_bwd2, d_bwd)
         elif self.limiter == "vanleer":
-            prod = d_bwd * d_bwd2
-            summ = d_bwd + d_bwd2
-            slopes[..., -1] = np.where(
-                prod > 0.0, (2.0 * prod) / (summ if summ != 0 else 1.0), 0.0
-            )
+            slopes[..., -1] = _vanleer(d_bwd, d_bwd2)
         elif self.limiter == "mc":
             slopes[..., -1] = _minmod_multi(2.0 * d_bwd, 2.0 * d_bwd2, 0.5 * d_bwd2)
         else:

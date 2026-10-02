@@ -13,6 +13,7 @@ Each :py:class:`~saetass.solver.SubSolver` declares the parameters it accepts, t
 The :py:class:`~saetass.solver.Solver` converts them with :py:meth:`~saetass.solver.SubSolver.convert_params` into bare floats in the canonical units of :py:mod:`saetass.units`, so the numerical kernels never handle units, and rejects any parameter that is not declared or whose units are incompatible.
 
 Users can also create custom operators by providing their own implementations inheriting from :py:class:`~saetass.solver.SubSolver` and declaring their accepted parameters in :py:attr:`~saetass.solver.SubSolver.PARAM_SPECS`.
+Operators can also report their characteristic timescale and dimensionless numbers through :py:meth:`~saetass.solver.SubSolver.characteristic_scales`, which :py:meth:`~saetass.solver.Solver.diagnostics` uses to detect time steps that compromise the accuracy of a simulation (see :py:mod:`saetass.diagnostics`).
 
 ------------------
 

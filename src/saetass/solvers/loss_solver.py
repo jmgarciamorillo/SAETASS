@@ -154,6 +154,27 @@ class LossSolver(HyperbolicSolver):
                 "inverse_generalized_variable only supports 1D or 2D arrays."
             )
 
+    def loss_rates(self, t: float) -> np.ndarray:
+        r"""
+        Relative momentum loss rates :math:`|\dot{p}| / p` at cell centers at time ``t``, without modifying the solver state.
+
+        Parameters
+        ----------
+        t : float
+            Time, as a bare float in canonical :py:data:`~saetass.units.TIME` units.
+
+        Returns
+        -------
+        numpy.ndarray
+            Loss rates with the shape of the :py:class:`~saetass.state.State` differential density, in inverse canonical :py:data:`~saetass.units.TIME` units.
+        """
+        return np.log(10.0) * np.abs(self.velocities(t)).T
+
+    def _characteristic_timescale(self, V_centers: np.ndarray) -> float:
+        r"""Shortest loss timescale :math:`\min p / |\dot{p}| = 1 / (\ln 10 \max |V|)`."""
+        V_max = float(np.max(np.abs(V_centers)))
+        return 1.0 / (np.log(10.0) * V_max) if V_max > 0.0 else np.inf
+
     def _generalized_velocity(self, P_dot: np.ndarray) -> np.ndarray:
         r"""
         Convert the physical momentum loss rate to the generalized velocity :math:`\dot{p} / (p \ln 10)` used by the base-class finite-volume update.
