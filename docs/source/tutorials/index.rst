@@ -14,3 +14,4 @@ These tutorials are written as Jupyter Notebooks, allowing you to see the code, 
    tutorials_folder/04_physics_features
    tutorials_folder/05_energy_losses
    tutorials_folder/06_emissions
+   tutorials_folder/07_simulation_diagnostics
