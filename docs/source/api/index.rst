@@ -8,5 +8,6 @@ API Reference
     state
     grid
     splitting
+    diagnostics
     units
     utils
