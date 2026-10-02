@@ -12,7 +12,12 @@ Each operator reports its characteristic timescale and the dimensionless numbers
   Its timescale is the diffusion time across the domain, :math:`L^2 / \max D`.
 - **With several operators**, the splitting ratio :math:`\Delta t / \tau_\mathrm{min}` compares the global time step to the shortest operator timescale, which controls the operator-splitting and time-integration errors.
   A warning is issued when it exceeds :py:data:`WARNING_SPLITTING_RATIO`, with the number of timesteps needed to bring it below.
-- **Pairs of operators** report cell numbers comparing their rates at the grid scale, as the largest value over the cells where both act: the cell Péclet number :math:`|v| \Delta r / D`, with advection and diffusion, tells which of them dominates.
+- **Pairs of operators** report cell numbers comparing their rates at the grid scale, as the largest value over the cells where both act:
+
+  - the cell Péclet number :math:`|v| \Delta r / D`, with advection and diffusion, tells which of them dominates;
+  - the cell Damköhler numbers :math:`(\Delta r / |v|)\,|\dot{p}| / p` and :math:`(\Delta r^2 / D)\,|\dot{p}| / p`, with losses and advection or diffusion, compare the time to cross a cell with the loss time.
+    Above one, particles lose their energy before leaving the cell where they are, so their spatial profile at those momenta is not resolved by the grid.
+    Momenta with fast losses are often meant to be confined near their sources, so these numbers are reported but not warned about.
 
 Dimensionless numbers are invariant under changes of units, so they characterize the discrete problem itself, unlike the magnitudes of the values handled by the solver.
 Since parameters may depend on time, every quantity is evaluated at several times of the simulation and the worst case is reported.
@@ -107,7 +112,7 @@ class SimulationDiagnostics:
     operators : tuple of OperatorDiagnostics
         Diagnostics of each operator, in the order of the problem type.
     numbers : dict of str to float
-        Dimensionless numbers involving several operators: ``"splitting_ratio"`` and ``"cell_peclet"``, when applicable.
+        Dimensionless numbers involving several operators: ``"splitting_ratio"``, ``"cell_peclet"``, ``"cell_damkohler_advection"`` and ``"cell_damkohler_diffusion"``, when applicable.
     warnings : tuple of str
         Descriptions of the problematic time steps found, with a suggested number of timesteps.
     """
@@ -234,11 +239,22 @@ def _cell_numbers(subsolvers: dict, grid, times: np.ndarray) -> dict[str, float]
     """Largest cell numbers of the pairs of operators present, over the sampled times."""
     advection = subsolvers.get("advection")
     diffusion = subsolvers.get("diffusion")
+    loss = subsolvers.get("loss")
     pairs = {}
     if advection is not None and diffusion is not None:
         # Advection over diffusion across a cell: |v| dr / D
         pairs["cell_peclet"] = lambda t, dr: _cell_ratio(
             np.abs(advection.velocities(t)) * dr, diffusion.diffusion_coefficients(t)
+        )
+    if advection is not None and loss is not None:
+        # Cell crossing time over loss time: (dr / |v|) (|p_dot| / p)
+        pairs["cell_damkohler_advection"] = lambda t, dr: _cell_ratio(
+            loss.loss_rates(t) * dr, np.abs(advection.velocities(t))
+        )
+    if diffusion is not None and loss is not None:
+        # Cell diffusion time over loss time: (dr^2 / D) (|p_dot| / p)
+        pairs["cell_damkohler_diffusion"] = lambda t, dr: _cell_ratio(
+            loss.loss_rates(t) * dr**2, diffusion.diffusion_coefficients(t)
         )
     if not pairs:
         return {}

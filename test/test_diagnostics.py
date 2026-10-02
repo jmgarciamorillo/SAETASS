@@ -362,3 +362,44 @@ def test_hyperbolic_operators_have_no_timescale_by_default():
         HyperbolicSolver._characteristic_timescale(advection, advection.V_centers)
         is None
     )
+
+
+def test_cell_damkohler_numbers_compare_losses_with_transport(plot_results):
+    p = np.logspace(0, 2, 30)
+    shape = (p.size, R.size)
+    v = np.broadcast_to(np.where(R < 1.0, 0.0, 2.0), shape)  # no advection near r = 0
+    D = np.broadcast_to(np.where(R < 1.0, 0.0, 0.5), shape)  # nor diffusion
+    params = {
+        "advection": {**ADVECTION, "v_centers": v * su.VELOCITY},
+        "diffusion": {"D_values": D * su.DIFFUSION_COEFFICIENT},
+        "loss": {
+            **ADVECTION,
+            "inflow_value_U": 0.0 * su.MOMENTUM * su.PSI_P,
+            "P_dot": np.broadcast_to(-0.01 * p[:, None] ** 2, shape)
+            * su.MOMENTUM_LOSS_RATE,
+        },
+    }
+    solver = _solver("advection-diffusion-loss", params, p=p)
+    diag = solver.diagnostics(warn=False)
+    # |p_dot| / p = 0.01 p, fastest at the highest momentum; dr = 0.1 pc
+    loss_rate = 0.01 * p[-1]
+    assert diag.numbers["cell_damkohler_advection"] == pytest.approx(
+        0.1 * loss_rate / 2.0
+    )
+    assert diag.numbers["cell_damkohler_diffusion"] == pytest.approx(
+        0.1**2 * loss_rate / 0.5
+    )
+    # Cells where a process does not act are left out instead of giving infinities
+    assert diag.numbers["cell_peclet"] == pytest.approx(2.0 * 0.1 / 0.5)
+
+    if plot_results:
+        rates = solver.operator_subsolvers[2].loss_rates(0.0)[:, -1]
+        plt.figure(figsize=(10, 6))
+        plt.loglog(p, 0.1 * rates / 2.0, label="Advection, (dr / |v|) |p_dot| / p")
+        plt.loglog(p, 0.1**2 * rates / 0.5, label="Diffusion, (dr^2 / D) |p_dot| / p")
+        plt.axhline(1.0, color="k", ls=":", label="Unresolved above")
+        plt.title("Cell Damköhler numbers by momentum")
+        plt.xlabel("p [GeV/c]")
+        plt.legend()
+        plt.grid(True, alpha=0.5)
+        plt.show()
