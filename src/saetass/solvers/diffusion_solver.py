@@ -247,34 +247,42 @@ class DiffusionSolver(SubSolver):
         """
         Recompute face conductances when D_values change.
         """
+        self._compute_conductances(D_values, self._D_face, self._G)
+
+    def _compute_conductances(
+        self, D_values: np.ndarray, D_face: np.ndarray, G: np.ndarray
+    ) -> None:
+        """
+        Compute face diffusion coefficients and conductances for ``D_values`` into the ``D_face`` and ``G`` buffers.
+        """
         # 1) Compute D_face for all slices: shape (n_p, N+1)
         D_left = D_values[:, :-1]
         D_right = D_values[:, 1:]
         num = self.hL_b + self.hR_b
         den = self.hL_b / D_left + self.hR_b / D_right
         den = np.where(den == 0.0, np.finfo(float).tiny, den)
-        self._D_face[:, 1:-1] = num / den
-        self._D_face[:, 0] = D_values[:, 0]
-        self._D_face[:, -1] = D_values[:, -1]
+        D_face[:, 1:-1] = num / den
+        D_face[:, 0] = D_values[:, 0]
+        D_face[:, -1] = D_values[:, -1]
 
         # 2) Compute conductances G on faces
         rf2 = (self.r_faces[1:-1] ** 2)[None, :]
-        self._G[:, 1:-1] = (rf2 * self._D_face[:, 1:-1]) / self.d_centers[None, :]
-        self._G[:, 0] = 0.0
+        G[:, 1:-1] = (rf2 * D_face[:, 1:-1]) / self.d_centers[None, :]
+        G[:, 0] = 0.0
 
         if self.boundary_condition == "dirichlet":
             if self.N >= 2:
                 denom_last = self.r_centers[-1] - self.r_centers[-2]
             else:
                 denom_last = self.h[0] / 2.0
-            self._G[:, -1] = (self.r_faces[-1] ** 2) * self._D_face[:, -1] / denom_last
+            G[:, -1] = (self.r_faces[-1] ** 2) * D_face[:, -1] / denom_last
         elif self.boundary_condition == "outflow":
             # Assume asymptotic behaviour f ~ 1/r -> df/dr = -f/r
             # At boundary, flux is roughly proportional to f itself
             # We fold the outflow into G[:, -1] multiplying f_N
-            self._G[:, -1] = self.r_faces[-1] * self._D_face[:, -1]
+            G[:, -1] = self.r_faces[-1] * D_face[:, -1]
         elif self.boundary_condition == "neumann":
-            self._G[:, -1] = 0.0
+            G[:, -1] = 0.0
         else:
             raise ValueError(f"Unknown boundary_condition: {self.boundary_condition}")
 
