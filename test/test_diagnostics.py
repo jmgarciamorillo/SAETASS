@@ -403,3 +403,73 @@ def test_cell_damkohler_numbers_compare_losses_with_transport(plot_results):
         plt.legend()
         plt.grid(True, alpha=0.5)
         plt.show()
+
+
+def _oscillating_source(period, amplitude=1.0):
+    def source(r, p, t):
+        phase = 2.0 * np.pi * t.to_value(su.TIME) / period
+        return amplitude * (1.0 + np.sin(phase)) * np.ones(R.size) * su.SOURCE_PSI_P
+
+    return {"source": {"source": source}}
+
+
+def test_source_timescale_depends_on_its_variation_not_its_magnitude(plot_results):
+    def scales(period, amplitude=1.0):
+        diag = _solver("source", _oscillating_source(period, amplitude)).diagnostics()
+        return (
+            diag["source"].timescale.to_value(su.TIME),
+            diag["source"].numbers["source_variation"],
+        )
+
+    slow, fast = scales(100.0), scales(1.0)
+    assert slow[1] < 0.1 < fast[1]
+    assert slow[0] > 10.0 * fast[0]
+    assert scales(1.0, amplitude=1e6) == pytest.approx(fast)
+
+    # Variations faster than the step are resolved, not aliased by its ends
+    assert scales(0.2)[1] > 1.0
+
+    constant = _solver(
+        "source",
+        {"source": {"source": lambda r, p, t: np.ones(R.size) * su.SOURCE_PSI_P}},
+    )
+    assert np.isinf(constant.diagnostics()["source"].timescale)
+    off = _solver("source", _oscillating_source(1.0, amplitude=0.0))
+    assert off.diagnostics()["source"].numbers["source_variation"] == 0.0
+
+    if plot_results:
+        times = np.linspace(0.0, 1.0, 1001)
+        plt.figure(figsize=(10, 6))
+        for period in (100.0, 1.0, 0.2):
+            variation = scales(period)[1]
+            plt.plot(
+                times,
+                1.0 + np.sin(2.0 * np.pi * times / period),
+                label=f"Period {period} Myr, source_variation {variation:.3g}",
+            )
+        for t_step in np.linspace(0.0, 1.0, 11):
+            plt.axvline(t_step, color="grey", lw=0.5)
+        plt.title("Source time profiles against the time steps (grey)")
+        plt.xlabel("t [Myr]")
+        plt.legend()
+        plt.grid(True, alpha=0.5)
+        plt.show()
+
+
+def test_fast_source_variation_triggers_the_splitting_warning(plot_results):
+    params = {"diffusion": _diffusion(0.02), **_oscillating_source(0.37)}
+    with pytest.warns(DiagnosticsWarning, match=r"\(source"):
+        diag = _solver("diffusion-source", params).diagnostics()
+    assert diag["source"].timescale < diag["diffusion"].timescale
+
+    if plot_results:
+        coarse = _solver("diffusion-source", params).run().psi_p
+        fine = _solver("diffusion-source", params, num_timesteps=400).run().psi_p
+        plt.figure(figsize=(10, 6))
+        plt.plot(R, fine.to_value(su.PSI_P), "k--", label="400 steps")
+        plt.plot(R, coarse.to_value(su.PSI_P), label="10 steps (warned)")
+        plt.title("Diffusion with a source oscillating faster than the time step")
+        plt.xlabel("r [pc]")
+        plt.legend()
+        plt.grid(True, alpha=0.5)
+        plt.show()

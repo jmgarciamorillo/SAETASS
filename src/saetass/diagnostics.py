@@ -10,6 +10,9 @@ Each operator reports its characteristic timescale and the dimensionless numbers
   Crank-Nicolson is unconditionally stable and is guaranteed to preserve positivity when this number is at most one.
   Larger values mainly cost accuracy on features resolved by few cells, while smooth solutions tolerate values of hundreds, which are common in astrophysical setups, so this number is reported but not warned about.
   Its timescale is the diffusion time across the domain, :math:`L^2 / \max D`.
+- **Time-dependent sources** report their variation timescale :math:`\tau_Q = \max |Q| / \max |\partial_t Q|` and the relative change of the source over one step, :math:`\Delta t / \tau_Q`.
+  The magnitude of a source does not define a timescale: the transport equation is linear, so scaling :math:`Q` only scales the part of the solution it produces, while each step injects :math:`Q` evaluated at its start, which is accurate only if :math:`Q` changes little within the step.
+  Static sources report no scales.
 - **With several operators**, the splitting ratio :math:`\Delta t / \tau_\mathrm{min}` compares the global time step to the shortest operator timescale, which controls the operator-splitting and time-integration errors.
   A warning is issued when it exceeds :py:data:`WARNING_SPLITTING_RATIO`, with the number of timesteps needed to bring it below.
 - **Pairs of operators** report cell numbers comparing their rates at the grid scale, as the largest value over the cells where both act:
