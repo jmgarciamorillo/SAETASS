@@ -15,6 +15,7 @@ Thus, :py:class:`~saetass.solvers.advection_solver.AdvectionSolver` and :py:clas
 """
 
 import logging
+import math
 from abc import ABC, abstractmethod
 from types import MappingProxyType
 from typing import Literal
@@ -22,6 +23,7 @@ from typing import Literal
 import numpy as np
 from numba import njit, prange
 
+from ..diagnostics import CharacteristicScales
 from ..grid import Grid
 from ..solver import ParamSpec, SubSolver
 from ..state import State
@@ -410,7 +412,9 @@ class HyperbolicSolver(SubSolver, ABC):
         V_face = (V_left * dist_right_b + V_right * dist_left_b) / denom
         return V_face
 
-    def _compute_dt(self, V_faces: np.ndarray = None) -> float:
+    def _compute_dt(
+        self, V_faces: np.ndarray = None, V_centers: np.ndarray = None
+    ) -> float:
         """
         Compute a stable time step based on the CFL condition:
 
@@ -421,6 +425,8 @@ class HyperbolicSolver(SubSolver, ABC):
         # Interpolated velocities at faces along the active axis
         if V_faces is None:
             V_faces = self._face_generalized_velocity_interpolated()
+        if V_centers is None:
+            V_centers = self.V_centers
 
         # Take absolute max over all entries (works for scalar, 1D, or 2D)
         if V_faces.size:
@@ -430,12 +436,12 @@ class HyperbolicSolver(SubSolver, ABC):
 
         # Include outermost face proxy using last cell center along the active axis
         # Take max across slices if multidimensional
-        if self.V_centers.ndim == 1:
-            last_center_vel = abs(self.V_centers[-1])
+        if V_centers.ndim == 1:
+            last_center_vel = abs(V_centers[-1])
         else:
             # Take the last index along the active axis, all slices on the other axis
             last_center_vel = np.max(
-                np.abs(np.take(self.V_centers, indices=-1, axis=self.axis))
+                np.abs(np.take(V_centers, indices=-1, axis=self.axis))
             )
 
         Vmax = max(Vmax, float(last_center_vel))
@@ -448,6 +454,47 @@ class HyperbolicSolver(SubSolver, ABC):
         dx_min = np.min(self.dx)
 
         return float(self.cfl * dx_min / Vmax)
+
+    def velocities(self, t: float) -> np.ndarray:
+        """
+        Generalized velocities at cell centers at time ``t``, without modifying the solver state.
+
+        Parameters
+        ----------
+        t : float
+            Time, as a bare float in canonical :py:data:`~saetass.units.TIME` units.
+
+        Returns
+        -------
+        numpy.ndarray
+            Generalized velocities :math:`V` at cell centers, in canonical units.
+        """
+        return self._get_V_centers(t)
+
+    def characteristic_scales(self, t: float, dt: float) -> CharacteristicScales:
+        """
+        Courant number and CFL sub-cycles per call, and the timescale defined by the subclass.
+
+        See :py:meth:`~saetass.solver.SubSolver.characteristic_scales`.
+        """
+        V_centers = self.velocities(t)
+        dt_cfl = self._compute_dt(
+            self._face_generalized_velocity_interpolated(V_centers), V_centers
+        )
+        if np.isfinite(dt_cfl):
+            courant = self.cfl * dt / dt_cfl
+            # Same count as the sub-cycling loop in advance(), which ignores rounding residues
+            subcycles = max(1, math.ceil(dt * (1.0 - _TIME_TOLERANCE) / dt_cfl))
+        else:
+            courant, subcycles = 0.0, 1
+        return CharacteristicScales(
+            timescale=self._characteristic_timescale(V_centers),
+            numbers={"courant_number": courant, "cfl_subcycles": float(subcycles)},
+        )
+
+    def _characteristic_timescale(self, V_centers: np.ndarray) -> float | None:
+        """Characteristic timescale of the operator for the given velocities, if it has one."""
+        return None
 
     def _get_velocities(self, t: float) -> tuple[np.ndarray, np.ndarray]:
         """Return the current generalized velocities at centers and faces."""

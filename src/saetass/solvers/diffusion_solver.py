@@ -5,6 +5,7 @@ import numpy as np
 from numba import njit, prange
 
 from .. import units as su
+from ..diagnostics import CharacteristicScales
 from ..grid import Grid
 from ..solver import ParamSpec, SubSolver
 from ..state import State
@@ -285,6 +286,42 @@ class DiffusionSolver(SubSolver):
             G[:, -1] = 0.0
         else:
             raise ValueError(f"Unknown boundary_condition: {self.boundary_condition}")
+
+    def diffusion_coefficients(self, t: float) -> np.ndarray:
+        """
+        Diffusion coefficients at cell centers at time ``t``, without modifying the solver state.
+
+        Parameters
+        ----------
+        t : float
+            Time, as a bare float in canonical :py:data:`~saetass.units.TIME` units.
+
+        Returns
+        -------
+        numpy.ndarray
+            Diffusion coefficients with shape ``(n_p, N)``, in canonical :py:data:`~saetass.units.DIFFUSION_COEFFICIENT` units.
+        """
+        return self._get_D(t) if self.is_D_dynamic else self.D_values_static
+
+    def characteristic_scales(self, t: float, dt: float) -> CharacteristicScales:
+        r"""
+        Fourier number of the Crank-Nicolson step and diffusion time across the domain.
+
+        The Fourier number is :math:`\max_i \Delta t\,(G_{i-1/2} + G_{i+1/2}) / (2 V_i)`, the condition for the explicit half of the scheme to have non-negative coefficients.
+        See :py:meth:`~saetass.solver.SubSolver.characteristic_scales`.
+        """
+        D_values = self.diffusion_coefficients(t)
+        D_face, G = np.empty_like(self._D_face), np.empty_like(self._G)
+        self._compute_conductances(D_values, D_face, G)
+        coupling = dt * (G[:, :-1] + G[:, 1:]) / (2.0 * self.V_b)
+        if self.boundary_condition == "dirichlet":
+            coupling = coupling[:, :-1]  # the boundary cell is fixed, not integrated
+        D_max = float(np.max(D_values))
+        length = float(self.r_faces[-1] - self.r_faces[0])
+        return CharacteristicScales(
+            timescale=length**2 / D_max if D_max > 0.0 else np.inf,
+            numbers={"fourier_number": float(np.max(coupling))},
+        )
 
     def _build_matrices(self, dt: float) -> None:
         """
