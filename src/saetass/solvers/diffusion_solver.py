@@ -66,7 +66,7 @@ class DiffusionSolver(SubSolver):
         self.t_grid = np.asarray(t_grid, dtype=float)
         if self.r_centers.ndim != 1 or self.r_centers.size < 2:
             raise ValueError("r_centers must be 1D with at least 2 points.")
-        if abs(self.r_centers[0]) > 1e-14:
+        if abs(self.r_centers[0]) > 1e-12 * (self.r_centers[1] - self.r_centers[0]):
             raise ValueError("first r_center must be 0.")
         self.N = len(self.r_centers)
         self.h = np.asarray(self.grid.dr, dtype=float)
