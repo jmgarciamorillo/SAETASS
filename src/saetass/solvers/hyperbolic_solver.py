@@ -28,6 +28,10 @@ from ..state import State
 
 logger = logging.getLogger(__name__)
 
+#: Fraction of a step below which the remaining time of a CFL sub-cycling loop is rounding residue.
+_TIME_TOLERANCE = 1e-12
+
+
 # The limiters compare signs instead of testing products such as ``a * b > 0``: a
 # product squares the magnitude of the slopes, so it underflows to zero (silently
 # dropping the scheme to first order) or overflows for slopes beyond ~1e+-154, which
@@ -213,8 +217,10 @@ class HyperbolicSolver(SubSolver, ABC):
         dt_requested = float(np.diff(self.t_grid)[0])
         total_time = float(n_steps) * dt_requested
         t_local = state.t_val
+        # Remaining time below this relative tolerance is rounding residue, not a step to take
+        time_tolerance = _TIME_TOLERANCE * total_time
 
-        while total_time > 1e-40:
+        while total_time > time_tolerance:
             V_centers, V_faces = self._get_velocities(t_local)
             dt_step = min(total_time, float(self._compute_dt(V_faces=V_faces)))
 
