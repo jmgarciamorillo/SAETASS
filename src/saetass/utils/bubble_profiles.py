@@ -271,7 +271,7 @@ class BubbleProfileCalculator:
 
         - **Core** (:math:`r < R_c`): constant, equal to the wind density at :math:`R_c`.
         - **Cold wind** (:math:`R_c \leq r < R_{TS}`): :math:`n_w(r) = \dot{M} / (4 \pi r^2 v_w m_p)`.
-        - **Hot bubble** (:math:`R_{TS} \leq r < R_{cd}`): uniform, filled by the mass evaporated from the swept-up shell by thermal conduction, :math:`n_b = \dot{M}_s t_b / (m_p V_b)`, with :math:`V_b = (4\pi/3)(R_{cd}^3 - R_{TS}^3)` and the evaporation rate given by :cite:ct:`Menchiari2024` (Eq. 15),
+        - **Hot bubble** (:math:`R_{TS} \leq r < R_{cd}`): uniform, filled by the mass evaporated from the swept-up shell by thermal conduction, :math:`n_b = \dot{M}_s t_b / (m_p V_b)`, with :math:`V_b = (4\pi/3)(R_{cd}^3 - R_{TS}^3)` and the evaporation rate given by
 
           .. math::
 
@@ -596,7 +596,7 @@ class BubbleProfileCalculator:
         Compute the cosmic-ray source term injected at the termination shock.
 
         Particles are injected in the cell that contains :math:`R_{TS}` with the spectrum of :cite:ct:`Morlino2021` at the termination shock: a power law in momentum, :math:`f(p) \propto p^{-s}` in phase space, starting at :math:`p_\mathrm{inj}`, with a cutoff :math:`e^{-\Gamma(p)}` set by the escape of particles upstream and downstream of the shock.
-        Its shape depends on the turbulence and is given by the fit of :cite:ct:`Menchiari2024` (Eq. 14 and Table 1, see :py:data:`~saetass.utils.bubble_profiles.CUTOFF_COEFFICIENTS`),
+        Its shape depends on the turbulence and is given by the fit of :cite:ct:`Menchiari2024` (see :py:data:`~saetass.utils.bubble_profiles.CUTOFF_COEFFICIENTS`),
 
         .. math::
 
