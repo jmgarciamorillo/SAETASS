@@ -8,7 +8,7 @@ SAETASS is distributed as a standard Python package, designed to integrate with 
 Prerequisites
 -------------
 
-SAETASS has been tested for **Python 3.10** or higher, so previous versions might show compatibility issues.
+SAETASS requires **Python 3.11** or higher.
 
 The core numerical engine relies on the standard PyData stack. While the package manager resolves these dependencies automatically, users integrating SAETASS into existing pipelines should be aware of the following requirements:
 
@@ -49,7 +49,7 @@ Select the installation method that aligns with your intended usage.
          source .venv/bin/activate
 
          # Using Conda
-         conda create -n saetass_env python=3.10
+         conda create -n saetass_env python=3.11
          conda activate saetass_env
 
       **2. Installing the package**
