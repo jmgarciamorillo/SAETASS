@@ -1,7 +1,0 @@
-sphinx-tabs
-myst-parser
-sphinxcontrib-bibtex
-sphinx-design
-nbsphinx
-pydata-sphinx-theme
-ipykernel
