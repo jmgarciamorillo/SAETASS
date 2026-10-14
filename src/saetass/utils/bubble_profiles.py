@@ -194,57 +194,68 @@ class BubbleProfileCalculator:
         logger.debug("Weaver77 kinematics computed")
 
     def compute_density_profile(self) -> u.Quantity:
-        """
-        Compute the gas density profile structure.
+        r"""
+        Compute the gas density profile.
+
+        The regions of the bubble have the following densities:
+
+        - **Core** (:math:`r < R_c`): constant, equal to the wind density at :math:`R_c`.
+        - **Cold wind** (:math:`R_c \leq r < R_{TS}`): :math:`n_w(r) = \dot{M} / (4 \pi r^2 v_w m_p)`.
+        - **Hot bubble** (:math:`R_{TS} \leq r < R_{cd}`): uniform, filled by the mass evaporated from the swept-up shell by thermal conduction, :math:`n_b = \dot{M}_s t_b / (m_p V_b)`, with :math:`V_b = (4\pi/3)(R_{cd}^3 - R_{TS}^3)` and the evaporation rate given by :cite:ct:`Menchiari2024` (Eq. 15),
+
+          .. math::
+
+              \dot{M}_s \simeq 2 \times 10^{-4} \left(\frac{\eta_m L_w}{10^{37}\,\mathrm{erg\,s^{-1}}}\right)^{27/35} \left(\frac{\rho_0}{10\, m_p\,\mathrm{cm^{-3}}}\right)^{-2/35} \left(\frac{t_b}{1\,\mathrm{Myr}}\right)^{6/35} M_\odot\,\mathrm{yr^{-1}}.
+
+        - **Swept-up shell** (:math:`R_{cd} \leq r < R_b`): :math:`n_s = 7.02\, n_0`.
+        - **Ambient medium** (:math:`r \geq R_b`): :math:`n_0 = \rho_0 / m_p`.
 
         Returns
         -------
         astropy.units.Quantity
             Gas number density profile. Units compatible with :py:data:`~saetass.units.NUMBER_DENSITY`.
         """
+        L_wind = self.kwargs["L_wind"]
         M_dot = self.kwargs["M_dot"]
         rho_0 = self.kwargs["rho_0"]
         t_b = self.kwargs["t_b"]
         R_c = self.kwargs.get("R_c", 0 * u.pc)
+        eta_m = self.kwargs.get("eta_m", 1.0)
+        cm3 = u.cm**-3
 
-        n0 = (rho_0 / const.m_p).to(u.cm**-3).value
+        n0 = (rho_0 / const.m_p).to_value(cm3)
 
-        n_c = 0
-        if R_c.to(u.pc).value > 0:
-            n_c = (
-                (M_dot / (4 * np.pi * R_c**2 * self.v_w) / const.m_p).to(u.cm**-3).value
-            )
-
-        r_pc = self.r_grid.to(u.pc)
+        n_c = 0.0
+        if R_c.to_value(u.pc) > 0:
+            n_c = (M_dot / (4 * np.pi * R_c**2 * self.v_w) / const.m_p).to_value(cm3)
 
         # Avoid divide-by-zero for r=0
-        r_safe = r_pc.copy()
+        r_safe = self.r_grid.to(u.pc).copy()
         r_safe[r_safe == 0 * u.pc] = 1e-10 * u.pc
-
-        n_w = (
-            (M_dot / (4 * np.pi * r_safe**2 * self.v_w) / const.m_p).to(u.cm**-3).value
-        )
-        if R_c.to(u.pc).value == 0 and len(n_w) > 1:
+        n_w = (M_dot / (4 * np.pi * r_safe**2 * self.v_w) / const.m_p).to_value(cm3)
+        if R_c.to_value(u.pc) == 0 and len(n_w) > 1:
             n_w[0] = n_w[1]
 
-        M_bubble = M_dot * t_b
-        n_b = (
-            (M_bubble / (4 / 3 * np.pi * ((self.R_cd - self.R_TS) ** 3) * const.m_p))
-            .to(u.cm**-3)
-            .value
+        # Hot bubble: mass evaporated from the shell over the age of the bubble
+        M_dot_s = (
+            2e-4
+            * (eta_m * L_wind / (1e37 * u.erg / u.s)).to_value(u.one) ** (27 / 35)
+            * (rho_0 / (10 * const.m_p / u.cm**3)).to_value(u.one) ** (-2 / 35)
+            * t_b.to_value(u.Myr) ** (6 / 35)
+            * u.M_sun
+            / u.yr
         )
+        V_hot = 4 / 3 * np.pi * (self.R_cd**3 - self.R_TS**3)
+        n_b = (M_dot_s * t_b / (V_hot * const.m_p)).to_value(cm3)
 
-        n_shell = 7.02 * n0
-
-        n_profile = np.zeros_like(r_pc.value)
-
+        n_profile = np.zeros(self.r_grid.shape)
         n_profile[self.masks["r_core"]] = n_c
         n_profile[self.masks["r_wind"]] = n_w[self.masks["r_wind"]]
         n_profile[self.masks["r_hot"]] = n_b
-        n_profile[self.masks["r_shell"]] = n_shell
+        n_profile[self.masks["r_shell"]] = 7.02 * n0
         n_profile[self.masks["r_ISM"]] = n0
 
-        return n_profile * u.cm**-3
+        return n_profile * cm3
 
     @u.quantity_input(T_w=u.K, T_ISM=u.K, T_bubble=u.K, T_shell=u.K, T_core=u.K)
     def compute_temperature_profile(

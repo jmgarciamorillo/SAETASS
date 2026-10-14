@@ -1,3 +1,4 @@
+import astropy.constants as const
 import astropy.units as u
 import numpy as np
 import pytest
@@ -144,3 +145,31 @@ class TestBubbleStructure:
         assert (lossy.R_b / calc.R_b).to_value(u.one) == pytest.approx(factor)
         assert (lossy.R_TS / calc.R_TS).to_value(u.one) == pytest.approx(1 / factor)
         assert lossy.v_w == calc.v_w
+
+    def test_gas_density(self, base_kwargs, r_grid):
+        calc = BubbleProfileCalculator(r_grid, R_c=5 * u.pc, **base_kwargs)
+        n = calc.compute_density_profile()
+        n0 = (base_kwargs["rho_0"] / const.m_p).to(u.cm**-3)
+
+        # Core and cold wind, from the mass loss rate
+        M_dot, v_w = base_kwargs["M_dot"], calc.v_w
+        n_core = M_dot / (4 * np.pi * (5 * u.pc) ** 2 * v_w * const.m_p)
+        assert n[calc.masks["r_core"]].to_value(u.cm**-3) == pytest.approx(
+            n_core.to_value(u.cm**-3)
+        )
+
+        # Hot bubble, filled by the mass evaporated from the shell: 2e-4 M_sun/yr for
+        # L = 1e37 erg/s, n0 = 10 cm^-3 and 1 Myr (Menchiari et al. 2024, Eq. 15)
+        M_dot_s = (
+            2e-4
+            * (base_kwargs["L_wind"] / (1e37 * u.erg / u.s)).to_value(u.one)
+            ** (27 / 35)
+            * (n0 / (10 / u.cm**3)).to_value(u.one) ** (-2 / 35)
+            * u.M_sun
+            / u.yr
+        )
+        V_hot = 4 / 3 * np.pi * (calc.R_cd**3 - calc.R_TS**3)
+        n_b = (M_dot_s * base_kwargs["t_b"] / (V_hot * const.m_p)).to(u.cm**-3)
+        hot = calc.masks["r_hot"]
+        if np.any(hot):
+            np.testing.assert_allclose(n[hot].to_value(u.cm**-3), n_b.value)
