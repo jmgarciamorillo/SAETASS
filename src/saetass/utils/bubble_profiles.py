@@ -23,7 +23,7 @@ from .. import units as su
 
 
 class BubbleModel(StrEnum):
-    """Auxiliary class for correct particle types handling.
+    """Auxiliary class for correct bubble model handling.
 
     .. note::
         Currently, the supported models are: ``"Weaver77"`` and ``"Morlino21"``.
@@ -117,16 +117,12 @@ class BubbleProfileCalculator:
 
     def _compute_kinematics(self):
         """Dispatch the kinematics computation based on the model."""
-        if self.model in [BubbleModel.WEAVER77, BubbleModel.MORLINO21]:
-            self._compute_Weaver77_kinematics()
-        else:
-            raise NotImplementedError(
-                f"Kinematics for model {self.model} are not implemented."
-            )
+        # All models share the bubble radii of the intermediate stage
+        self._compute_Weaver77_kinematics()
 
     def _compute_Weaver77_kinematics(self):
         """
-        Compute baseline parameters for Weaver77/Morlino21 models from wind properties.
+        Compute the radii of the bubble in its intermediate stage, common to all models.
         Expected kwargs: L_wind, M_dot, rho_0, t_b
         """
         required = ["L_wind", "M_dot", "rho_0", "t_b"]
@@ -188,61 +184,49 @@ class BubbleProfileCalculator:
         astropy.units.Quantity
             Gas number density profile. Units compatible with :py:data:`~saetass.units.NUMBER_DENSITY`.
         """
-        if self.model in [BubbleModel.WEAVER77, BubbleModel.MORLINO21]:
-            M_dot = self.kwargs["M_dot"]
-            rho_0 = self.kwargs["rho_0"]
-            t_b = self.kwargs["t_b"]
-            R_c = self.kwargs.get("R_c", 0 * u.pc)
+        M_dot = self.kwargs["M_dot"]
+        rho_0 = self.kwargs["rho_0"]
+        t_b = self.kwargs["t_b"]
+        R_c = self.kwargs.get("R_c", 0 * u.pc)
 
-            n0 = (rho_0 / const.m_p).to(u.cm**-3).value
+        n0 = (rho_0 / const.m_p).to(u.cm**-3).value
 
-            n_c = 0
-            if R_c.to(u.pc).value > 0:
-                n_c = (
-                    (M_dot / (4 * np.pi * R_c**2 * self.v_w) / const.m_p)
-                    .to(u.cm**-3)
-                    .value
-                )
-
-            r_pc = self.r_grid.to(u.pc)
-
-            # Avoid divide-by-zero for r=0
-            r_safe = r_pc.copy()
-            r_safe[r_safe == 0 * u.pc] = 1e-10 * u.pc
-
-            n_w = (
-                (M_dot / (4 * np.pi * r_safe**2 * self.v_w) / const.m_p)
-                .to(u.cm**-3)
-                .value
-            )
-            if R_c.to(u.pc).value == 0 and len(n_w) > 1:
-                n_w[0] = n_w[1]
-
-            M_bubble = M_dot * t_b
-            n_b = (
-                (
-                    M_bubble
-                    / (4 / 3 * np.pi * ((self.R_cd - self.R_TS) ** 3) * const.m_p)
-                )
-                .to(u.cm**-3)
-                .value
+        n_c = 0
+        if R_c.to(u.pc).value > 0:
+            n_c = (
+                (M_dot / (4 * np.pi * R_c**2 * self.v_w) / const.m_p).to(u.cm**-3).value
             )
 
-            n_shell = 7.02 * n0
+        r_pc = self.r_grid.to(u.pc)
 
-            n_profile = np.zeros_like(r_pc.value)
+        # Avoid divide-by-zero for r=0
+        r_safe = r_pc.copy()
+        r_safe[r_safe == 0 * u.pc] = 1e-10 * u.pc
 
-            n_profile[self.masks["r_core"]] = n_c
-            n_profile[self.masks["r_wind"]] = n_w[self.masks["r_wind"]]
-            n_profile[self.masks["r_hot"]] = n_b
-            n_profile[self.masks["r_shell"]] = n_shell
-            n_profile[self.masks["r_ISM"]] = n0
+        n_w = (
+            (M_dot / (4 * np.pi * r_safe**2 * self.v_w) / const.m_p).to(u.cm**-3).value
+        )
+        if R_c.to(u.pc).value == 0 and len(n_w) > 1:
+            n_w[0] = n_w[1]
 
-            return n_profile * u.cm**-3
-        else:
-            raise NotImplementedError(
-                f"Density profile for {self.model} not implemented."
-            )
+        M_bubble = M_dot * t_b
+        n_b = (
+            (M_bubble / (4 / 3 * np.pi * ((self.R_cd - self.R_TS) ** 3) * const.m_p))
+            .to(u.cm**-3)
+            .value
+        )
+
+        n_shell = 7.02 * n0
+
+        n_profile = np.zeros_like(r_pc.value)
+
+        n_profile[self.masks["r_core"]] = n_c
+        n_profile[self.masks["r_wind"]] = n_w[self.masks["r_wind"]]
+        n_profile[self.masks["r_hot"]] = n_b
+        n_profile[self.masks["r_shell"]] = n_shell
+        n_profile[self.masks["r_ISM"]] = n0
+
+        return n_profile * u.cm**-3
 
     @u.quantity_input(T_w=u.K, T_ISM=u.K, T_bubble=u.K, T_shell=u.K, T_core=u.K)
     def compute_temperature_profile(
@@ -274,20 +258,15 @@ class BubbleProfileCalculator:
         astropy.units.Quantity
             Temperature profile. Units compatible with :math:`\mathrm{K}`.
         """
-        if self.model in [BubbleModel.WEAVER77, BubbleModel.MORLINO21]:
-            T_profile = np.zeros_like(self.r_grid.value)
+        T_profile = np.zeros_like(self.r_grid.value)
 
-            T_profile[self.masks["r_core"]] = T_core.to(u.K).value
-            T_profile[self.masks["r_wind"]] = T_w.to(u.K).value
-            T_profile[self.masks["r_hot"]] = T_bubble.to(u.K).value
-            T_profile[self.masks["r_shell"]] = T_shell.to(u.K).value
-            T_profile[self.masks["r_ISM"]] = T_ISM.to(u.K).value
+        T_profile[self.masks["r_core"]] = T_core.to(u.K).value
+        T_profile[self.masks["r_wind"]] = T_w.to(u.K).value
+        T_profile[self.masks["r_hot"]] = T_bubble.to(u.K).value
+        T_profile[self.masks["r_shell"]] = T_shell.to(u.K).value
+        T_profile[self.masks["r_ISM"]] = T_ISM.to(u.K).value
 
-            return T_profile * u.K
-        else:
-            raise NotImplementedError(
-                f"Temperature profile for {self.model} not implemented."
-            )
+        return T_profile * u.K
 
     def compute_velocity_profile(self) -> u.Quantity:
         """
@@ -299,26 +278,20 @@ class BubbleProfileCalculator:
             Advection velocity profile. Units compatible with :py:data:`~saetass.units.VELOCITY`.
         """
         v_field = np.zeros_like(self.r_grid.value)
+        v_field[self.masks["r_wind_overall"]] = self.v_w.to(u.km / u.s).value
 
-        if self.model in [BubbleModel.MORLINO21, BubbleModel.WEAVER77]:
-            v_field[self.masks["r_wind_overall"]] = self.v_w.to(u.km / u.s).value
+        # v inside bubble = v_w / 4 * (R_TS / r)^2
+        r_b_mask = self.masks["r_bubble"]
+        r_bubble_pc = self.r_grid[r_b_mask].to(u.pc).value
 
-            # v inside bubble = v_w / 4 * (R_TS / r)^2
-            r_b_mask = self.masks["r_bubble"]
-            r_bubble_pc = self.r_grid[r_b_mask].to(u.pc).value
-
-            if len(r_bubble_pc) > 0:
-                v_field[r_b_mask] = (
-                    self.v_w.to(u.km / u.s).value
-                    / 4
-                    * (self.R_TS.to(u.pc).value / r_bubble_pc) ** 2
-                )
-
-            return v_field * (u.km / u.s)
-        else:
-            raise NotImplementedError(
-                f"Velocity profile for {self.model} not implemented."
+        if len(r_bubble_pc) > 0:
+            v_field[r_b_mask] = (
+                self.v_w.to(u.km / u.s).value
+                / 4
+                * (self.R_TS.to(u.pc).value / r_bubble_pc) ** 2
             )
+
+        return v_field * (u.km / u.s)
 
     def compute_magnetic_field_profile(self, eta_B: float = 0.1) -> u.Quantity:
         """
