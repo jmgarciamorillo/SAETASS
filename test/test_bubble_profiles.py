@@ -133,6 +133,11 @@ class TestBubbleStructure:
         # R_b = 0.7628 (L t^3 / rho_0)^(1/5)
         expected = 0.762865 * (L * t**3 / rho_0) ** (1 / 5)
         assert calc.R_b.to_value(u.pc) == pytest.approx(expected.to_value(u.pc))
+        # Wind density just upstream of the termination shock
+        rho_w = base_kwargs["M_dot"] / (4 * np.pi * calc.R_TS**2 * calc.v_w)
+        assert calc.rho_w.to_value(u.g / u.cm**3) == pytest.approx(
+            rho_w.to_value(u.g / u.cm**3)
+        )
         # Energy losses reduce the luminosity of the bubble, not that of the wind
         lossy = BubbleProfileCalculator(r_grid, eta_m=0.032, **base_kwargs)
         factor = 0.032 ** (1 / 5)  # 0.5025

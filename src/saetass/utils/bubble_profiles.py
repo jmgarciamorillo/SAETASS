@@ -170,7 +170,8 @@ class BubbleProfileCalculator:
             * t_b ** (2 / 5)
         ).to(u.pc)
 
-        self.rho_w = (3 * M_dot / (4 * math.pi * (self.R_TS**2) * self.v_w)).to(
+        # Density of the cold wind just upstream of the termination shock
+        self.rho_w = (M_dot / (4 * math.pi * (self.R_TS**2) * self.v_w)).to(
             u.g / u.cm**3
         )
         self.R_cd = 0.95 * self.R_b
