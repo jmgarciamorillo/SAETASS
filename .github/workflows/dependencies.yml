@@ -3,7 +3,7 @@ name: Dependency versions
 # The minimum versions declared in pyproject.toml are only true if something installs
 # them: each job resolves every direct dependency to its lowest allowed version
 # (uv --resolution lowest-direct) and checks that the package still works with it.
-# The newest versions are tested on the newest supported Python.
+# The newest versions are tested on every supported Python.
 
 on:
   push:
@@ -15,21 +15,29 @@ jobs:
   tests:
     name: Tests (${{ matrix.versions }} versions, Python ${{ matrix.python }})
     runs-on: ubuntu-latest
+    # A Python version released recently is tested before all the test dependencies
+    # support it, without blocking the workflow
+    continue-on-error: ${{ matrix.experimental == true }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - versions: oldest
-            python: "3.11"
-            resolution: lowest-direct
-          - versions: newest
-            python: "3.14"
-            resolution: highest
+          - { versions: oldest, python: "3.11", resolution: lowest-direct }
+          - { versions: newest, python: "3.11", resolution: highest }
+          - { versions: newest, python: "3.12", resolution: highest }
+          - { versions: newest, python: "3.13", resolution: highest }
+          - { versions: newest, python: "3.14", resolution: highest }
+          - { versions: newest, python: "3.15", resolution: highest, experimental: true }
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v6
+
+      - name: Install HDF5
+        # naima needs h5py, which may not have wheels yet for a recent Python
+        if: matrix.experimental
+        run: sudo apt-get update && sudo apt-get install -y libhdf5-dev
 
       - name: Install the package with its test dependencies
         run: |
