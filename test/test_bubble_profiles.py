@@ -3,9 +3,16 @@ import astropy.units as u
 import numpy as np
 import pytest
 
+from saetass import Grid
 from saetass.utils.bubble_profiles import BubbleModel, BubbleProfileCalculator
 
 FINE = np.linspace(0.1, 100, 1000) * u.pc
+COARSE = np.linspace(0.0, 100.0, 11) * u.pc  # 10 pc cells, wider than the 3.9 pc shell
+FRAGMENTED = {
+    "shell": "fragmented",
+    "shell_width": 0.5 * u.pc,
+    "shell_penetration": 2.0 * u.pc,
+}
 
 
 @pytest.fixture
@@ -24,6 +31,12 @@ def r_grid():
     return FINE
 
 
+def _overlap(faces, r_in, r_out):
+    """Volume of each cell between the radii r_in and r_out."""
+    lower, upper = np.clip(faces[:-1], r_in, r_out), np.clip(faces[1:], r_in, r_out)
+    return 4 / 3 * np.pi * (upper**3 - lower**3)
+
+
 class TestBubbleProfileCalculator:
     def test_initialization(self, r_grid, base_kwargs):
         calc = BubbleProfileCalculator(r_grid, model="Weaver77", **base_kwargs)
@@ -35,9 +48,24 @@ class TestBubbleProfileCalculator:
             ((FINE.value,), {}, TypeError, None),
             ((np.linspace(0.1, 100, 100) * u.K,), {}, u.UnitsError, None),
             ((FINE,), {"model": "InvalidModel"}, ValueError, None),
+            ((FINE,), {"shell": "thin"}, ValueError, "'uniform' or 'fragmented'"),
+            (
+                (FINE,),
+                {"shell": "fragmented", "shell_width": 0.5 * u.pc},
+                ValueError,
+                "shell_penetration",
+            ),
+            (
+                (FINE,),
+                {"shell": "fragmented", "shell_penetration": 2.0 * u.pc},
+                ValueError,
+                "shell_width",
+            ),
             ((FINE,), {"eta_m": 0.0}, ValueError, "eta_m"),
             ((FINE,), {"eta_m": 1.5}, ValueError, "eta_m"),
             ((FINE,), {"eta_m": 0.5 * u.one}, ValueError, "eta_m"),
+            ((FINE,), {"delta_shell": 1.0}, ValueError, "delta_shell"),
+            ((FINE,), {"delta_shell": [0.05]}, ValueError, "delta_shell"),
         ],
     )
     def test_invalid_arguments(self, base_kwargs, args, kwargs, error, match):
@@ -171,8 +199,18 @@ class TestBubbleStructure:
         )
         assert np.all(B[calc.masks["r_ISM"]] == 0.0)
 
-    def test_gas_density(self, base_kwargs, r_grid):
-        calc = BubbleProfileCalculator(r_grid, R_c=5 * u.pc, **base_kwargs)
+    @pytest.mark.parametrize("r_grid", [FINE, COARSE], ids=["fine", "coarse"])
+    @pytest.mark.parametrize(
+        "shell",
+        [
+            {"shell": "uniform"},
+            {"shell": "uniform", "delta_shell": 0.1, "M_shell": 1e4 * u.M_sun},
+            {**FRAGMENTED, "M_shell": 2e4 * u.M_sun},
+        ],
+        ids=["uniform", "uniform-custom", "fragmented"],
+    )
+    def test_gas_mass_budget(self, base_kwargs, r_grid, shell):
+        calc = BubbleProfileCalculator(r_grid, R_c=5 * u.pc, **shell, **base_kwargs)
         n = calc.compute_density_profile()
         n0 = (base_kwargs["rho_0"] / const.m_p).to(u.cm**-3)
 
@@ -198,3 +236,54 @@ class TestBubbleStructure:
         hot = calc.masks["r_hot"]
         if np.any(hot):
             np.testing.assert_allclose(n[hot].to_value(u.cm**-3), n_b.value)
+
+        # Swept-up shell, exactly the requested mass whatever the grid: the cells it
+        # touches hold it on top of their hot-bubble and ambient parts
+        g = Grid(r_centers=r_grid)
+        shell_cells = calc.masks["r_shell"]
+        background = n_b * _overlap(g.r_faces, 0 * u.pc, calc.R_cd) + n0 * _overlap(
+            g.r_faces, calc.R_b, g.r_faces[-1]
+        )
+        mass = np.sum((n * g.volumes - background)[shell_cells]) * const.m_p
+        expected = shell.get(
+            "M_shell", 4 / 3 * np.pi * calc.R_b**3 * base_kwargs["rho_0"]
+        )
+        assert mass.to_value(u.M_sun) == pytest.approx(expected.to_value(u.M_sun))
+
+        # Uniform between R_cd = (1 - delta_shell) R_b and R_b
+        assert calc.R_cd == (1 - shell.get("delta_shell", 0.05)) * calc.R_b
+        full = (g.r_faces[:-1] >= calc.R_cd) & (g.r_faces[1:] <= calc.R_b)
+        V_shell = 4 / 3 * np.pi * (calc.R_b**3 - calc.R_cd**3)
+        n_uniform = (expected / (V_shell * const.m_p)).to(u.cm**-3)
+        if np.any(full):
+            np.testing.assert_allclose(n[full].to_value(u.cm**-3), n[full][0].value)
+        if shell["shell"] == "uniform":
+            if np.any(full):
+                np.testing.assert_allclose(n[full].to_value(u.cm**-3), n_uniform.value)
+        else:
+            # Fragmented: part of the mass penetrates 2 pc into the hot bubble, with a
+            # density that decreases inwards from R_cd and peaks in the shell
+            within = (g.r_faces[:-1] >= calc.R_cd - 2 * u.pc) & (
+                g.r_faces[1:] <= calc.R_cd
+            )
+            assert np.all(shell_cells[within])
+            assert np.all(np.diff(n[within]) >= 0)
+            assert np.argmax(n) in np.flatnonzero(
+                _overlap(g.r_faces, calc.R_cd, calc.R_b)
+            )
+            assert n.max() < n_uniform
+
+    def test_shell_does_not_change_the_transport(self, r_grid, base_kwargs):
+        uniform = BubbleProfileCalculator(r_grid, model="Morlino21", **base_kwargs)
+        fragmented = BubbleProfileCalculator(
+            r_grid, model="Morlino21", **FRAGMENTED, **base_kwargs
+        )
+        for method, kwargs in [
+            ("compute_velocity_profile", {}),
+            ("compute_magnetic_field_profile", {}),
+            ("compute_diffusion_profile", {"E_k": 1 * u.TeV}),
+        ]:
+            np.testing.assert_array_equal(
+                getattr(fragmented, method)(**kwargs),
+                getattr(uniform, method)(**kwargs),
+            )

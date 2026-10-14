@@ -3,7 +3,10 @@ This module provides functions and classes to compute the spatial profiles of pl
 The models available are based on the theoretical frameworks by
 
 - :cite:ct:`Weaver1977`
-- :cite:ct:`Morlino2021`
+- :cite:ct:`Morlino2021`, which adds the magnetic field, diffusion coefficient and cosmic-ray source of the bubble
+
+The swept-up shell can be uniform or, as in :cite:ct:`Peron2025`, fragmented by instabilities, with its mass penetrating into the hot bubble.
+The shell only changes the gas density, not the dynamics of the bubble, so both shells can be combined with either model.
 
 The module provides an extensible framework using :py:class:`~saetass.utils.bubble_profiles.BubbleProfileCalculator` to easily extract density, velocity, magnetic field or transport parameters to be used in SAETASS simulations.
 """
@@ -20,6 +23,7 @@ import numpy as np
 from scipy.integrate import cumulative_trapezoid as cumtrapz
 
 from .. import units as su
+from ..grid import Grid
 
 
 class BubbleModel(StrEnum):
@@ -73,6 +77,11 @@ class BubbleProfileCalculator:
 
         - ``R_c`` : astropy.units.Quantity. Core radius. Units compatible with :py:data:`~saetass.units.LENGTH`. Default is ``0 pc``.
         - ``eta_m`` : float. Fraction of the wind luminosity that drives the bubble expansion, in :math:`(0, 1]`, accounting for radiative losses. It replaces :math:`L_w` by :math:`\eta_m L_w` in the bubble and termination shock radii, while the wind velocity keeps using :math:`L_w`. Default is ``1``.
+        - ``shell`` : str. Density profile of the swept-up shell, ``"uniform"`` or ``"fragmented"`` (see :py:meth:`compute_density_profile`). Default is ``"uniform"``.
+        - ``M_shell`` : astropy.units.Quantity. Mass of the swept-up shell. Units compatible with :py:data:`~saetass.units.MASS`. Default is the swept-up mass, :math:`(4\pi/3) R_b^3 \rho_0`.
+        - ``delta_shell`` : float. Thickness of the shell as a fraction of :math:`R_b`, in :math:`(0, 1)`: the contact discontinuity is at :math:`R_{cd} = (1 - \delta_\mathrm{shell}) R_b`. Default is ``0.05``.
+        - ``shell_width`` : astropy.units.Quantity. Width of the Gaussian density profile with which the fragmented shell penetrates into the hot bubble, required if ``shell="fragmented"``. Units compatible with :py:data:`~saetass.units.LENGTH`.
+        - ``shell_penetration`` : astropy.units.Quantity. Depth to which the fragmented shell penetrates into the hot bubble, required if ``shell="fragmented"``. Units compatible with :py:data:`~saetass.units.LENGTH`.
     """
 
     #: Canonical units of the physical model parameters accepted as keyword arguments.
@@ -83,6 +92,9 @@ class BubbleProfileCalculator:
             "rho_0": su.MASS_DENSITY,
             "t_b": su.TIME,
             "R_c": su.LENGTH,
+            "M_shell": su.MASS,
+            "shell_width": su.LENGTH,
+            "shell_penetration": su.LENGTH,
         }
     )
 
@@ -116,6 +128,25 @@ class BubbleProfileCalculator:
             raise ValueError(
                 f"BubbleProfileCalculator argument 'eta_m' must be a number in (0, 1], got {eta_m!r}."
             )
+        if kwargs.get("shell", "uniform") not in ("uniform", "fragmented"):
+            raise ValueError(
+                f"BubbleProfileCalculator argument 'shell' must be 'uniform' or 'fragmented', got {kwargs['shell']!r}."
+            )
+        if kwargs.get("shell") == "fragmented":
+            for key in ("shell_width", "shell_penetration"):
+                if key not in kwargs:
+                    raise ValueError(
+                        f"BubbleProfileCalculator requires '{key}' for a fragmented shell."
+                    )
+        delta_shell = kwargs.get("delta_shell", 0.05)
+        if (
+            isinstance(delta_shell, u.Quantity)
+            or not np.isscalar(delta_shell)
+            or not 0.0 < delta_shell < 1.0
+        ):
+            raise ValueError(
+                f"BubbleProfileCalculator argument 'delta_shell' must be a number in (0, 1), got {delta_shell!r}."
+            )
         self.kwargs = kwargs
 
         self.R_TS = None
@@ -136,7 +167,7 @@ class BubbleProfileCalculator:
         """
         Compute the radii of the bubble in its intermediate stage, common to all models.
         Expected kwargs: L_wind, M_dot, rho_0, t_b
-        Optional kwargs: R_c, eta_m
+        Optional kwargs: R_c, eta_m, and the shell parameters
         """
         required = ["L_wind", "M_dot", "rho_0", "t_b"]
         for key in required:
@@ -174,24 +205,36 @@ class BubbleProfileCalculator:
         self.rho_w = (M_dot / (4 * math.pi * (self.R_TS**2) * self.v_w)).to(
             u.g / u.cm**3
         )
-        self.R_cd = 0.95 * self.R_b
+        # Contact discontinuity between the hot bubble and the swept-up shell
+        self.R_cd = (1.0 - self.kwargs.get("delta_shell", 0.05)) * self.R_b
 
         r_val = self.r_grid.to(u.pc).value
         # If R_c is provided, use it, else 0
         R_c = self.kwargs.get("R_c", 0 * u.pc)
         R_c_val = R_c.to(u.pc).value
 
+        R_TS_val, R_b_val = self.R_TS.value, self.R_b.value
+        r_bubble = (r_val >= R_TS_val) & (r_val <= R_b_val)
+        # Every cell that overlaps the shell [R_cd, R_b] or, if fragmented, its penetration
+        # into the hot bubble
+        r_shell = self._overlap_volumes(self._shell_inner_radius(), self.R_b) > 0.0
         self.masks = {
             "r_core": r_val < R_c_val,
-            "r_wind": (r_val >= R_c_val) & (r_val < self.R_TS.value),
-            "r_hot": (r_val >= self.R_TS.value) & (r_val < self.R_cd.value),
-            "r_shell": (r_val >= self.R_cd.value) & (r_val < self.R_b.value),
-            "r_bubble": (r_val >= self.R_TS.value) & (r_val <= self.R_b.value),
-            "r_ISM": r_val >= self.R_b.value,
+            "r_wind": (r_val >= R_c_val) & (r_val < R_TS_val),
+            "r_hot": r_bubble & ~r_shell,
+            "r_shell": r_shell,
+            "r_bubble": r_bubble,
+            "r_ISM": r_val > R_b_val,
         }
         # Wind also includes the core region
         self.masks["r_wind_overall"] = r_val < self.R_TS.value
         logger.debug("Weaver77 kinematics computed")
+
+    def _shell_inner_radius(self) -> u.Quantity:
+        """Inner radius of the gas of the shell: R_cd, or R_cd minus the penetration if fragmented."""
+        if self.kwargs.get("shell", "uniform") == "fragmented":
+            return self.R_cd - self.kwargs["shell_penetration"]
+        return self.R_cd
 
     def compute_density_profile(self) -> u.Quantity:
         r"""
@@ -207,8 +250,14 @@ class BubbleProfileCalculator:
 
               \dot{M}_s \simeq 2 \times 10^{-4} \left(\frac{\eta_m L_w}{10^{37}\,\mathrm{erg\,s^{-1}}}\right)^{27/35} \left(\frac{\rho_0}{10\, m_p\,\mathrm{cm^{-3}}}\right)^{-2/35} \left(\frac{t_b}{1\,\mathrm{Myr}}\right)^{6/35} M_\odot\,\mathrm{yr^{-1}}.
 
-        - **Swept-up shell** (:math:`R_{cd} \leq r < R_b`): :math:`n_s = 7.02\, n_0`.
-        - **Ambient medium** (:math:`r \geq R_b`): :math:`n_0 = \rho_0 / m_p`.
+        - **Swept-up shell**, with the mass ``M_shell`` (by default all the ambient gas swept up, :math:`(4\pi/3) R_b^3 \rho_0`), at the uniform density :math:`n_s` between the contact discontinuity, :math:`R_{cd} = (1 - \delta_\mathrm{shell}) R_b`, and :math:`R_b`:
+
+          - ``shell="uniform"``: all the mass is in :math:`[R_{cd}, R_b]`.
+          - ``shell="fragmented"``: instabilities fragment the shell and part of its mass penetrates into the hot bubble down to :math:`R_{cd} - \ell`, with the profile :math:`n_s \exp[-((R_{cd} - r)/w)^2]` added to the hot-bubble density (:cite:ct:`ElBadry2019`; :cite:ct:`Peron2025`). The density is continuous at :math:`R_{cd}` and peaks in the shell.
+
+          Cells that the shell only partly covers average its density with that of the hot bubble or the ambient medium, weighted by volume, so the shell mass is exact for any grid.
+
+        - **Ambient medium** (:math:`r > R_b`): :math:`n_0 = \rho_0 / m_p`.
 
         Returns
         -------
@@ -248,14 +297,52 @@ class BubbleProfileCalculator:
         V_hot = 4 / 3 * np.pi * (self.R_cd**3 - self.R_TS**3)
         n_b = (M_dot_s * t_b / (V_hot * const.m_p)).to_value(cm3)
 
+        # Swept-up shell
+        shell = self.masks["r_shell"]
+        M_shell = self.kwargs.get("M_shell", 4 / 3 * np.pi * self.R_b**3 * rho_0)
+        volumes = Grid(r_centers=self.r_grid).volumes
+        # Shell mass of each cell, in units of n_s m_p: the volume of the cell within the
+        # shell plus, if fragmented, that within the penetration depth weighted by the
+        # Gaussian profile at the middle of that part
+        weights = self._overlap_volumes(self.R_cd, self.R_b)[shell]
+        r_in = self._shell_inner_radius()
+        if r_in < self.R_cd:
+            width = self.kwargs["shell_width"]
+            faces = Grid(r_centers=self.r_grid).r_faces
+            middle = (
+                0.5
+                * (
+                    np.clip(faces[:-1], r_in, self.R_cd)
+                    + np.clip(faces[1:], r_in, self.R_cd)
+                )[shell]
+            )
+            weights = weights + self._overlap_volumes(r_in, self.R_cd)[shell] * np.exp(
+                -(((self.R_cd - middle) / width).to_value(u.one) ** 2)
+            )
+        n_s = (M_shell / (np.sum(weights) * const.m_p)).to_value(cm3)
+        # On top of the hot bubble below R_cd and the ambient medium beyond R_b
+        below = self._overlap_volumes(0.0 * u.pc, self.R_cd)[shell]
+        beyond = self._overlap_volumes(self.R_b, np.inf * u.pc)[shell]
+        n_shell = (
+            (n_s * weights + n_b * below + n0 * beyond) / volumes[shell]
+        ).to_value(u.one)
+
         n_profile = np.zeros(self.r_grid.shape)
         n_profile[self.masks["r_core"]] = n_c
         n_profile[self.masks["r_wind"]] = n_w[self.masks["r_wind"]]
         n_profile[self.masks["r_hot"]] = n_b
-        n_profile[self.masks["r_shell"]] = 7.02 * n0
         n_profile[self.masks["r_ISM"]] = n0
+        if np.any(shell):
+            n_profile[shell] = n_shell
 
         return n_profile * cm3
+
+    def _overlap_volumes(self, r_in: u.Quantity, r_out: u.Quantity) -> u.Quantity:
+        """Volume of each finite-volume cell that lies between the radii ``r_in`` and ``r_out``."""
+        faces = Grid(r_centers=self.r_grid).r_faces
+        lower = np.clip(faces[:-1], r_in, r_out)
+        upper = np.clip(faces[1:], r_in, r_out)
+        return 4 / 3 * np.pi * (upper**3 - lower**3)
 
     @u.quantity_input(T_w=u.K, T_ISM=u.K, T_bubble=u.K, T_shell=u.K, T_core=u.K)
     def compute_temperature_profile(
@@ -292,8 +379,8 @@ class BubbleProfileCalculator:
         T_profile[self.masks["r_core"]] = T_core.to(u.K).value
         T_profile[self.masks["r_wind"]] = T_w.to(u.K).value
         T_profile[self.masks["r_hot"]] = T_bubble.to(u.K).value
-        T_profile[self.masks["r_shell"]] = T_shell.to(u.K).value
         T_profile[self.masks["r_ISM"]] = T_ISM.to(u.K).value
+        T_profile[self.masks["r_shell"]] = T_shell.to(u.K).value
 
         return T_profile * u.K
 
