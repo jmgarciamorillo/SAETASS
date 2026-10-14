@@ -11,27 +11,46 @@ license = {text = "BSD 3-Clause"}
 authors = [
     {name = "J. M. García-Morillo", email = "jmorillo@iaa.es"}
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
+# Each minimum version is the oldest one that works, checked by the "Dependency versions"
+# workflow, which installs the lowest allowed version of every direct dependency
 dependencies = [
-    "numpy>=2.3.0",
-    "scipy>=1.16.2",
-    "astropy>=7.1.0",
-    "numba>=0.62.0",
-    "rich>=13.0.0",
-    "aafragpy",
+    "numpy>=2.0.0",  # numpy.trapezoid
+    "scipy>=1.13.0",  # the first release built for numpy 2
+    "astropy>=6.1.0",  # the first release built for numpy 2
+    "numba>=0.60.0",  # the first release built for numpy 2
+    "rich>=12.0.0",  # rich.progress.MofNCompleteColumn
+    "aafragpy>=2.0",  # earlier releases tabulate different cross sections
 ]
 
 [project.optional-dependencies]
-dev = [
-    "pytest>=9.0.0",
-    "pytest-cov>=7.0.0",
-    "pytest-benchmark>=5.0.0",
-    "ruff>=0.3.0",
-    "pre-commit>=3.6.0",
-    "naima"
+tutorials = [
+    "matplotlib>=3.8.4",  # the first release that supports numpy 2
+    "rich[jupyter]>=12.0.0",  # the widgets of the progress bar in notebooks
+    "ipykernel>=6.0.2",  # 5.x is incompatible with recent IPython
 ]
-plotting = [
-    "matplotlib>=3.8.0"
+test = [
+    "pytest>=7.0.0",  # the pythonpath option
+    "pytest-cov>=2.3.1",
+    "pytest-benchmark>=4.0.0",  # 3.x fails on pytest 8
+    "naima>=0.10.1",  # 0.10.0 imports pkg_resources without depending on setuptools
+]
+docs = [
+    "sphinx>=5.0.0",
+    "pydata-sphinx-theme>=0.7.2",
+    "nbsphinx>=0.8.9",  # 0.8.8 fails to render the outputs of the tutorials
+    "sphinx-tabs>=3.4.4",  # 3.4.1 imports pkg_resources without depending on setuptools
+    "myst-parser>=0.18.0",
+    "sphinxcontrib-bibtex>=2.5.0",  # 2.4.2 imports pkg_resources without depending on setuptools
+    "sphinx-design>=0.2.0",
+    "ipython>=7.6.0",  # the syntax highlighting of the notebooks
+]
+lint = [
+    "ruff==0.15.9",  # the version of the pre-commit hook
+]
+dev = [
+    "saetass[tutorials,test,docs,lint]",
+    "pre-commit>=3.2.0",  # the minimum version required by the hooks
 ]
 
 [project.urls]
@@ -62,7 +81,7 @@ filterwarnings = [
 
 [tool.ruff]
 src = ["src"]
-target-version = "py310"
+target-version = "py311"
 line-length = 88
 
 [tool.ruff.lint]

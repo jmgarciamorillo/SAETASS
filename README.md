@@ -61,6 +61,7 @@ pip install saetass
 ```
 
 This will install the latest stable version of SAETASS from [PyPI](https://pypi.org/project/saetass/).
+The dependencies of other use cases are installed as extras: `tutorials` to run the tutorials and examples, `test`, `docs`, and `dev` for all of them, for instance `pip install "saetass[tutorials]"`.
 
 > See the full [Installation Guide](https://saetass.readthedocs.io/en/latest/installation.html) for additional installation options and troubleshooting.
 

@@ -13,6 +13,7 @@ Please take a moment to review this guide before submitting your contribution.
   - [Contributing Code](#-contributing-code)
 - [Development Setup](#-development-setup)
 - [Code Style and Standards](#-code-style-and-standards)
+- [Supported versions](#-supported-versions)
 - [Pull Request Process](#-pull-request-process)
 
 ## Code of Conduct
@@ -86,7 +87,7 @@ We welcome pull requests for:
 
 ## Code style and standards
 
-- **Dependencies versions**: See [`pyproject.toml`](pyproject.toml).
+- **Dependencies versions**: See [`pyproject.toml`](pyproject.toml) and [Supported versions](#supported-versions).
 - **Docstrings**: Use the [NumPy/SciPy docstring convention](https://numpydoc.readthedocs.io/en/latest/format.html) for all public classes and functions, with the following conventions:
   - Write docstrings containing LaTeX as raw strings (`r"""`) with single backslashes.
   - Spell types as `astropy.units.Quantity`, `numpy.ndarray`, `float`, `int`, `bool`, `str`, `dict` or `callable`, appending `, optional` to optional parameters.
@@ -97,6 +98,12 @@ We welcome pull requests for:
 - **Physical inputs**: Validate physical function arguments with `@u.quantity_input`, targeting the canonical units of `saetass.units`, and any other physical input (dictionary entries, `**kwargs`, values returned by callables) with `saetass.units.validate_quantity`. Do not re-check units manually; only convert the validated inputs to the units used internally.
 - **Testing**: Every new feature or fix should include corresponding tests in the `test/` directory. Use `pytest` to run them.
 - **Naming**: Follow PEP 8 conventions. Use descriptive variable names — prefer `diffusion_coefficient` over `D` in public APIs.
+
+## Supported versions
+
+The minimum version of Python and of each dependency in [`pyproject.toml`](pyproject.toml) is the oldest one that works, and the comment next to it says what sets it. The [Dependency versions](.github/workflows/dependencies.yml) workflow installs these minimum versions to run the tests, build the documentation and execute the tutorials, and runs the tests with the newest versions on every supported Python, so a minimum version is kept only while it works.
+
+Minimum versions are not raised just because newer releases exist. A minimum is raised when the code needs a feature of a newer release or an older release is broken, and the commit says which. Versions that have left the support window of [SPEC 0](https://scientific-python.org/specs/spec-0000/), the policy shared by the Scientific Python ecosystem, may also be dropped whenever keeping them costs effort, without further reason: Python versions released more than 3 years ago, and releases of core packages such as NumPy, SciPy and Matplotlib older than 2 years. Those versions are not guaranteed to be supported, even while they still work.
 
 ## Pull request process
 

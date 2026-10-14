@@ -8,13 +8,40 @@ SAETASS is distributed as a standard Python package, designed to integrate with 
 Prerequisites
 -------------
 
-SAETASS has been tested for **Python 3.10** or higher, so previous versions might show compatibility issues.
+SAETASS requires **Python 3.11** or higher.
 
 The core numerical engine relies on the standard PyData stack. While the package manager resolves these dependencies automatically, users integrating SAETASS into existing pipelines should be aware of the following requirements:
 
 - :code:`NumPy`: For dense array operations and vectorization.
-- :code:`SciPy`: For sparse linear algebra solvers and special functions.
+- :code:`SciPy`: For numerical integration and special functions.
 - :code:`Astropy`: For physical units management and constants.
+- :code:`Numba`: For the compiled kernels of the solvers.
+- :code:`Rich`: For the progress bars and messages in the terminal.
+- :code:`aafragpy`: For the AAFrag hadronic cross sections of the emission calculator.
+
+The minimum version of each dependency, here and in the optional dependencies below, is the oldest one that works: the continuous integration installs these versions and runs the tests, builds the documentation and executes the tutorials with them.
+
+Optional dependencies
+---------------------
+
+Other use cases need further packages, grouped as optional dependencies ("extras") that are installed with :code:`python -m pip install "saetass[<extra>]"`, or several at once, for instance :code:`"saetass[tutorials,test]"`:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 15 85
+
+   * - Extra
+     - Use case
+   * - :code:`tutorials`
+     - Run the tutorials and examples: Matplotlib, a Jupyter kernel and the widgets of the progress bar in notebooks. Open the notebooks with any Jupyter front end, such as JupyterLab or VS Code. The energy losses tutorial also needs a LaTeX installation, since its figures are typeset with :code:`text.usetex`.
+   * - :code:`test`
+     - Run the test suite: pytest with its coverage and benchmark plugins, and Naima for the comparisons of the emission calculator.
+   * - :code:`docs`
+     - Build this documentation with Sphinx. It also needs `pandoc <https://pandoc.org>`_ to render the tutorials.
+   * - :code:`lint`
+     - Check the code style with the version of Ruff used by the continuous integration and the pre-commit hooks.
+   * - :code:`dev`
+     - Everything above, plus pre-commit, for development.
 
 Environment Isolation
 ---------------------
@@ -49,7 +76,7 @@ Select the installation method that aligns with your intended usage.
          source .venv/bin/activate
 
          # Using Conda
-         conda create -n saetass_env python=3.10
+         conda create -n saetass_env python=3.11
          conda activate saetass_env
 
       **2. Installing the package**
@@ -85,7 +112,7 @@ Select the installation method that aligns with your intended usage.
 
       **2. Environment and dependency resolution**
 
-      In development mode, you require more than just the runtime engine. You need the "extra" dependencies for testing (e.g. :code:`pytest`).
+      In development mode, you require more than just the runtime engine. The :code:`dev` extra installs the dependencies of every use case (see `Optional dependencies`_).
 
       .. code-block:: bash
 
@@ -93,8 +120,8 @@ Select the installation method that aligns with your intended usage.
          python -m venv .venv
          source .venv/bin/activate
 
-         # Perform the editable install with 'dev' extras and optionally with standard PyData plotting tools
-         python -m pip install -e ".[dev,plotting]"
+         # Perform the editable install with the 'dev' extra
+         python -m pip install -e ".[dev]"
 
       .. warning::
          The `-e` flag (short for `--editable`) creates a link to your current directory. If you move or rename the `SAETASS` folder, the Python interpreter will no longer be able to find the package, and you will encounter an ``ImportError``.
@@ -192,7 +219,7 @@ Scientific software evolves to incorporate more efficient algorithms and stabili
 
       .. code-block:: bash
 
-         python -m pip install -e ".[dev,plotting]"
+         python -m pip install -e ".[dev]"
 
 .. warning::
    If you have active simulations running in a persistent environment—such as a **Jupyter kernel** or a long-running **Screen** session—they will continue to execute the *old* code loaded in memory until the interpreter is restarted.

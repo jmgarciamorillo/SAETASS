@@ -627,8 +627,13 @@ class AAFragPyModel(HadronicCrossSectionModel):
 
     Notes
     -----
-    The ``aafragpy`` parametrization is valid for primary proton kinetic energies :math:`T_p \ge 4\text{ GeV}`. For energies below 4 GeV, cross-sections are set to zero and a user warning is issued.
+    ``aafragpy`` takes and tabulates total energies, :math:`E_p = T_p + m_p c^2`, while SAETASS works with kinetic energies: the wrapper converts them. The p-p tables start at :math:`E_p = 4\text{ GeV}`, i.e. :math:`T_p \approx 3.06\text{ GeV}`; below it the cross-sections are set to zero and a user warning is issued.
     """
+
+    #: Rest energy of the proton, in GeV, the value used by ``aafragpy``.
+    M_P = 0.938272
+    #: Lowest total energy of the primary in the p-p tables of ``aafragpy``, in GeV.
+    E_P_MIN = 4.0
 
     def compute_matrix(
         self,
@@ -671,13 +676,16 @@ class AAFragPyModel(HadronicCrossSectionModel):
                 f"Unknown secondary '{secondary}' for AAFRAG. Supported options are: {list(sec_map.keys())}."
             )
 
-        valid_mask = E_cr_kin_grid >= 4.0
+        # aafragpy expects total energies; for the secondaries (photons and neutrinos)
+        # total and kinetic energies coincide
+        E_cr_tot_grid = E_cr_kin_grid + self.M_P
+        valid_mask = E_cr_tot_grid >= self.E_P_MIN
         if not np.all(valid_mask):
             import warnings
 
             warnings.warn(
-                "AAFRAG parametrization is only valid for primary proton kinetic energies >= 4 GeV. "
-                "Cross-sections for lower energies have been set to 0.",
+                "AAFRAG parametrization is only valid for primary proton total energies >= 4 GeV "
+                "(kinetic energies >= 3.06 GeV). Cross-sections for lower energies have been set to 0.",
                 UserWarning,
                 stacklevel=2,
             )
@@ -688,7 +696,7 @@ class AAFragPyModel(HadronicCrossSectionModel):
             result = get_cross_section(
                 primary_target="p-p",
                 secondary=sec_map[secondary],
-                E_primaries=E_cr_kin_grid[valid_mask],
+                E_primaries=E_cr_tot_grid[valid_mask],
                 E_secondaries=E_out_grid,
             )
             sigma = result[0] if isinstance(result, tuple) else result
@@ -784,7 +792,9 @@ class AnalyticalBremsstrahlung(LeptonicCrossSectionModel):
             # Weak-shielding regime (ionized gas)
             arg = 2.0 * Ee * (Ee - Eg) / (mec2 * Eg)
             arg = np.where(valid & (arg > 1.0), arg, 1.0)
-            log_term = np.log(arg) - 0.5
+            # The relativistic formula fails as the final electron becomes non-relativistic
+            # near the tip of the spectrum, where it would turn negative
+            log_term = np.maximum(np.log(arg) - 0.5, 0.0)
         else:
             # Strong-shielding regime (neutral gas with atomic screening)
             log_term = np.log(183.0 / (Z ** (1.0 / 3.0)))

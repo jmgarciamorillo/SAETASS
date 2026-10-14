@@ -273,7 +273,7 @@ class TestUtilityInputs:
             np.linspace(0.1, 100, 50) * u.pc, **self.bubble_kwargs
         )
         with pytest.raises(TypeError):
-            calc.compute_diffusion_profile(E_k=10.0)
+            calc.compute_diffusion_profile(p_or_E_k=10.0)
         with pytest.raises(u.UnitsError):
             calc.compute_temperature_profile(T_w=200 * u.m)
 

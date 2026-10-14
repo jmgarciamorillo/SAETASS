@@ -1,3 +1,4 @@
+import importlib.util
 from pathlib import Path
 
 import astropy.constants as const
@@ -8,6 +9,7 @@ import pytest
 from saetass import units as su
 from saetass.grid import Grid
 from saetass.state import State
+from saetass.utils.cross_sections import AnalyticalBremsstrahlung
 from saetass.utils.emissions import EmissionCalculator
 from saetass.utils.energy_losses import Particle
 
@@ -15,6 +17,11 @@ try:
     import matplotlib.pyplot as plt
 except ImportError:
     plt = None
+
+try:
+    import naima
+except ImportError:
+    naima = None
 
 
 DEBUG_DIR = Path(__file__).parent / "debug"
@@ -67,25 +74,22 @@ def _plot_spectra_comparison(
     _handle_plot(fig, filename)
 
 
-def _create_powerlaw_state_and_naima_model(
+def _powerlaw_spectrum(E_cr: u.Quantity, particle: str):
+    """dN/dE = 1e5 (E_cr / 1000 GeV)^-2 cm^-3 GeV^-1, and the rest energy of the particle."""
+    dn_dE = 1e5 * (E_cr.to_value(u.GeV) / 1000.0) ** -2 * (u.cm**-3 / u.GeV)
+    m = (const.m_p if particle == "proton" else const.m_e) * const.c**2
+    return dn_dE, m.to(u.GeV)
+
+
+def _create_powerlaw_state(
     base_args: dict, particle: str = "proton", stage_name: str = "test_naima"
-):
-    """
-    Helper to create a homogeneous power-law State and corresponding Naima TableModel.
-
-    dN/dE = 1e5 * (E_cr / 1000 GeV)^-2 cm^-3 GeV^-1.
-    Converts to spatial State f(p) and volume-integrated Naima TableModel.
-    """
-    from naima.models import TableModel
-
+) -> State:
+    """Helper to create a homogeneous power-law State, converting dN/dE to psi_p."""
     E_cr = base_args["E_cr_grid"]
     r_grid = base_args["r_grid"]
-    dn_dE = 1e5 * (E_cr.to_value(u.GeV) / 1000.0) ** -2 * (u.cm**-3 / u.GeV)
-
-    m = (const.m_p if particle == "proton" else const.m_e) * const.c**2
-    m_GeV = m.to(u.GeV)
-
+    dn_dE, m_GeV = _powerlaw_spectrum(E_cr, particle)
     E_tot = E_cr + m_GeV
+
     p = (np.sqrt(E_tot**2 - m_GeV**2) / const.c).to(su.MOMENTUM)
     dE_dp = (p * const.c**2) / E_tot
 
@@ -97,12 +101,29 @@ def _create_powerlaw_state_and_naima_model(
         r_centers=r_grid,
         p_centers=p,
     )
-    state_cr = State(
+    return State(
         grid=grid_cr,
         psi_p=f_cr_2d * su.PSI_P,
         particle=particle_spec,
         stage_name=stage_name,
     )
+
+
+def _create_powerlaw_state_and_naima_model(
+    base_args: dict, particle: str = "proton", stage_name: str = "test_naima"
+):
+    """
+    Helper to create a homogeneous power-law State and corresponding Naima TableModel.
+
+    Uses the spectrum of :func:`_powerlaw_spectrum`, as a spatial State psi_p and as a
+    volume-integrated Naima TableModel.
+    """
+    from naima.models import TableModel
+
+    state_cr = _create_powerlaw_state(base_args, particle, stage_name)
+    r_grid = base_args["r_grid"]
+    dn_dE, m_GeV = _powerlaw_spectrum(base_args["E_cr_grid"], particle)
+    E_tot = base_args["E_cr_grid"] + m_GeV
 
     dr = np.gradient(r_grid.to_value(u.cm))
     total_volume_cm3 = np.sum(4 * np.pi * (r_grid.to_value(u.cm) ** 2) * dr)
@@ -239,6 +260,41 @@ class TestEmissionCalculator:
                 state=state_cr, custom_matrix=dummy_sigma
             )
 
+    @pytest.mark.parametrize("ionised", [False, True])
+    def test_bremsstrahlung_threshold(self, ionised):
+        # The cross-section rises steeply from zero at E_e = E_gamma, never below it
+        sigma = AnalyticalBremsstrahlung().compute_matrix(
+            np.array([1.0]), np.array([1.0 + 1e-6, 1.01, 2.0]), ionised=ionised
+        )
+        assert np.all(sigma >= 0.0)
+
+        # so a coarse electron grid must not make the spectrum oscillate with the
+        # position of E_gamma between its nodes
+        r = np.array([0.0, 1.0]) * u.pc
+        E_out = np.logspace(-1.0, 2.0, 61) * u.GeV
+        mc2 = (const.m_e * const.c**2).to_value(u.GeV)
+
+        def sed(per_decade, E_out=E_out):
+            p = np.logspace(-2.0, 4.0, 6 * per_decade + 1) * su.MOMENTUM
+            E_k = (np.sqrt(p.value**2 + mc2**2) - mc2) * u.GeV
+            psi = np.outer(p.value**-2.0, np.ones(2)) * su.PSI_P
+            calc = EmissionCalculator(
+                E_out_grid=E_out,
+                E_cr_grid=E_k,
+                r_grid=r,
+                n_gas=np.ones(2) * u.cm**-3,
+                particle="electron",
+            )
+            state = State(Grid(r_centers=r, p_centers=p), psi_p=psi)
+            flux = calc.compute_bremsstrahlung_emission(state, ionised=ionised)
+            return (E_out**2 * flux).value
+
+        ratio = sed(10) / sed(400)
+        np.testing.assert_allclose(ratio, 1.0, rtol=0.04)
+        assert np.max(np.abs(np.diff(ratio, 2))) < 0.03
+        # Photons above the highest electron energy are not produced
+        assert np.all(sed(10, E_out=[2e4, 5e4] * u.GeV) == 0.0)
+
     def test_inverse_compton_emission(self, base_args, state_cr, dummy_ic_kernel):
         calc_e = EmissionCalculator(**base_args, particle="electron")
         spectrum = calc_e.compute_inverse_compton_emission(
@@ -303,7 +359,7 @@ class TestEmissionCalculator:
         valid_args = base_args.copy()
         valid_args["E_cr_grid"] = np.logspace(1, 4, 30) * u.GeV
         calc_p = EmissionCalculator(**valid_args, particle="proton", distance=1 * u.kpc)
-        state_cr_matched, _ = _create_powerlaw_state_and_naima_model(
+        state_cr_matched = _create_powerlaw_state(
             valid_args, particle="proton", stage_name="test_aafrag_matched"
         )
 
@@ -335,6 +391,22 @@ class TestEmissionCalculator:
             plot_results=plot_results,
             y_unit="GeV cm-2 s-1",
         )
+
+    def test_aafrag_uses_total_primary_energy(self):
+        aafragpy = pytest.importorskip("aafragpy")
+        from saetass.utils.cross_sections import AAFragPyModel
+
+        T_p = np.array([2.0, 3.5, 10.0, 1e3])
+        E_gamma = np.array([0.1, 1.0])
+        with pytest.warns(UserWarning, match="total energies >= 4 GeV"):
+            sigma = AAFragPyModel().compute_matrix(E_gamma, T_p)
+        # T_p = 2 GeV is below the tables (E_p = 2.94 GeV < 4 GeV); the others are
+        # evaluated at the total energy T_p + m_p c^2
+        assert np.all(sigma[:, 0] == 0.0)
+        expected = aafragpy.get_cross_section(
+            "gam", "p-p", E_primaries=T_p[1:] + 0.938272, E_secondaries=E_gamma
+        )[0].T
+        np.testing.assert_allclose(sigma[:, 1:], expected, rtol=1e-12)
 
     def test_model_import_failures(self, base_args, state_cr):
         calc_p = EmissionCalculator(**base_args, particle="proton")
@@ -483,6 +555,7 @@ class TestEmissionRegression:
             )
 
 
+@pytest.mark.skipif(naima is None, reason="naima is required for Naima comparisons")
 class TestNaimaComparisons:
     """
     Physical cross-validation against Naima (rtol=0.3).
@@ -490,10 +563,6 @@ class TestNaimaComparisons:
     Uses broad physical tolerance reflecting differences in cross-section
     parametrizations and integration algorithms.
     """
-
-    naima = pytest.importorskip(
-        "naima", reason="naima is required for Naima comparison tests"
-    )
 
     def test_naima_comparison_pion_decay(self, base_args, plot_results):
         from naima.models import PionDecay
@@ -656,13 +725,12 @@ class TestNaimaComparisons:
         )
 
 
+@pytest.mark.skipif(
+    importlib.util.find_spec("pytest_benchmark") is None,
+    reason="pytest-benchmark is required for performance benchmarks",
+)
 class TestEmissionPerformance:
     """Benchmark tests to guarantee high performance on large spatial and energy grids."""
-
-    pytest_benchmark = pytest.importorskip(
-        "pytest_benchmark",
-        reason="pytest-benchmark is required for performance benchmark tests",
-    )
 
     def test_large_grid_vectorized_benchmark(self, benchmark):
         N_out = 50
