@@ -24,7 +24,7 @@ This project adheres to the [**Contributor Covenant Code of Conduct**](CODE_OF_C
 
 ### Reporting bugs
 
-If you find a bug, please [**open an issue**](https://github.com/jmgarciamorillo/SAETASS/issues/new) and include:
+If you find a bug, please [**open an issue**](https://github.com/saetass/saetass/issues/new) and include:
 
 - A clear and descriptive title
 - Steps to reproduce the behavior
@@ -54,7 +54,7 @@ We welcome pull requests for:
 
 ## Development setup
 
-1. **Fork the repository** at https://github.com/jmgarciamorillo/SAETASS.git in your own GitHub account.
+1. **Fork the repository** at https://github.com/saetass/saetass.git in your own GitHub account.
 
 2. **Clone the forked repository** to your local machine:
 

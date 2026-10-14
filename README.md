@@ -13,16 +13,16 @@ A Python library for simulating cosmic-ray transport in spherically symmetric as
 
 <!-- ─────────────────────── Badges ─────────────────────── -->
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19468484.svg)](https://doi.org/10.5281/zenodo.19468484)
-[![CI tests](https://img.shields.io/github/actions/workflow/status/jmgarciamorillo/SAETASS/ci.yml?logo=github&logoColor=white&label=tests)](https://github.com/jmgarciamorillo/SAETASS/actions)
-[![codecov](https://img.shields.io/codecov/c/github/jmgarciamorillo/SAETASS?logo=codecov&logoColor=white)](https://codecov.io/gh/jmgarciamorillo/SAETASS)
+[![CI tests](https://img.shields.io/github/actions/workflow/status/saetass/saetass/ci.yml?logo=github&logoColor=white&label=tests)](https://github.com/saetass/saetass/actions)
+[![codecov](https://img.shields.io/codecov/c/github/saetass/saetass?logo=codecov&logoColor=white)](https://codecov.io/gh/saetass/saetass)
 [![Docs](https://img.shields.io/readthedocs/saetass?logo=readthedocs&logoColor=white)](https://saetass.readthedocs.io/en/latest/)
 [![PyPI version](https://img.shields.io/pypi/v/saetass?logo=pypi&logoColor=white&color=007EC6)](https://pypi.org/project/saetass/)<!-- [![Python versions](https://img.shields.io/pypi/pyversions/saetass?logo=python&logoColor=white)](https://pypi.org/project/saetass/) -->
 [![Project Status: Active](https://img.shields.io/badge/project%20status-active-44CC11.svg?logo=github&logoColor=white)](https://www.repostatus.org/#active)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome!-F3AC4B.svg?logo=github&logoColor=white)](CONTRIBUTING.md)
 [![License: BSD-3](https://img.shields.io/badge/license-BSD_3--Clause-F3AC4B.svg?logo=open-source-initiative&logoColor=white)](LICENSE)
-[![Last Commit](https://img.shields.io/github/last-commit/jmgarciamorillo/SAETASS?logo=git&logoColor=white)](https://github.com/jmgarciamorillo/SAETASS/commits/main)
-[![Issues](https://img.shields.io/github/issues/jmgarciamorillo/SAETASS?logo=github&logoColor=white)](https://github.com/jmgarciamorillo/SAETASS/issues)
-<!-- [![Stars](https://img.shields.io/github/stars/jmgarciamorillo/SAETASS?logo=github&logoColor=black)](https://github.com/jmgarciamorillo/SAETASS/stargazers) -->
+[![Last Commit](https://img.shields.io/github/last-commit/saetass/saetass?logo=git&logoColor=white)](https://github.com/saetass/saetass/commits/main)
+[![Issues](https://img.shields.io/github/issues/saetass/saetass?logo=github&logoColor=white)](https://github.com/saetass/saetass/issues)
+<!-- [![Stars](https://img.shields.io/github/stars/saetass/saetass?logo=github&logoColor=black)](https://github.com/saetass/saetass/stargazers) -->
 
 
 </div>

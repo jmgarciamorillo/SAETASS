@@ -54,8 +54,8 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/jmgarciamorillo/SAETASS"
-Repository = "https://github.com/jmgarciamorillo/SAETASS.git"
+Homepage = "https://github.com/saetass/saetass"
+Repository = "https://github.com/saetass/saetass.git"
 
 # --- SPECIFIC CONFIGURATION FOR HATCH ---
 
