@@ -1,3 +1,4 @@
+import importlib.util
 from pathlib import Path
 
 import astropy.constants as const
@@ -16,6 +17,11 @@ try:
     import matplotlib.pyplot as plt
 except ImportError:
     plt = None
+
+try:
+    import naima
+except ImportError:
+    naima = None
 
 
 DEBUG_DIR = Path(__file__).parent / "debug"
@@ -68,25 +74,22 @@ def _plot_spectra_comparison(
     _handle_plot(fig, filename)
 
 
-def _create_powerlaw_state_and_naima_model(
+def _powerlaw_spectrum(E_cr: u.Quantity, particle: str):
+    """dN/dE = 1e5 (E_cr / 1000 GeV)^-2 cm^-3 GeV^-1, and the rest energy of the particle."""
+    dn_dE = 1e5 * (E_cr.to_value(u.GeV) / 1000.0) ** -2 * (u.cm**-3 / u.GeV)
+    m = (const.m_p if particle == "proton" else const.m_e) * const.c**2
+    return dn_dE, m.to(u.GeV)
+
+
+def _create_powerlaw_state(
     base_args: dict, particle: str = "proton", stage_name: str = "test_naima"
-):
-    """
-    Helper to create a homogeneous power-law State and corresponding Naima TableModel.
-
-    dN/dE = 1e5 * (E_cr / 1000 GeV)^-2 cm^-3 GeV^-1.
-    Converts to spatial State f(p) and volume-integrated Naima TableModel.
-    """
-    from naima.models import TableModel
-
+) -> State:
+    """Helper to create a homogeneous power-law State, converting dN/dE to psi_p."""
     E_cr = base_args["E_cr_grid"]
     r_grid = base_args["r_grid"]
-    dn_dE = 1e5 * (E_cr.to_value(u.GeV) / 1000.0) ** -2 * (u.cm**-3 / u.GeV)
-
-    m = (const.m_p if particle == "proton" else const.m_e) * const.c**2
-    m_GeV = m.to(u.GeV)
-
+    dn_dE, m_GeV = _powerlaw_spectrum(E_cr, particle)
     E_tot = E_cr + m_GeV
+
     p = (np.sqrt(E_tot**2 - m_GeV**2) / const.c).to(su.MOMENTUM)
     dE_dp = (p * const.c**2) / E_tot
 
@@ -98,12 +101,29 @@ def _create_powerlaw_state_and_naima_model(
         r_centers=r_grid,
         p_centers=p,
     )
-    state_cr = State(
+    return State(
         grid=grid_cr,
         psi_p=f_cr_2d * su.PSI_P,
         particle=particle_spec,
         stage_name=stage_name,
     )
+
+
+def _create_powerlaw_state_and_naima_model(
+    base_args: dict, particle: str = "proton", stage_name: str = "test_naima"
+):
+    """
+    Helper to create a homogeneous power-law State and corresponding Naima TableModel.
+
+    Uses the spectrum of :func:`_powerlaw_spectrum`, as a spatial State psi_p and as a
+    volume-integrated Naima TableModel.
+    """
+    from naima.models import TableModel
+
+    state_cr = _create_powerlaw_state(base_args, particle, stage_name)
+    r_grid = base_args["r_grid"]
+    dn_dE, m_GeV = _powerlaw_spectrum(base_args["E_cr_grid"], particle)
+    E_tot = base_args["E_cr_grid"] + m_GeV
 
     dr = np.gradient(r_grid.to_value(u.cm))
     total_volume_cm3 = np.sum(4 * np.pi * (r_grid.to_value(u.cm) ** 2) * dr)
@@ -339,7 +359,7 @@ class TestEmissionCalculator:
         valid_args = base_args.copy()
         valid_args["E_cr_grid"] = np.logspace(1, 4, 30) * u.GeV
         calc_p = EmissionCalculator(**valid_args, particle="proton", distance=1 * u.kpc)
-        state_cr_matched, _ = _create_powerlaw_state_and_naima_model(
+        state_cr_matched = _create_powerlaw_state(
             valid_args, particle="proton", stage_name="test_aafrag_matched"
         )
 
@@ -535,6 +555,7 @@ class TestEmissionRegression:
             )
 
 
+@pytest.mark.skipif(naima is None, reason="naima is required for Naima comparisons")
 class TestNaimaComparisons:
     """
     Physical cross-validation against Naima (rtol=0.3).
@@ -542,10 +563,6 @@ class TestNaimaComparisons:
     Uses broad physical tolerance reflecting differences in cross-section
     parametrizations and integration algorithms.
     """
-
-    naima = pytest.importorskip(
-        "naima", reason="naima is required for Naima comparison tests"
-    )
 
     def test_naima_comparison_pion_decay(self, base_args, plot_results):
         from naima.models import PionDecay
@@ -708,13 +725,12 @@ class TestNaimaComparisons:
         )
 
 
+@pytest.mark.skipif(
+    importlib.util.find_spec("pytest_benchmark") is None,
+    reason="pytest-benchmark is required for performance benchmarks",
+)
 class TestEmissionPerformance:
     """Benchmark tests to guarantee high performance on large spatial and energy grids."""
-
-    pytest_benchmark = pytest.importorskip(
-        "pytest_benchmark",
-        reason="pytest-benchmark is required for performance benchmark tests",
-    )
 
     def test_large_grid_vectorized_benchmark(self, benchmark):
         N_out = 50
