@@ -4,9 +4,12 @@ import pytest
 
 from saetass.utils.bubble_profiles import BubbleModel, BubbleProfileCalculator
 
+FINE = np.linspace(0.1, 100, 1000) * u.pc
+
 
 @pytest.fixture
 def base_kwargs():
+    # R_TS = 13.5 pc and R_b = 78.1 pc
     return {
         "L_wind": 1e38 * u.erg / u.s,
         "M_dot": 1e-5 * u.M_sun / u.yr,
@@ -17,33 +20,28 @@ def base_kwargs():
 
 @pytest.fixture
 def r_grid():
-    return np.linspace(0.1, 100, 1000) * u.pc
-
-
-@pytest.fixture
-def array_r_grid():
-    return np.linspace(0.1, 100, 1000)
+    return FINE
 
 
 class TestBubbleProfileCalculator:
-    def test_initialization(self, r_grid, array_r_grid, base_kwargs):
-        # Test Quantity grid
-        calc1 = BubbleProfileCalculator(r_grid, model="Weaver77", **base_kwargs)
-        assert calc1.R_TS is not None
-        assert calc1.R_b is not None
-        assert calc1.v_w is not None
+    def test_initialization(self, r_grid, base_kwargs):
+        calc = BubbleProfileCalculator(r_grid, model="Weaver77", **base_kwargs)
+        assert calc.R_TS is not None and calc.R_b is not None and calc.v_w is not None
 
-        # Test ndarray grid without units fails fail-fast boundary
-        with pytest.raises(TypeError):
-            BubbleProfileCalculator(array_r_grid, model="Morlino21", **base_kwargs)
-
-        # Check invalid units
-        with pytest.raises((u.UnitsError, TypeError, ValueError)):
-            BubbleProfileCalculator(np.linspace(0.1, 100, 100) * u.K, **base_kwargs)
-
-        # Check invalid model mapping
-        with pytest.raises(ValueError):
-            BubbleProfileCalculator(r_grid, model="InvalidModel", **base_kwargs)
+    @pytest.mark.parametrize(
+        "args, kwargs, error, match",
+        [
+            ((FINE.value,), {}, TypeError, None),
+            ((np.linspace(0.1, 100, 100) * u.K,), {}, u.UnitsError, None),
+            ((FINE,), {"model": "InvalidModel"}, ValueError, None),
+            ((FINE,), {"eta_m": 0.0}, ValueError, "eta_m"),
+            ((FINE,), {"eta_m": 1.5}, ValueError, "eta_m"),
+            ((FINE,), {"eta_m": 0.5 * u.one}, ValueError, "eta_m"),
+        ],
+    )
+    def test_invalid_arguments(self, base_kwargs, args, kwargs, error, match):
+        with pytest.raises(error, match=match):
+            BubbleProfileCalculator(*args, **kwargs, **base_kwargs)
 
     def test_missing_kwargs(self, r_grid):
         with pytest.raises(ValueError):
@@ -124,3 +122,20 @@ class TestBubbleProfileCalculator:
     def test_bubble_model_enum(self):
         assert BubbleModel.WEAVER77 == "Weaver77"
         assert BubbleModel.MORLINO21 == "Morlino21"
+
+
+class TestBubbleStructure:
+    """Radii and gas of the bubble in its intermediate stage (Weaver et al. 1977)."""
+
+    def test_radii(self, r_grid, base_kwargs):
+        L, rho_0, t = base_kwargs["L_wind"], base_kwargs["rho_0"], base_kwargs["t_b"]
+        calc = BubbleProfileCalculator(r_grid, **base_kwargs)
+        # R_b = 0.7628 (L t^3 / rho_0)^(1/5)
+        expected = 0.762865 * (L * t**3 / rho_0) ** (1 / 5)
+        assert calc.R_b.to_value(u.pc) == pytest.approx(expected.to_value(u.pc))
+        # Energy losses reduce the luminosity of the bubble, not that of the wind
+        lossy = BubbleProfileCalculator(r_grid, eta_m=0.032, **base_kwargs)
+        factor = 0.032 ** (1 / 5)  # 0.5025
+        assert (lossy.R_b / calc.R_b).to_value(u.one) == pytest.approx(factor)
+        assert (lossy.R_TS / calc.R_TS).to_value(u.one) == pytest.approx(1 / factor)
+        assert lossy.v_w == calc.v_w

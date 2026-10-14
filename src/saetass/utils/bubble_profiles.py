@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 
 
 class BubbleProfileCalculator:
-    """
+    r"""
     Main class to compute stellar wind bubble spatial profiles.
 
     This class is initialized with the radial grid and the corresponding model.
@@ -69,7 +69,10 @@ class BubbleProfileCalculator:
         - ``rho_0`` : astropy.units.Quantity. Ambient mass density. Units compatible with :py:data:`~saetass.units.MASS_DENSITY`.
         - ``t_b`` : astropy.units.Quantity. Bubble age. Units compatible with :py:data:`~saetass.units.TIME`.
 
-        Other optional kwargs: ``R_c`` (core radius). Units compatible with :py:data:`~saetass.units.LENGTH`.
+        Other optional kwargs:
+
+        - ``R_c`` : astropy.units.Quantity. Core radius. Units compatible with :py:data:`~saetass.units.LENGTH`. Default is ``0 pc``.
+        - ``eta_m`` : float. Fraction of the wind luminosity that drives the bubble expansion, in :math:`(0, 1]`, accounting for radiative losses. It replaces :math:`L_w` by :math:`\eta_m L_w` in the bubble and termination shock radii, while the wind velocity keeps using :math:`L_w`. Default is ``1``.
     """
 
     #: Canonical units of the physical model parameters accepted as keyword arguments.
@@ -104,6 +107,15 @@ class BubbleProfileCalculator:
                 su.validate_quantity(
                     kwargs[key], unit, f"BubbleProfileCalculator argument '{key}'"
                 )
+        eta_m = kwargs.get("eta_m", 1.0)
+        if (
+            isinstance(eta_m, u.Quantity)
+            or not np.isscalar(eta_m)
+            or not 0.0 < eta_m <= 1.0
+        ):
+            raise ValueError(
+                f"BubbleProfileCalculator argument 'eta_m' must be a number in (0, 1], got {eta_m!r}."
+            )
         self.kwargs = kwargs
 
         self.R_TS = None
@@ -124,6 +136,7 @@ class BubbleProfileCalculator:
         """
         Compute the radii of the bubble in its intermediate stage, common to all models.
         Expected kwargs: L_wind, M_dot, rho_0, t_b
+        Optional kwargs: R_c, eta_m
         """
         required = ["L_wind", "M_dot", "rho_0", "t_b"]
         for key in required:
@@ -137,17 +150,21 @@ class BubbleProfileCalculator:
         rho_0 = self.kwargs["rho_0"]
         t_b = self.kwargs["t_b"]
 
-        # Weaver77 parameters
-        kappa = 0.762865
+        eta_m = self.kwargs.get("eta_m", 1.0)
 
+        # The wind velocity uses the full luminosity; only the fraction eta_m drives the bubble
         self.v_w = np.sqrt(2 * L_wind / M_dot).to(u.km / u.s)
 
-        self.R_b = (kappa * (L_wind / rho_0 * t_b**3) ** (1 / 5)).to(u.pc)
+        # Weaver et al. (1977), intermediate stage: R_b = (125 / (154 pi))^(1/5) (L t^3 / rho_0)^(1/5)
+        self.R_b = (
+            (125 / (154 * np.pi)) ** (1 / 5)
+            * (eta_m * L_wind / rho_0 * t_b**3) ** (1 / 5)
+        ).to(u.pc)
 
+        # Termination shock from the balance of the wind ram pressure with the bubble pressure
         self.R_TS = (
-            ((25 / (28 * np.pi)) ** 0.5)
-            * (kappa**-1)
-            * (L_wind**-0.2)
+            np.sqrt(((3850 * np.pi) ** (2 / 5) / (28 * np.pi)))
+            * (eta_m * L_wind) ** -0.2
             * (M_dot**0.5 * self.v_w**0.5)
             * rho_0 ** (-3 / 10)
             * t_b ** (2 / 5)
