@@ -24,6 +24,7 @@ from scipy.integrate import cumulative_trapezoid as cumtrapz
 
 from .. import units as su
 from ..grid import Grid
+from .energy_losses import Particle
 
 
 class BubbleModel(StrEnum):
@@ -64,6 +65,8 @@ class BubbleProfileCalculator:
         Radial grid for the profiles computation. Units compatible with :py:data:`~saetass.units.LENGTH`.
     model : BubbleModel or str
         The bubble description model (e.g., "Weaver77" or "Morlino21").
+    particle : :py:class:`~saetass.utils.energy_losses.Particle` or str, optional
+        Cosmic-ray species, one of the members of :py:class:`~saetass.utils.energy_losses.Particle`, whose mass and charge set the momentum, velocity and Larmor radius of the particles. Default is ``"proton"``.
     **kwargs :
         Specific physical parameters required by the selected model. For 'Weaver77' and
         'Morlino21', the required kwargs are:
@@ -103,9 +106,22 @@ class BubbleProfileCalculator:
         self,
         r_grid: u.Quantity,
         model: BubbleModel | str = "Morlino21",
+        particle: Particle | str = Particle.PROTON,
         **kwargs,
     ):
         self.r_grid = r_grid.to(su.LENGTH)
+        if isinstance(particle, str):
+            try:
+                particle = Particle(particle.lower())
+            except ValueError:
+                raise ValueError(
+                    f"Unknown particle {particle!r}; choose one of {[p.value for p in Particle]}."
+                ) from None
+        elif not isinstance(particle, Particle):
+            raise TypeError(
+                f"particle must be a Particle or a str, got {type(particle).__name__}."
+            )
+        self.particle = particle
 
         if isinstance(model, str):
             for m in BubbleModel:
@@ -458,44 +474,57 @@ class BubbleProfileCalculator:
                 f"Magnetic field profile not natively supported for {self.model}."
             )
 
-    def _get_larmor_radius(self, E_k: u.Quantity, B_field: u.Quantity) -> u.Quantity:
-        """Calculate Larmor radius given kinetic energy and magnetic field."""
-        # Calculate momentum
-        E_tot = E_k.to(u.erg) + const.m_p * const.c**2
-        p = np.sqrt(E_tot**2 - (const.m_p * const.c**2) ** 2) / const.c
+    def _momentum(self, p_or_E_k: u.Quantity) -> u.Quantity:
+        """Momentum of the particle, given either its momentum or its kinetic energy."""
+        if p_or_E_k.unit.is_equivalent(su.MOMENTUM):
+            return p_or_E_k.to(su.MOMENTUM)
+        mc2 = self.particle.mass * const.c**2
+        return (np.sqrt(p_or_E_k**2 + 2 * p_or_E_k * mc2) / const.c).to(su.MOMENTUM)
 
-        r_L = np.zeros_like(B_field.value) * u.cm
+    def _kinetic_energy(self, p: u.Quantity) -> u.Quantity:
+        """Kinetic energy of the particle with momentum ``p``."""
+        mc2 = self.particle.mass * const.c**2
+        return (np.sqrt((p * const.c) ** 2 + mc2**2) - mc2).to(su.ENERGY)
+
+    def _get_larmor_radius(self, p: u.Quantity, B_field: u.Quantity) -> u.Quantity:
+        """Larmor radius, from the rigidity ``p c / (|Z| e)`` of the particle."""
+        charge = abs(self.particle.charge_number) * const.e.si
+        r_L = np.zeros(np.broadcast_shapes(p.shape, B_field.shape)) * u.pc
         mask = B_field.value > 0
-        r_L[mask] = (p / (const.e.si * B_field[mask])).to(u.pc)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            r_L_raw = p / (charge * B_field)
+        r_L[..., mask] = r_L_raw[..., mask].to(u.pc)
         return r_L
 
-    def _get_particle_velocity(self, E_k: u.Quantity) -> u.Quantity:
-        """Calculate particle velocity from kinetic energy."""
-        E_tot = E_k.to(u.erg) + const.m_p * const.c**2
-        p = np.sqrt(E_tot**2 - (const.m_p * const.c**2) ** 2) / const.c
-        v_p = p * const.c**2 / E_tot
-        return v_p
+    def _get_particle_velocity(self, p: u.Quantity) -> u.Quantity:
+        """Velocity of the particle with momentum ``p``."""
+        mc2 = self.particle.mass * const.c**2
+        return p * const.c**2 / np.sqrt((p * const.c) ** 2 + mc2**2)
 
-    @u.quantity_input(E_k=su.ENERGY, r_Inj=su.LENGTH, D_ISM=su.DIFFUSION_COEFFICIENT)
+    @u.quantity_input(
+        p_or_E_k=[su.MOMENTUM, su.ENERGY],
+        r_Inj=su.LENGTH,
+        D_ISM=su.DIFFUSION_COEFFICIENT,
+    )
     def compute_diffusion_profile(
         self,
-        E_k: u.Quantity,
+        p_or_E_k: u.Quantity,
         r_Inj: u.Quantity = 1.0 * u.pc,
         D_ISM: u.Quantity | None = None,
         diffusion_model: str = "kolmogorov",
         eta_B: float = 0.1,
     ) -> u.Quantity:
-        """
+        r"""
         Compute diffusion coefficient profile.
 
         Parameters
         ----------
-        E_k : astropy.units.Quantity
-            Particle kinetic energy. Units compatible with :py:data:`~saetass.units.ENERGY`.
+        p_or_E_k : astropy.units.Quantity
+            Particle momenta, scalar or 1D, or their kinetic energies. Units compatible with :py:data:`~saetass.units.MOMENTUM` or :py:data:`~saetass.units.ENERGY`.
         r_Inj : astropy.units.Quantity, optional
             Injection scale for turbulence. Units compatible with :py:data:`~saetass.units.LENGTH`. Default is ``1.0 * u.pc``.
         D_ISM : astropy.units.Quantity, optional
-            Diffusion coefficient in the ISM. If ``None``, a default scaling is computed. Units compatible with :py:data:`~saetass.units.DIFFUSION_COEFFICIENT`. Default is ``None``.
+            Diffusion coefficient in the ISM. If ``None``, :math:`3 \times 10^{28} (E_k / \mathrm{GeV})^{1/3}\ \mathrm{cm^2\,s^{-1}}` is used. Units compatible with :py:data:`~saetass.units.DIFFUSION_COEFFICIENT`. Default is ``None``.
         diffusion_model : str, optional
             Diffusion model inside the bubble, ``'kolmogorov'``, ``'kraichnan'`` or ``'bohm'``. Default is ``'kolmogorov'``.
         eta_B : float, optional
@@ -504,12 +533,15 @@ class BubbleProfileCalculator:
         Returns
         -------
         astropy.units.Quantity
-            Diffusion coefficient profile. Units compatible with :py:data:`~saetass.units.DIFFUSION_COEFFICIENT`.
+            Diffusion coefficient profile with shape ``(len(p_or_E_k), len(r_grid))``, or ``(len(r_grid),)`` for a scalar ``p_or_E_k``. Units compatible with :py:data:`~saetass.units.DIFFUSION_COEFFICIENT`.
         """
         if self.model == BubbleModel.MORLINO21:
+            is_scalar = p_or_E_k.isscalar
+            p = self._momentum(np.atleast_1d(np.squeeze(p_or_E_k)))[:, np.newaxis]
+
             B_field = self.compute_magnetic_field_profile(eta_B=eta_B)
-            r_L = self._get_larmor_radius(E_k, B_field)
-            v_p = self._get_particle_velocity(E_k)
+            r_L = self._get_larmor_radius(p, B_field)
+            v_p = self._get_particle_velocity(p)
 
             match diffusion_model.lower():
                 case "bohm":
@@ -524,10 +556,12 @@ class BubbleProfileCalculator:
                     )
 
             if D_ISM is None:
+                E_k = self._kinetic_energy(p)
                 D_ISM = (3e28 * (E_k / (1 * u.GeV)) ** (1 / 3)) * u.cm**2 / u.s
 
-            D_values[self.masks["r_ISM"]] = D_ISM
-            return D_values.to(u.cm**2 / u.s)
+            D_values[..., self.masks["r_ISM"]] = D_ISM
+            out = D_values.to(u.cm**2 / u.s)
+            return np.squeeze(out) if is_scalar else out
         else:
             raise NotImplementedError(
                 f"Diffusion profile not implemented natively for {self.model}."
@@ -586,8 +620,12 @@ class BubbleProfileCalculator:
         Returns
         -------
         np.ndarray
-            Analytical CR profile
+            Analytical steady-state CR spatial profile.
         """
+        is_1d = D_values.ndim == 1
+        if is_1d:
+            D_values = D_values[np.newaxis, :]
+
         r_val = self.r_grid.to(u.pc).value
         r_bubble = self.masks["r_bubble"]
         r_ISM = self.masks["r_ISM"]
@@ -596,51 +634,63 @@ class BubbleProfileCalculator:
         v_b = self.v_w.to(u.pc / u.Myr) / 4
 
         # D inside bubble at mid-point
-        if len(D_values[r_bubble]) > 0:
-            mid_idx = len(D_values[r_bubble]) // 2
-            D_b = D_values[r_bubble][mid_idx].to(u.pc**2 / u.Myr)
+        r_bubble_len = np.sum(r_bubble)
+        if r_bubble_len > 0:
+            mid_idx = r_bubble_len // 2
+            D_b = D_values[..., r_bubble][..., mid_idx].to(u.pc**2 / u.Myr)
         else:
-            D_b = D_values[0].to(u.pc**2 / u.Myr)  # Fallback
+            D_b = D_values[..., 0].to(u.pc**2 / u.Myr)  # Fallback
 
-        if len(D_values[r_ISM]) > 0:
-            D_out = D_values[r_ISM][0].to(u.pc**2 / u.Myr)
+        r_ism_len = np.sum(r_ISM)
+        if r_ism_len > 0:
+            D_out = D_values[..., r_ISM][..., 0].to(u.pc**2 / u.Myr)
         else:
-            D_out = D_values[-1].to(u.pc**2 / u.Myr)
+            D_out = D_values[..., -1].to(u.pc**2 / u.Myr)
 
         R_TS_pc = self.R_TS.to(u.pc).value
         R_b_pc = self.R_b.to(u.pc).value
 
+        D_b_col = D_b[..., np.newaxis]
+        D_out_col = D_out[..., np.newaxis]
+
         # α(r,p)
-        alpha = (v_b * self.R_TS / D_b) * (
+        alpha = (v_b * self.R_TS / D_b_col) * (
             1.0 - R_TS_pc / np.where(r_val[r_bubble] == 0, 1e-10, r_val[r_bubble])
         )
         alpha = alpha.decompose().value
 
-        alpha_b = (v_b * self.R_TS / D_b) * (1.0 - R_TS_pc / R_b_pc)
+        alpha_b = (v_b * self.R_TS / D_b_col) * (1.0 - R_TS_pc / R_b_pc)
         alpha_b = alpha_b.decompose().value
 
         # β(p)
-        beta = (D_out * self.R_b) / (v_b * self.R_TS**2)
+        beta = (D_out_col * self.R_b) / (v_b * self.R_TS**2)
         beta = beta.decompose().value
 
         EXP_MAX = 700.0
         EXP_MIN = -700.0
         alpha_clip = np.clip(alpha, EXP_MIN, EXP_MAX)
-        # alpha_b_clip = np.clip(alpha_b, EXP_MIN, EXP_MAX)
+        alpha_b_clip = np.clip(alpha_b, EXP_MIN, EXP_MAX)
 
-        if np.all(alpha == alpha_clip):  # Normal case
-            numerator = (
-                np.exp(alpha) + beta * (np.exp(alpha_b) - np.exp(alpha))
-            ) + f_gal / f_TS * beta * (np.exp(alpha) - 1.0)
-            denominator = 1.0 + beta * (np.exp(alpha_b) - 1.0)
-            f_b_over_ts = numerator / denominator
+        # Normal case
+        denominator = 1.0 + beta * (np.exp(alpha_b_clip) - 1.0)
+        numerator = (
+            np.exp(alpha_clip) + beta * (np.exp(alpha_b_clip) - np.exp(alpha_clip))
+        ) + f_gal / f_TS * beta * (np.exp(alpha_clip) - 1.0)
+        f_b_normal = numerator / denominator
 
-            f_b_over_ts_RB = (
-                np.exp(alpha_b) + f_gal / f_TS * beta * (np.exp(alpha_b) - 1.0)
-            ) / denominator
-        else:  # Extreme case to avoid overflow
-            f_b_over_ts = 1 + (1 - beta) / beta * np.exp(alpha - alpha_b)
-            f_b_over_ts_RB = 1 / beta
+        f_b_RB_normal = (
+            np.exp(alpha_b_clip) + f_gal / f_TS * beta * (np.exp(alpha_b_clip) - 1.0)
+        ) / denominator
+
+        # Extreme case
+        f_b_extreme = 1 + (1 - beta) / beta * np.exp(alpha - alpha_b)
+        f_b_RB_extreme = 1 / beta * np.ones_like(alpha_b)
+
+        extreme_mask = (alpha > EXP_MAX) | (alpha_b > EXP_MAX)
+        extreme_mask_RB = alpha_b > EXP_MAX
+
+        f_b_over_ts = np.where(extreme_mask, f_b_extreme, f_b_normal)
+        f_b_over_ts_RB = np.where(extreme_mask_RB, f_b_RB_extreme, f_b_RB_normal)
 
         # f_out(r,p) / f_TS
         f_out_over_ts = f_b_over_ts_RB * (
@@ -655,28 +705,32 @@ class BubbleProfileCalculator:
         # Compute f_w(r,p) inside wind zone
         f_w = np.zeros_like(r_val[r_wind])
         r_wind_pc = r_val[r_wind]
-        D_w = D_values[r_wind].to(u.pc**2 / u.Myr).value
+        D_w = D_values[..., r_wind].to(u.pc**2 / u.Myr).value
 
         if len(r_wind_pc) > 1:
             integrand = self.v_w.to(u.pc / u.Myr).value / np.where(D_w == 0, 1e-10, D_w)
             # Use cumulative_trapezoid instead of cumtrapz
-            I_r = cumtrapz(integrand, r_wind_pc, initial=0.0)
-            I_r = I_r[-1] - I_r
+            I_r = cumtrapz(integrand, r_wind_pc, axis=-1, initial=0.0)
+            I_r = I_r[..., -1:] - I_r
             f_w = f_TS * np.exp(-I_r)
         else:
-            f_w = np.array([f_TS]) * np.ones_like(r_wind_pc)
+            f_w = f_TS * np.ones_like(np.broadcast_to(r_wind_pc, D_w.shape))
 
-        return np.concatenate([f_w, f_b, f_out])
+        out = np.concatenate([f_w, f_b, f_out], axis=-1)
+        return np.squeeze(out) if is_1d else out
 
-    @u.quantity_input(E_k=su.ENERGY)
-    def get_all_profiles(self, E_k: u.Quantity, **kwargs) -> dict[str, Any]:
+    @u.quantity_input(p_or_E_k=[su.MOMENTUM, su.ENERGY])
+    def get_all_profiles(self, p_or_E_k: u.Quantity, **kwargs) -> dict[str, Any]:
         """
         Compute all profiles and return them in a dictionary.
 
+        Spatial profiles (``n_gas``, ``T_gas``, ``v_field`` and ``B_field``) have shape ``(len(r_grid),)``.
+        ``D_values`` has shape ``(len(p_or_E_k), len(r_grid))``, or ``(len(r_grid),)`` for a scalar ``p_or_E_k``.
+
         Parameters
         ----------
-        E_k : astropy.units.Quantity
-            Particle kinetic energy. Units compatible with :py:data:`~saetass.units.ENERGY`.
+        p_or_E_k : astropy.units.Quantity
+            Particle momenta, scalar or 1D, or their kinetic energies. Units compatible with :py:data:`~saetass.units.MOMENTUM` or :py:data:`~saetass.units.ENERGY`.
         **kwargs
             Additional parameters (e.g. ``eta_B``, ``diffusion_model``).
 
@@ -705,8 +759,10 @@ class BubbleProfileCalculator:
 
             res["B_field"] = self.compute_magnetic_field_profile(eta_B=eta_B)
             res["D_values"] = self.compute_diffusion_profile(
-                E_k, diffusion_model=diffusion_model, eta_B=eta_B
+                p_or_E_k, diffusion_model=diffusion_model, eta_B=eta_B
             )
-            res["Q"] = self.compute_source_term(E_k, eta_inj=eta_inj)
+            res["Q"] = self.compute_source_term(
+                self._kinetic_energy(self._momentum(p_or_E_k)), eta_inj=eta_inj
+            )
 
         return res

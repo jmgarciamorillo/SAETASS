@@ -4,7 +4,9 @@ import numpy as np
 import pytest
 
 from saetass import Grid
+from saetass import units as su
 from saetass.utils.bubble_profiles import BubbleModel, BubbleProfileCalculator
+from saetass.utils.energy_losses import Particle
 
 FINE = np.linspace(0.1, 100, 1000) * u.pc
 COARSE = np.linspace(0.0, 100.0, 11) * u.pc  # 10 pc cells, wider than the 3.9 pc shell
@@ -31,6 +33,11 @@ def r_grid():
     return FINE
 
 
+def _kinetic_energy(p, mass=const.m_p):
+    mc2 = mass * const.c**2
+    return np.sqrt((p * const.c) ** 2 + mc2**2) - mc2
+
+
 def _overlap(faces, r_in, r_out):
     """Volume of each cell between the radii r_in and r_out."""
     lower, upper = np.clip(faces[:-1], r_in, r_out), np.clip(faces[1:], r_in, r_out)
@@ -41,6 +48,8 @@ class TestBubbleProfileCalculator:
     def test_initialization(self, r_grid, base_kwargs):
         calc = BubbleProfileCalculator(r_grid, model="Weaver77", **base_kwargs)
         assert calc.R_TS is not None and calc.R_b is not None and calc.v_w is not None
+        assert BubbleModel.WEAVER77 == "Weaver77"
+        assert BubbleModel.MORLINO21 == "Morlino21"
 
     @pytest.mark.parametrize(
         "args, kwargs, error, match",
@@ -48,6 +57,8 @@ class TestBubbleProfileCalculator:
             ((FINE.value,), {}, TypeError, None),
             ((np.linspace(0.1, 100, 100) * u.K,), {}, u.UnitsError, None),
             ((FINE,), {"model": "InvalidModel"}, ValueError, None),
+            ((FINE,), {"particle": "neutrino"}, ValueError, "Unknown particle"),
+            ((FINE,), {"particle": 5}, TypeError, "Particle or a str"),
             ((FINE,), {"shell": "thin"}, ValueError, "'uniform' or 'fragmented'"),
             (
                 (FINE,),
@@ -76,81 +87,41 @@ class TestBubbleProfileCalculator:
         with pytest.raises(ValueError):
             BubbleProfileCalculator(r_grid, model="Weaver77", L_wind=1e38 * u.erg / u.s)
 
-    def test_density_profile(self, r_grid, base_kwargs):
-        calc = BubbleProfileCalculator(r_grid, model="Weaver77", **base_kwargs)
-        density = calc.compute_density_profile()
-        assert density.unit.is_equivalent(u.cm**-3)
-        assert len(density) == len(r_grid)
-
-    def test_temperature_profile(self, r_grid, base_kwargs):
-        calc = BubbleProfileCalculator(r_grid, model="Weaver77", **base_kwargs)
-        temp = calc.compute_temperature_profile()
-        assert temp.unit.is_equivalent(u.K)
-        assert len(temp) == len(r_grid)
-
-    def test_velocity_profile(self, r_grid, base_kwargs):
+    @pytest.mark.parametrize(
+        "method, kwargs, unit",
+        [
+            ("compute_density_profile", {}, u.cm**-3),
+            ("compute_temperature_profile", {}, u.K),
+            ("compute_velocity_profile", {}, u.km / u.s),
+            ("compute_magnetic_field_profile", {}, u.G),
+            *[
+                (
+                    "compute_diffusion_profile",
+                    {"p_or_E_k": 1 * u.TeV, "diffusion_model": model},
+                    u.cm**2 / u.s,
+                )
+                for model in ["kolmogorov", "kraichnan", "bohm"]
+            ],
+        ],
+    )
+    def test_profiles_on_the_radial_grid(
+        self, r_grid, base_kwargs, method, kwargs, unit
+    ):
         calc = BubbleProfileCalculator(r_grid, model="Morlino21", **base_kwargs)
-        v_field = calc.compute_velocity_profile()
-        assert v_field.unit.is_equivalent(u.km / u.s)
-        assert len(v_field) == len(r_grid)
-
-    def test_magnetic_field_profile(self, r_grid, base_kwargs):
-        calc = BubbleProfileCalculator(r_grid, model="Morlino21", **base_kwargs)
-        b_field = calc.compute_magnetic_field_profile()
-        assert b_field.unit.is_equivalent(u.G)
-        assert len(b_field) == len(r_grid)
-
-    def test_diffusion_profile(self, r_grid, base_kwargs):
-        calc = BubbleProfileCalculator(r_grid, model="Morlino21", **base_kwargs)
-        E_k = 1 * u.TeV
-
-        for diff_model in ["kolmogorov", "kraichnan", "bohm"]:
-            D = calc.compute_diffusion_profile(E_k, diffusion_model=diff_model)
-            assert D.unit.is_equivalent(u.cm**2 / u.s)
-            assert len(D) == len(r_grid)
-
-        with pytest.raises(ValueError):
-            calc.compute_diffusion_profile(E_k, diffusion_model="invalid")
-
-    def test_source_term(self, r_grid, base_kwargs):
-        calc = BubbleProfileCalculator(r_grid, model="Morlino21", **base_kwargs)
-        E_k = 1 * u.TeV
-        Q = calc.compute_source_term(E_k)
-        assert isinstance(Q, np.ndarray)
-        assert len(Q) == len(r_grid)
-
-    def test_analytical_CR_profile(self, r_grid, base_kwargs):
-        calc = BubbleProfileCalculator(r_grid, model="Morlino21", **base_kwargs)
-        E_k = 1 * u.TeV
-        D = calc.compute_diffusion_profile(E_k)
-        CR = calc.compute_analytical_CR_profile(D)
-        assert len(CR) == len(r_grid)
-
-    def test_get_all_profiles(self, r_grid, base_kwargs):
-        calc = BubbleProfileCalculator(r_grid, model="Morlino21", **base_kwargs)
-        E_k = 1 * u.TeV
-        profiles = calc.get_all_profiles(E_k)
-        assert "n_gas" in profiles
-        assert "T_gas" in profiles
-        assert "v_field" in profiles
-        assert "B_field" in profiles
-        assert "D_values" in profiles
-        assert "Q" in profiles
+        profile = getattr(calc, method)(**kwargs)
+        assert profile.unit.is_equivalent(unit)
+        assert profile.shape == r_grid.shape
 
     def test_not_implemented_errors(self, r_grid, base_kwargs):
-        # Weaver77 model does not support magnetic/diffusion methods natively as Morlino21
+        # Only Morlino21 models the magnetic field and the transport of cosmic rays
         calc = BubbleProfileCalculator(r_grid, model="Weaver77", **base_kwargs)
-
         with pytest.raises(NotImplementedError):
             calc.compute_magnetic_field_profile()
-
         with pytest.raises(NotImplementedError):
-            E_k = 1 * u.TeV
-            calc.compute_diffusion_profile(E_k)
-
-    def test_bubble_model_enum(self):
-        assert BubbleModel.WEAVER77 == "Weaver77"
-        assert BubbleModel.MORLINO21 == "Morlino21"
+            calc.compute_diffusion_profile(1 * u.TeV)
+        calc = BubbleProfileCalculator(r_grid, model="Morlino21", **base_kwargs)
+        with pytest.raises(ValueError):
+            calc.compute_diffusion_profile(1 * u.TeV, diffusion_model="invalid")
 
 
 class TestBubbleStructure:
@@ -278,12 +249,78 @@ class TestBubbleStructure:
         fragmented = BubbleProfileCalculator(
             r_grid, model="Morlino21", **FRAGMENTED, **base_kwargs
         )
+        p = np.logspace(0, 4, 5) * su.MOMENTUM
         for method, kwargs in [
             ("compute_velocity_profile", {}),
             ("compute_magnetic_field_profile", {}),
-            ("compute_diffusion_profile", {"E_k": 1 * u.TeV}),
+            ("compute_diffusion_profile", {"p_or_E_k": p}),
         ]:
             np.testing.assert_array_equal(
                 getattr(fragmented, method)(**kwargs),
                 getattr(uniform, method)(**kwargs),
             )
+
+
+class TestCosmicRays:
+    """Momentum-dependent profiles of the Morlino21 model."""
+
+    def test_particle_kinematics(self, r_grid, base_kwargs):
+        protons = BubbleProfileCalculator(r_grid, model="Morlino21", **base_kwargs)
+        electrons = BubbleProfileCalculator(
+            r_grid, model="Morlino21", particle="Electron", **base_kwargs
+        )
+        assert electrons.particle is Particle.ELECTRON
+        bubble = protons.masks["r_bubble"]
+        p = np.array([0.1, 1e3]) * su.MOMENTUM
+        # Momenta and kinetic energies are equivalent inputs
+        for calc, mass in [(protons, const.m_p), (electrons, const.m_e)]:
+            np.testing.assert_allclose(
+                calc.compute_diffusion_profile(p),
+                calc.compute_diffusion_profile(_kinetic_energy(p, mass)),
+                rtol=1e-12,
+            )
+        # At equal rigidity, D ~ v r_L^(1/3) only differs through the particle velocity
+        ratio = (
+            electrons.compute_diffusion_profile(p)[:, bubble]
+            / protons.compute_diffusion_profile(p)[:, bubble]
+        ).to_value(u.one)
+
+        def beta(mass):
+            return (
+                p * const.c / (_kinetic_energy(p, mass) + mass * const.c**2)
+            ).to_value(u.one)
+
+        expected = beta(const.m_e) / beta(const.m_p)  # 3.3 at 0.1 GeV/c, ~1 at 1 TeV/c
+        np.testing.assert_allclose(ratio, expected[:, None] * np.ones_like(ratio))
+
+    def test_multi_energy_profiles(self, r_grid, base_kwargs):
+        calc = BubbleProfileCalculator(r_grid, model="Morlino21", **base_kwargs)
+        E_k = np.logspace(0, 4, 5) * u.GeV
+        profiles = calc.get_all_profiles(E_k)
+        single = calc.get_all_profiles(E_k[2])
+        # Spatial profiles are 1D; the diffusion coefficient has one row per momentum
+        for key in ["n_gas", "T_gas", "v_field", "B_field"]:
+            assert profiles[key].shape == r_grid.shape
+        assert profiles["D_values"].shape == (E_k.size, r_grid.size)
+        np.testing.assert_allclose(profiles["D_values"][2], single["D_values"])
+        CR = calc.compute_analytical_CR_profile(profiles["D_values"])
+        np.testing.assert_allclose(
+            CR[2], calc.compute_analytical_CR_profile(single["D_values"])
+        )
+
+    @pytest.mark.parametrize(
+        "r_grid",
+        [
+            np.linspace(0.0, 100.0, 6) * u.pc,  # a single wind cell, r = 0
+            np.linspace(0.0, 10.0, 21) * u.pc,  # only wind cells
+            np.sort(np.append(np.linspace(0.0, 100.0, 101), 78.0835803851831)) * u.pc,
+        ],
+        ids=["coarse", "wind-only", "point-at-R_b"],
+    )
+    def test_analytical_profile_on_limiting_grids(self, base_kwargs, r_grid):
+        calc = BubbleProfileCalculator(r_grid, model="Morlino21", **base_kwargs)
+        assert not np.any(calc.masks["r_bubble"] & calc.masks["r_ISM"])
+        CR = calc.compute_analytical_CR_profile(
+            calc.compute_diffusion_profile(1 * u.TeV)
+        )
+        assert CR.shape == r_grid.shape

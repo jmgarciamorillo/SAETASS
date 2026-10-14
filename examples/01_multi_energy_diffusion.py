@@ -259,7 +259,7 @@ if __name__ == "__main__":
             )
 
             setup = calculator.get_all_profiles(
-                E_k=E_k, eta_B=0.1, eta_inj=0.1, diffusion_model=diff_model_name
+                E_k, eta_B=0.1, eta_inj=0.1, diffusion_model=diff_model_name
             )
 
             r = setup["r_grid"].to("pc").value
