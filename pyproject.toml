@@ -12,6 +12,8 @@ authors = [
     {name = "J. M. García-Morillo", email = "jmorillo@iaa.es"}
 ]
 requires-python = ">=3.11"
+# Each minimum version is the oldest one that works, checked by the "Dependency versions"
+# workflow, which installs the lowest allowed version of every direct dependency
 dependencies = [
     "numpy>=2.0.0",  # numpy.trapezoid
     "scipy>=1.13.0",  # the first release built for numpy 2

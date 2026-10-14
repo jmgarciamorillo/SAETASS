@@ -19,6 +19,8 @@ The core numerical engine relies on the standard PyData stack. While the package
 - :code:`Rich`: For the progress bars and messages in the terminal.
 - :code:`aafragpy`: For the AAFrag hadronic cross sections of the emission calculator.
 
+The minimum version of each dependency, here and in the optional dependencies below, is the oldest one that works: the continuous integration installs these versions and runs the tests, builds the documentation and executes the tutorials with them.
+
 Optional dependencies
 ---------------------
 

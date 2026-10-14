@@ -1,0 +1,109 @@
+name: Dependency versions
+
+# The minimum versions declared in pyproject.toml are only true if something installs
+# them: each job resolves every direct dependency to its lowest allowed version
+# (uv --resolution lowest-direct) and checks that the package still works with it.
+# The newest versions are tested on the newest supported Python.
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  tests:
+    name: Tests (${{ matrix.versions }} versions, Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - versions: oldest
+            python: "3.11"
+            resolution: lowest-direct
+          - versions: newest
+            python: "3.14"
+            resolution: highest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install the package with its test dependencies
+        run: |
+          uv venv --python ${{ matrix.python }}
+          uv pip install --resolution ${{ matrix.resolution }} ".[test]"
+          uv pip list
+
+      - name: Run tests
+        run: .venv/bin/python -m pytest
+
+  docs:
+    name: Documentation (oldest versions)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install pandoc
+        run: sudo apt-get update && sudo apt-get install -y pandoc
+
+      - name: Install the package with its documentation dependencies
+        run: |
+          uv venv --python 3.11
+          uv pip install --resolution lowest-direct ".[docs]"
+          uv pip list
+
+      - name: Build the documentation
+        run: .venv/bin/python -m sphinx -b html docs/source docs/_build/html
+
+  tutorials:
+    name: Tutorials (oldest versions)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install LaTeX
+        # The energy losses tutorial typesets its figures with text.usetex
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y texlive-latex-extra texlive-fonts-recommended dvipng cm-super
+
+      - name: Install the package with its tutorial dependencies
+        # nbclient only executes the notebooks, so it is installed at its newest version
+        run: |
+          uv venv --python 3.11
+          uv pip install --resolution lowest-direct ".[tutorials]"
+          uv pip install nbclient
+          uv pip list
+          .venv/bin/python -m ipykernel install --prefix .venv --name saetass
+
+      - name: Execute the tutorials
+        working-directory: tutorials
+        env:
+          MPLBACKEND: Agg
+        run: |
+          export JUPYTER_PATH="$GITHUB_WORKSPACE/.venv/share/jupyter"
+          ../.venv/bin/python - <<'EOF'
+          import glob
+
+          import nbformat
+          from nbclient import NotebookClient
+
+          for path in sorted(glob.glob("[0-9]*.ipynb")):
+              notebook = nbformat.read(path, as_version=4)
+              NotebookClient(
+                  notebook,
+                  kernel_name="saetass",
+                  timeout=1800,
+                  resources={"metadata": {"path": "."}},
+              ).execute()
+              print(f"Executed {path}")
+          EOF
