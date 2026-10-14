@@ -21,6 +21,7 @@ import astropy.constants as const
 import astropy.units as u
 import numpy as np
 from scipy.integrate import cumulative_trapezoid as cumtrapz
+from scipy.integrate import quad
 
 from .. import units as su
 from ..grid import Grid
@@ -49,6 +50,16 @@ class BubbleModel(StrEnum):
 
 
 logger = logging.getLogger(__name__)
+
+#: Coefficients :math:`(a_1, a_2, a_3, a_4)` of the fit to the cutoff of the spectrum at the
+#: termination shock of :cite:ct:`Morlino2021`, from Table 1 of :cite:ct:`Menchiari2024`.
+CUTOFF_COEFFICIENTS = MappingProxyType(
+    {
+        "kolmogorov": (10.0, 0.308653, 22.0241, 0.43112),
+        "kraichnan": (5.0, 0.448549, 12.52, 0.642666),
+        "bohm": (8.94, 1.29597, 5.31019, 1.13245),
+    }
+)
 
 
 class BubbleProfileCalculator:
@@ -567,38 +578,121 @@ class BubbleProfileCalculator:
                 f"Diffusion profile not implemented natively for {self.model}."
             )
 
-    @u.quantity_input(E_k=su.ENERGY)
+    @u.quantity_input(
+        p_or_E_k=[su.MOMENTUM, su.ENERGY],
+        E_max=[su.ENERGY, su.MOMENTUM],
+        p_inj=su.MOMENTUM,
+    )
     def compute_source_term(
-        self, E_k: u.Quantity, eta_inj: float = 0.1, Q_amplitude: float = 1000.0
-    ) -> np.ndarray:
-        """
-        Compute source term for cosmic ray injection at the termination shock.
+        self,
+        p_or_E_k: u.Quantity,
+        E_max: u.Quantity,
+        eta_inj: float = 0.1,
+        s: float = 4.0,
+        p_inj: u.Quantity = 1.0 * su.MOMENTUM,
+        diffusion_model: str = "kolmogorov",
+    ) -> u.Quantity:
+        r"""
+        Compute the cosmic-ray source term injected at the termination shock.
 
-        .. warning::
-            This method is a work in progress and may be used with caution.
+        Particles are injected in the cell that contains :math:`R_{TS}` with the spectrum of :cite:ct:`Morlino2021` at the termination shock: a power law in momentum, :math:`f(p) \propto p^{-s}` in phase space, starting at :math:`p_\mathrm{inj}`, with a cutoff :math:`e^{-\Gamma(p)}` set by the escape of particles upstream and downstream of the shock.
+        Its shape depends on the turbulence and is given by the fit of :cite:ct:`Menchiari2024` (Eq. 14 and Table 1, see :py:data:`~saetass.utils.bubble_profiles.CUTOFF_COEFFICIENTS`),
+
+        .. math::
+
+            e^{-\Gamma(p)} \simeq \left[1 + a_1 \left(\frac{p}{p_\mathrm{max}}\right)^{a_2}\right] e^{-a_3 (p / p_\mathrm{max})^{a_4}},
+
+        where :math:`p_\mathrm{max}` is the momentum at which the upstream diffusion length equals the termination shock radius, :math:`D_w(p_\mathrm{max}) = v_w R_{TS}`.
+        Since SAETASS evolves :math:`\psi_p = 4 \pi p^2 f`, the source term per unit momentum is
+
+        .. math::
+
+            Q(p) = A\, \left(\frac{p}{\mathrm{GeV}/c}\right)^{2 - s} e^{-\Gamma(p)}, \qquad p \geq p_\mathrm{inj},
+
+        and zero below :math:`p_\mathrm{inj}`.
+        The amplitude :math:`A` makes the power injected into cosmic rays, :math:`V_{TS} \int_{p_\mathrm{inj}}^\infty Q(p)\, E_k(p)\, dp`, equal to :math:`\eta_\mathrm{inj} L_w`, where :math:`V_{TS}` is the volume of the injection cell.
+        The normalization is therefore independent of the energies at which the source term is evaluated.
 
         Parameters
         ----------
-        E_k : u.Quantity
-            Particle kinetic energy
+        p_or_E_k : astropy.units.Quantity
+            Particle momenta at which the source term is evaluated, scalar or 1D, or their kinetic energies. Units compatible with :py:data:`~saetass.units.MOMENTUM` or :py:data:`~saetass.units.ENERGY`.
+        E_max : astropy.units.Quantity
+            Maximum kinetic energy, whose momentum is the :math:`p_\mathrm{max}` of the cutoff, or directly :math:`p_\mathrm{max}`. Units compatible with :py:data:`~saetass.units.ENERGY` or :py:data:`~saetass.units.MOMENTUM`.
         eta_inj : float, optional
-            Injection efficiency parameter
-        Q_amplitude : float, optional
-            Amplitude of the source term
+            Fraction of the wind luminosity injected into cosmic rays, in :math:`(0, 1]`. Default is ``0.1``.
+        s : float, optional
+            Index of the injected phase-space spectrum, :math:`f(p) \propto p^{-s}`; diffusive shock acceleration at a strong shock gives :math:`s = 4`. Default is ``4.0``.
+        p_inj : astropy.units.Quantity, optional
+            Injection momentum, the lowest momentum of the injected spectrum. Units compatible with :py:data:`~saetass.units.MOMENTUM`. Default is ``1 GeV/c``.
+        diffusion_model : str, optional
+            Turbulence that sets the shape of the cutoff, ``'kolmogorov'``, ``'kraichnan'`` or ``'bohm'``. Default is ``'kolmogorov'``.
 
         Returns
         -------
-        np.ndarray
-            Source term array
-        """
-        Q = np.zeros_like(self.r_grid.value)
-        r_val = self.r_grid.to(u.pc).value
-        R_TS_val = self.R_TS.to(u.pc).value
+        astropy.units.Quantity
+            Source term with shape ``(len(p_or_E_k), len(r_grid))``, or ``(len(r_grid),)`` for a scalar ``p_or_E_k``. Units compatible with :py:data:`~saetass.units.SOURCE_PSI_P`.
 
-        # Injection at termination shock
-        injection_mask = (r_val >= 0.99 * R_TS_val) & (r_val <= 1.01 * R_TS_val)
-        Q[injection_mask] = Q_amplitude
-        return Q
+        Raises
+        ------
+        ValueError
+            If :math:`R_{TS}` lies outside the radial grid, ``eta_inj`` is not in :math:`(0, 1]`, ``p_inj`` is not positive or ``diffusion_model`` is unknown.
+        """
+        if diffusion_model.lower() not in CUTOFF_COEFFICIENTS:
+            raise ValueError(
+                "Invalid diffusion model. Choose 'kolmogorov', 'kraichnan' or 'bohm'."
+            )
+        a1, a2, a3, a4 = CUTOFF_COEFFICIENTS[diffusion_model.lower()]
+        if not 0.0 < eta_inj <= 1.0:
+            raise ValueError(f"eta_inj must be in (0, 1], got {eta_inj!r}.")
+        if not p_inj > 0.0 * su.MOMENTUM:
+            raise ValueError(f"p_inj must be positive, got {p_inj!r}.")
+
+        # Injection cell: the finite-volume cell of the solver grid that contains R_TS
+        cells = Grid(r_centers=self.r_grid)
+        faces = cells.r_faces
+        if not faces[0] <= self.R_TS < faces[-1]:
+            raise ValueError(
+                f"The termination shock, at {self.R_TS.to(u.pc):.3g}, lies outside the radial grid."
+            )
+        i_TS = (
+            int(
+                np.searchsorted(
+                    faces.to_value(su.LENGTH),
+                    self.R_TS.to_value(su.LENGTH),
+                    side="right",
+                )
+            )
+            - 1
+        )
+        V_TS = cells.volumes[i_TS]
+
+        # Energy carried by the normalized spectrum, int x^(2-s) e^(-Gamma) E_k(x) dx with
+        # x = p / (GeV/c), integrated in log x up to well beyond the cutoff
+        mc2 = (self.particle.mass * const.c**2).to_value(u.GeV)
+        x_max = self._momentum(E_max).to_value(su.MOMENTUM)
+        x_inj = p_inj.to_value(su.MOMENTUM)
+
+        def cutoff(x):
+            z = x / x_max
+            return (1.0 + a1 * z**a2) * np.exp(-a3 * z**a4)
+
+        def integrand(y):
+            x = np.exp(y)
+            return x ** (3.0 - s) * cutoff(x) * (np.sqrt(x**2 + mc2**2) - mc2)
+
+        y_end = np.log(max(x_max, x_inj) * 1e4)
+        energy, _ = quad(integrand, np.log(x_inj), y_end, limit=500)
+        A = eta_inj * self.kwargs["L_wind"] / (V_TS * energy * u.GeV * su.MOMENTUM)
+
+        is_scalar = p_or_E_k.isscalar
+        x = self._momentum(np.atleast_1d(p_or_E_k)).to_value(su.MOMENTUM)
+        spectrum = np.where(x >= x_inj, x ** (2.0 - s) * cutoff(x), 0.0)
+
+        Q = np.zeros((x.size, self.r_grid.size))
+        Q[:, i_TS] = spectrum
+        Q = Q * A.to(su.SOURCE_PSI_P)
+        return Q[0] if is_scalar else Q
 
     @u.quantity_input(D_values=su.DIFFUSION_COEFFICIENT)
     def compute_analytical_CR_profile(
@@ -725,19 +819,24 @@ class BubbleProfileCalculator:
         Compute all profiles and return them in a dictionary.
 
         Spatial profiles (``n_gas``, ``T_gas``, ``v_field`` and ``B_field``) have shape ``(len(r_grid),)``.
-        ``D_values`` has shape ``(len(p_or_E_k), len(r_grid))``, or ``(len(r_grid),)`` for a scalar ``p_or_E_k``.
+        Profiles that depend on momentum (``D_values`` and ``Q``) have shape ``(len(p_or_E_k), len(r_grid))``, or ``(len(r_grid),)`` for a scalar ``p_or_E_k``.
 
         Parameters
         ----------
         p_or_E_k : astropy.units.Quantity
             Particle momenta, scalar or 1D, or their kinetic energies. Units compatible with :py:data:`~saetass.units.MOMENTUM` or :py:data:`~saetass.units.ENERGY`.
         **kwargs
-            Additional parameters (e.g. ``eta_B``, ``diffusion_model``).
+            Parameters of the Morlino21 profiles: ``eta_B`` and ``diffusion_model`` (see :py:meth:`compute_diffusion_profile`), and ``E_max`` (required), ``eta_inj``, ``s`` and ``p_inj`` (see :py:meth:`compute_source_term`).
 
         Returns
         -------
         dict of str to astropy.units.Quantity
             Dictionary containing all relevant profiles and parameters.
+
+        Raises
+        ------
+        ValueError
+            If ``E_max`` is missing for the Morlino21 model.
         """
         res = {
             "r_grid": self.r_grid,
@@ -754,15 +853,23 @@ class BubbleProfileCalculator:
 
         if self.model == BubbleModel.MORLINO21:
             eta_B = kwargs.get("eta_B", 0.1)
-            eta_inj = kwargs.get("eta_inj", 0.1)
             diffusion_model = kwargs.get("diffusion_model", "kolmogorov")
+            if "E_max" not in kwargs:
+                raise ValueError(
+                    "get_all_profiles requires 'E_max' to compute the source term of the Morlino21 model."
+                )
+            source_params = {
+                key: kwargs[key]
+                for key in ("E_max", "eta_inj", "s", "p_inj")
+                if key in kwargs
+            }
 
             res["B_field"] = self.compute_magnetic_field_profile(eta_B=eta_B)
             res["D_values"] = self.compute_diffusion_profile(
                 p_or_E_k, diffusion_model=diffusion_model, eta_B=eta_B
             )
             res["Q"] = self.compute_source_term(
-                self._kinetic_energy(self._momentum(p_or_E_k)), eta_inj=eta_inj
+                p_or_E_k, diffusion_model=diffusion_model, **source_params
             )
 
         return res

@@ -259,7 +259,11 @@ if __name__ == "__main__":
             )
 
             setup = calculator.get_all_profiles(
-                E_k, eta_B=0.1, eta_inj=0.1, diffusion_model=diff_model_name
+                E_k,
+                eta_B=0.1,
+                eta_inj=0.1,
+                E_max=1 * u.PeV,
+                diffusion_model=diff_model_name,
             )
 
             r = setup["r_grid"].to("pc").value
@@ -295,8 +299,7 @@ if __name__ == "__main__":
                     "D_values": setup["D_values"],
                     "psi_end": 0.0 * su.PSI_P,
                 },
-                # The bubble source term is a bare array in canonical units
-                "source": {"source": setup["Q"] * su.SOURCE_PSI_P},
+                "source": {"source": setup["Q"]},
             }
 
             # 3. Instantiate Solver

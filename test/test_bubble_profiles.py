@@ -102,6 +102,11 @@ class TestBubbleProfileCalculator:
                 )
                 for model in ["kolmogorov", "kraichnan", "bohm"]
             ],
+            (
+                "compute_source_term",
+                {"p_or_E_k": 1 * u.TeV, "E_max": 100 * u.TeV},
+                su.SOURCE_PSI_P,
+            ),
         ],
     )
     def test_profiles_on_the_radial_grid(
@@ -254,6 +259,7 @@ class TestBubbleStructure:
             ("compute_velocity_profile", {}),
             ("compute_magnetic_field_profile", {}),
             ("compute_diffusion_profile", {"p_or_E_k": p}),
+            ("compute_source_term", {"p_or_E_k": p, "E_max": 100 * u.TeV}),
         ]:
             np.testing.assert_array_equal(
                 getattr(fragmented, method)(**kwargs),
@@ -263,6 +269,72 @@ class TestBubbleStructure:
 
 class TestCosmicRays:
     """Momentum-dependent profiles of the Morlino21 model."""
+
+    @pytest.mark.parametrize(
+        "particle, s, diffusion_model, coefficients",
+        [
+            ("proton", 4.0, "kolmogorov", (10.0, 0.308653, 22.0241, 0.43112)),
+            ("proton", 4.4, "kraichnan", (5.0, 0.448549, 12.52, 0.642666)),
+            ("electron", 4.0, "bohm", (8.94, 1.29597, 5.31019, 1.13245)),
+        ],
+    )
+    def test_source_term(self, base_kwargs, particle, s, diffusion_model, coefficients):
+        r_grid = np.linspace(0.0, 100.0, 1001) * u.pc
+        calc = BubbleProfileCalculator(
+            r_grid, model="Morlino21", particle=particle, **base_kwargs
+        )
+        mass = Particle(particle).mass
+        p = np.logspace(-1.0, 8.0, 20001) * su.MOMENTUM
+        E_max = 100 * u.TeV
+        Q = calc.compute_source_term(
+            p, E_max=E_max, eta_inj=0.1, s=s, diffusion_model=diffusion_model
+        )
+
+        # Injected in the cell that contains R_TS
+        faces = Grid(r_centers=r_grid).r_faces
+        (cell,) = np.flatnonzero(Q.value.any(axis=0))
+        assert faces[cell] <= calc.R_TS < faces[cell + 1]
+        # with f ~ p^-s e^-Gamma, so Q ~ p^(2 - s) e^-Gamma, from p_inj = 1 GeV/c, and the
+        # cutoff of Morlino et al. (2021) fitted by Menchiari et al. (2024), Eq. 14 and Table 1
+        a1, a2, a3, a4 = coefficients
+        p_max = np.sqrt(E_max**2 + 2 * E_max * mass * const.c**2) / const.c
+        z = (p / p_max).to_value(u.one)
+        spectrum = np.where(
+            p >= 1 * su.MOMENTUM,
+            p.value ** (2 - s) * (1 + a1 * z**a2) * np.exp(-a3 * z**a4),
+            0,
+        )
+        np.testing.assert_allclose(
+            Q[:, cell] / Q[:, cell].max(), spectrum / spectrum.max()
+        )
+        # and a power eta_inj L_w
+        power = np.trapezoid(
+            Q[:, cell]
+            * Grid(r_centers=r_grid).volumes[cell]
+            * _kinetic_energy(p, mass),
+            p,
+        )
+        assert (power / (0.1 * base_kwargs["L_wind"])).to_value(u.one) == pytest.approx(
+            1.0, rel=1e-3
+        )
+
+    @pytest.mark.parametrize(
+        "kwargs, match",
+        [
+            ({"eta_inj": 0.0}, "eta_inj"),
+            ({"eta_inj": 1.2}, "eta_inj"),
+            ({"p_inj": 0.0 * su.MOMENTUM}, "p_inj"),
+            ({"diffusion_model": "invalid"}, "Invalid diffusion model"),
+        ],
+    )
+    def test_invalid_source_term(self, r_grid, base_kwargs, kwargs, match):
+        calc = BubbleProfileCalculator(r_grid, model="Morlino21", **base_kwargs)
+        with pytest.raises(ValueError, match=match):
+            calc.compute_source_term(1 * u.TeV, E_max=100 * u.TeV, **kwargs)
+        inside_wind = np.linspace(0.0, 5.0, 51) * u.pc
+        calc = BubbleProfileCalculator(inside_wind, model="Morlino21", **base_kwargs)
+        with pytest.raises(ValueError, match="outside the radial grid"):
+            calc.compute_source_term(1 * u.TeV, E_max=100 * u.TeV)
 
     def test_particle_kinematics(self, r_grid, base_kwargs):
         protons = BubbleProfileCalculator(r_grid, model="Morlino21", **base_kwargs)
@@ -296,13 +368,16 @@ class TestCosmicRays:
     def test_multi_energy_profiles(self, r_grid, base_kwargs):
         calc = BubbleProfileCalculator(r_grid, model="Morlino21", **base_kwargs)
         E_k = np.logspace(0, 4, 5) * u.GeV
-        profiles = calc.get_all_profiles(E_k)
-        single = calc.get_all_profiles(E_k[2])
-        # Spatial profiles are 1D; the diffusion coefficient has one row per momentum
+        with pytest.raises(ValueError, match="E_max"):
+            calc.get_all_profiles(E_k)
+        profiles = calc.get_all_profiles(E_k, E_max=100 * u.TeV, s=4.2)
+        single = calc.get_all_profiles(E_k[2], E_max=100 * u.TeV, s=4.2)
+        # Spatial profiles are 1D; momentum-dependent ones have one row per momentum
         for key in ["n_gas", "T_gas", "v_field", "B_field"]:
             assert profiles[key].shape == r_grid.shape
-        assert profiles["D_values"].shape == (E_k.size, r_grid.size)
-        np.testing.assert_allclose(profiles["D_values"][2], single["D_values"])
+        for key in ["D_values", "Q"]:
+            assert profiles[key].shape == (E_k.size, r_grid.size)
+            np.testing.assert_allclose(profiles[key][2], single[key])
         CR = calc.compute_analytical_CR_profile(profiles["D_values"])
         np.testing.assert_allclose(
             CR[2], calc.compute_analytical_CR_profile(single["D_values"])
