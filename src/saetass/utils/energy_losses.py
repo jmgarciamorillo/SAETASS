@@ -47,14 +47,15 @@ class Particle(StrEnum):
 
     ## Separation of docstring because of Sphinx bug
 
-    PROTON = ("proton", const.m_p, "hadronic")
-    ELECTRON = ("electron", const.m_e, "leptonic")
+    PROTON = ("proton", const.m_p, "hadronic", 1)
+    ELECTRON = ("electron", const.m_e, "leptonic", -1)
 
-    def __new__(cls, particle_type: str, mass: float, species: str):
+    def __new__(cls, particle_type: str, mass: float, species: str, charge_number: int):
         obj = str.__new__(cls, particle_type)
         obj._value_ = particle_type
         obj.mass = mass
         obj.species = species
+        obj.charge_number = charge_number
         return obj
 
 
