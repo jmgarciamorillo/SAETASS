@@ -22,6 +22,7 @@ Other key features include:
 """
 
 import logging
+from collections.abc import Callable
 from typing import Optional
 
 import astropy.constants as const
@@ -288,7 +289,11 @@ class EmissionCalculator:
     _convert_fp_to_dndE = _convert_psip_to_dndE
 
     def _compute_gas_density_dependent_emission(
-        self, state: State, diff_cross_section: u.Quantity, component_name: str
+        self,
+        state: State,
+        diff_cross_section: u.Quantity,
+        component_name: str,
+        threshold_kernel: Callable[[np.ndarray, np.ndarray], np.ndarray] | None = None,
     ) -> u.Quantity:
         r"""
         Compute emissivity and integrated flux for target gas density-dependent processes.
@@ -306,6 +311,8 @@ class EmissionCalculator:
             Differential cross-section matrix with shape ``(len(E_out_grid), len(E_cr_grid))``. Units compatible with :math:`\mathrm{cm^2\,GeV^{-1}}`.
         component_name : str
             Identifier used to store and cache the resulting emissivity and flux components.
+        threshold_kernel : callable, optional
+            Differential cross-section ``kernel(E_out, E_cr)`` of the model, taking bare energies in GeV and returning the matrix with shape ``(len(E_out), len(E_cr))`` in :math:`\mathrm{cm^2\,GeV^{-1}}`, for kernels that vanish below the kinematic threshold :math:`E_{\mathrm{cr}} = E_{\mathrm{out}}` and rise steeply above it, such as Bremsstrahlung. The grid cell that contains the threshold is then integrated from the threshold itself with a Gauss-Legendre quadrature; otherwise the trapezoidal rule misses the part of that cell above the threshold and the result oscillates with the position of :math:`E_{\mathrm{out}}` between the nodes of ``E_cr_grid``. Default is ``None``.
 
         Returns
         -------
@@ -338,6 +345,11 @@ class EmissionCalculator:
         # 3. Trapezoidal integration along the cosmic ray energy axis (axis=1) -> Shape: (N_out, N_r)
         integral_E = np.trapezoid(integrand, x=E_cr_val, axis=1)
 
+        if threshold_kernel is not None:
+            self._integrate_from_threshold(
+                integral_E, sigma_val, dn_dE, threshold_kernel
+            )
+
         # 4. Emissivity calculation: j = c * n_gas * integral
         emissivity = (
             self._c_cgs * self.n_gas.to_value(u.cm**-3)[np.newaxis, :] * integral_E
@@ -348,6 +360,71 @@ class EmissionCalculator:
         self._flux_components[component_name] = flux
 
         return flux
+
+    def _integrate_from_threshold(
+        self,
+        integral_E: np.ndarray,
+        sigma_val: np.ndarray,
+        dn_dE: np.ndarray,
+        kernel: Callable[[np.ndarray, np.ndarray], np.ndarray],
+        num_points: int = 8,
+    ) -> None:
+        r"""
+        Correct, in place, the trapezoidal integral over the cell that contains the kinematic threshold.
+
+        For each :math:`E_{\mathrm{out}}` inside the cell :math:`[E_k, E_{k+1}]` of ``E_cr_grid``, the trapezoidal rule uses the kernel at :math:`E_k < E_{\mathrm{out}}`, where it vanishes, over the whole cell.
+        This replaces that contribution by the integral from the threshold, :math:`[E_{\mathrm{out}}, E_{k+1}]`, computed with a Gauss-Legendre quadrature in :math:`t`, with :math:`E = E_{\mathrm{out}} + (E_{k+1} - E_{\mathrm{out}})\,t^2` to cluster the nodes where the kernel rises, and :math:`dn/dE` interpolated linearly in :math:`\log E`-:math:`\log(dn/dE)`.
+
+        Parameters
+        ----------
+        integral_E : numpy.ndarray
+            Integral over the cosmic ray energies with shape ``(len(E_out_grid), len(r_grid))``, in :math:`\mathrm{cm^{-1}\,GeV^{-1}}`, corrected in place.
+        sigma_val : numpy.ndarray
+            Differential cross-section matrix with shape ``(len(E_out_grid), len(E_cr_grid))``, in :math:`\mathrm{cm^2\,GeV^{-1}}`.
+        dn_dE : numpy.ndarray
+            Differential number density with shape ``(len(E_cr_grid), len(r_grid))``, in :math:`\mathrm{cm^{-3}\,GeV^{-1}}`.
+        kernel : callable
+            Differential cross-section ``kernel(E_out, E_cr)`` in :math:`\mathrm{cm^2\,GeV^{-1}}`, for bare energies in GeV.
+        num_points : int, optional
+            Number of quadrature nodes in the cell. Default is ``8``.
+        """
+        E_cr = self.E_cr_grid.to_value(u.GeV)
+        E_out = self.E_out_grid.to_value(u.GeV)
+        k = np.searchsorted(E_cr, E_out, side="right") - 1
+        j = np.flatnonzero((k >= 0) & (k < E_cr.size - 1))
+        if j.size == 0:
+            return
+        k = k[j]
+        lower, upper = dn_dE[k], dn_dE[k + 1]  # Shape: (N_j, N_r)
+
+        # Quadrature nodes and weights on [E_out, E_{k+1}]
+        t, weights = np.polynomial.legendre.leggauss(num_points)
+        t, weights = 0.5 * (t + 1.0), 0.5 * weights
+        span = (E_cr[k + 1] - E_out[j])[:, np.newaxis]
+        E_nodes = E_out[j, np.newaxis] + span * t**2  # Shape: (N_j, M)
+        jacobian = 2.0 * t * span * weights
+
+        # Kernel at the nodes of each E_out: the diagonal blocks of the full matrix
+        matrix = kernel(E_out[j], E_nodes.ravel()).reshape(j.size, j.size, num_points)
+        sigma_nodes = matrix[np.arange(j.size), np.arange(j.size)]  # Shape: (N_j, M)
+
+        w = (
+            np.log(E_nodes / E_cr[k, np.newaxis])
+            / np.log(E_cr[k + 1] / E_cr[k])[:, np.newaxis]
+        )
+        w = w[:, :, np.newaxis]
+        lo, up = lower[:, np.newaxis, :], upper[:, np.newaxis, :]
+        with np.errstate(divide="ignore", invalid="ignore"):
+            log_log = lo ** (1.0 - w) * up**w
+        dn_dE_nodes = np.where((lo > 0.0) & (up > 0.0), log_log, lo + w * (up - lo))
+        partial = np.sum(
+            (jacobian * sigma_nodes)[:, :, np.newaxis] * dn_dE_nodes, axis=1
+        )
+
+        f_lower = sigma_val[j, k, np.newaxis] * lower
+        f_upper = sigma_val[j, k + 1, np.newaxis] * upper
+        width = (E_cr[k + 1] - E_cr[k])[:, np.newaxis]
+        integral_E[j] += partial - 0.5 * (f_lower + f_upper) * width
 
     def _compute_direct_rate_emission(
         self, state: State, emission_rate_kernel: u.Quantity, component_name: str
@@ -575,13 +652,21 @@ class EmissionCalculator:
                 "Bremsstrahlung emission can only be computed for leptonic particles."
             )
 
+        kernel = None
         if custom_matrix is not None:
             sigma = custom_matrix
         else:
             sigma = self._get_leptonic_cross_section(model, **kwargs)
+            cs_model = get_leptonic_cross_section_model(model)
+
+            # The cross-section rises steeply from zero at E_e = E_gamma
+            def kernel(E_gamma, E_e):
+                return cs_model.compute_matrix(
+                    E_gamma_grid=E_gamma, E_e_grid=E_e, **kwargs
+                )
 
         flux = self._compute_gas_density_dependent_emission(
-            state, sigma, "bremsstrahlung"
+            state, sigma, "bremsstrahlung", threshold_kernel=kernel
         )
         logger.debug(f"Computed Bremsstrahlung emission at stage: {state.stage_name}")
         return flux

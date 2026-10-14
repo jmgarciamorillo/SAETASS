@@ -792,7 +792,9 @@ class AnalyticalBremsstrahlung(LeptonicCrossSectionModel):
             # Weak-shielding regime (ionized gas)
             arg = 2.0 * Ee * (Ee - Eg) / (mec2 * Eg)
             arg = np.where(valid & (arg > 1.0), arg, 1.0)
-            log_term = np.log(arg) - 0.5
+            # The relativistic formula fails as the final electron becomes non-relativistic
+            # near the tip of the spectrum, where it would turn negative
+            log_term = np.maximum(np.log(arg) - 0.5, 0.0)
         else:
             # Strong-shielding regime (neutral gas with atomic screening)
             log_term = np.log(183.0 / (Z ** (1.0 / 3.0)))

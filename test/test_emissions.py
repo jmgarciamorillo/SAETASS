@@ -8,6 +8,7 @@ import pytest
 from saetass import units as su
 from saetass.grid import Grid
 from saetass.state import State
+from saetass.utils.cross_sections import AnalyticalBremsstrahlung
 from saetass.utils.emissions import EmissionCalculator
 from saetass.utils.energy_losses import Particle
 
@@ -238,6 +239,41 @@ class TestEmissionCalculator:
             calc_p.compute_bremsstrahlung_emission(
                 state=state_cr, custom_matrix=dummy_sigma
             )
+
+    @pytest.mark.parametrize("ionised", [False, True])
+    def test_bremsstrahlung_threshold(self, ionised):
+        # The cross-section rises steeply from zero at E_e = E_gamma, never below it
+        sigma = AnalyticalBremsstrahlung().compute_matrix(
+            np.array([1.0]), np.array([1.0 + 1e-6, 1.01, 2.0]), ionised=ionised
+        )
+        assert np.all(sigma >= 0.0)
+
+        # so a coarse electron grid must not make the spectrum oscillate with the
+        # position of E_gamma between its nodes
+        r = np.array([0.0, 1.0]) * u.pc
+        E_out = np.logspace(-1.0, 2.0, 61) * u.GeV
+        mc2 = (const.m_e * const.c**2).to_value(u.GeV)
+
+        def sed(per_decade, E_out=E_out):
+            p = np.logspace(-2.0, 4.0, 6 * per_decade + 1) * su.MOMENTUM
+            E_k = (np.sqrt(p.value**2 + mc2**2) - mc2) * u.GeV
+            psi = np.outer(p.value**-2.0, np.ones(2)) * su.PSI_P
+            calc = EmissionCalculator(
+                E_out_grid=E_out,
+                E_cr_grid=E_k,
+                r_grid=r,
+                n_gas=np.ones(2) * u.cm**-3,
+                particle="electron",
+            )
+            state = State(Grid(r_centers=r, p_centers=p), psi_p=psi)
+            flux = calc.compute_bremsstrahlung_emission(state, ionised=ionised)
+            return (E_out**2 * flux).value
+
+        ratio = sed(10) / sed(400)
+        np.testing.assert_allclose(ratio, 1.0, rtol=0.04)
+        assert np.max(np.abs(np.diff(ratio, 2))) < 0.03
+        # Photons above the highest electron energy are not produced
+        assert np.all(sed(10, E_out=[2e4, 5e4] * u.GeV) == 0.0)
 
     def test_inverse_compton_emission(self, base_args, state_cr, dummy_ic_kernel):
         calc_e = EmissionCalculator(**base_args, particle="electron")
