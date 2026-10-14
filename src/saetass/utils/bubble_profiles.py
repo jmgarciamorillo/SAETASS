@@ -323,13 +323,20 @@ class BubbleProfileCalculator:
         return v_field * (u.km / u.s)
 
     def compute_magnetic_field_profile(self, eta_B: float = 0.1) -> u.Quantity:
-        """
-        Compute the magnetic field profile.
+        r"""
+        Compute the turbulent magnetic field profile.
+
+        In the Morlino21 model a fraction :math:`\eta_B` of the kinetic energy flux of the wind is converted into magnetic turbulence, :math:`r^2 v_w \delta B^2 = \eta_B \dot{M} v_w^2 / 2`, so that
+
+        - **Cold wind** (:math:`R_c \leq r < R_{TS}`): :math:`\delta B(r) = \sqrt{\eta_B \dot{M} v_w / 2} / r`.
+        - **Core** (:math:`r < R_c`): constant, equal to its value at :math:`R_c`, as the density, since the wind only develops beyond the core. Without a core the field diverges as :math:`1/r` down to the first cell.
+        - **Hot bubble** (:math:`R_{TS} \leq r \leq R_b`): uniform, compressed by the shock to :math:`\sqrt{11}` times its value at :math:`R_{TS}`.
+        - **Ambient medium** (:math:`r > R_b`): zero.
 
         Parameters
         ----------
         eta_B : float, optional
-            Magnetic field efficiency parameter, used in the Morlino21 model. Default is ``0.1``.
+            Fraction of the kinetic energy of the wind converted into magnetic turbulence. Default is ``0.1``.
 
         Returns
         -------
@@ -340,24 +347,21 @@ class BubbleProfileCalculator:
 
         if self.model == BubbleModel.MORLINO21:
             M_dot = self.kwargs["M_dot"]
+            R_c = self.kwargs.get("R_c", 0 * u.pc).to_value(u.cm)
 
             r_win = self.masks["r_wind_overall"]
             r_bub = self.masks["r_bubble"]
 
-            r_w_cm = self.r_grid[r_win].to(u.cm).value
-            # handle r=0
-            r_w_cm_safe = r_w_cm.copy()
-            if len(r_w_cm_safe) > 0 and r_w_cm_safe[0] == 0:
-                if len(r_w_cm_safe) > 1:
-                    r_w_cm_safe[0] = r_w_cm_safe[1]
-                else:
-                    r_w_cm_safe[0] = 1e-10
+            # The field is constant inside the core, and finite at r = 0 without it
+            r_w_cm = np.maximum(self.r_grid[r_win].to_value(u.cm), R_c)
+            if len(r_w_cm) > 0 and r_w_cm[0] == 0:
+                r_w_cm[0] = r_w_cm[1] if len(r_w_cm) > 1 else 1e-10
 
             val = np.sqrt(
                 0.5 * eta_B * M_dot.to(u.g / u.s).value * self.v_w.to(u.cm / u.s).value
             )
 
-            delta_B[r_win] = (1 / r_w_cm_safe * val) * u.G
+            delta_B[r_win] = (1 / r_w_cm * val) * u.G
 
             delta_B[r_bub] = (np.sqrt(11) / self.R_TS.to(u.cm).value * val) * u.G
 

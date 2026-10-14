@@ -146,6 +146,31 @@ class TestBubbleStructure:
         assert (lossy.R_TS / calc.R_TS).to_value(u.one) == pytest.approx(1 / factor)
         assert lossy.v_w == calc.v_w
 
+    @pytest.mark.parametrize("R_c", [0.0, 5.0] * u.pc)
+    def test_magnetic_field(self, r_grid, base_kwargs, R_c):
+        calc = BubbleProfileCalculator(r_grid, R_c=R_c, **base_kwargs)
+        B = calc.compute_magnetic_field_profile(eta_B=0.1).to_value(u.G)
+        # r^2 v_w B^2 = eta_B M_dot v_w^2 / 2 in the wind, in Gaussian units
+        flux = np.sqrt(
+            0.05
+            * base_kwargs["M_dot"].to_value(u.g / u.s)
+            * calc.v_w.to_value(u.cm / u.s)
+        )
+        r = r_grid.to_value(u.cm)
+        wind = calc.masks["r_wind"]
+        np.testing.assert_allclose(B[wind] * r[wind], flux)
+        # constant inside the core, as the density, and finite at r = 0 without it
+        core = calc.masks["r_core"]
+        if R_c > 0:
+            np.testing.assert_allclose(B[core], flux / R_c.to_value(u.cm))
+        assert np.all(np.isfinite(B))
+        # compressed by sqrt(11) downstream of the shock, and zero outside the bubble
+        bubble = calc.masks["r_bubble"]
+        np.testing.assert_allclose(
+            B[bubble], np.sqrt(11) * flux / calc.R_TS.to_value(u.cm)
+        )
+        assert np.all(B[calc.masks["r_ISM"]] == 0.0)
+
     def test_gas_density(self, base_kwargs, r_grid):
         calc = BubbleProfileCalculator(r_grid, R_c=5 * u.pc, **base_kwargs)
         n = calc.compute_density_profile()
