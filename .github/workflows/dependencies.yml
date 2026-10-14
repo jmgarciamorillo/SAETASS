@@ -4,12 +4,17 @@ name: Dependency versions
 # them: each job resolves every direct dependency to its lowest allowed version
 # (uv --resolution lowest-direct) and checks that the package still works with it.
 # The newest versions are tested on every supported Python, and on macOS and Windows.
+# The workflow also runs weekly, so that a new release of a dependency that breaks
+# the package is noticed even without new commits.
 
 on:
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
 
 jobs:
   tests:
