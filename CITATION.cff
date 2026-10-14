@@ -18,7 +18,7 @@ version: 0.1.0-placeholder
 doi: 10.5281/zenodo.19468484
 date-released: 2026-04-08
 url: "https://saetass.readthedocs.io/"
-repository-code: "https://github.com/jmgarciamorillo/SAETASS"
+repository-code: "https://github.com/saetass/saetass"
 keywords:
   - astroparticles
   - cosmic-rays

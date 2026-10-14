@@ -107,7 +107,7 @@ Select the installation method that aligns with your intended usage.
 
       .. code-block:: bash
 
-         git clone https://github.com/jmgarciamorillo/SAETASS.git
+         git clone https://github.com/saetass/saetass.git
          cd SAETASS
 
       **2. Environment and dependency resolution**
