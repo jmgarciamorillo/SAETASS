@@ -336,6 +336,22 @@ class TestEmissionCalculator:
             y_unit="GeV cm-2 s-1",
         )
 
+    def test_aafrag_uses_total_primary_energy(self):
+        aafragpy = pytest.importorskip("aafragpy")
+        from saetass.utils.cross_sections import AAFragPyModel
+
+        T_p = np.array([2.0, 3.5, 10.0, 1e3])
+        E_gamma = np.array([0.1, 1.0])
+        with pytest.warns(UserWarning, match="total energies >= 4 GeV"):
+            sigma = AAFragPyModel().compute_matrix(E_gamma, T_p)
+        # T_p = 2 GeV is below the tables (E_p = 2.94 GeV < 4 GeV); the others are
+        # evaluated at the total energy T_p + m_p c^2
+        assert np.all(sigma[:, 0] == 0.0)
+        expected = aafragpy.get_cross_section(
+            "gam", "p-p", E_primaries=T_p[1:] + 0.938272, E_secondaries=E_gamma
+        )[0].T
+        np.testing.assert_allclose(sigma[:, 1:], expected, rtol=1e-12)
+
     def test_model_import_failures(self, base_args, state_cr):
         calc_p = EmissionCalculator(**base_args, particle="proton")
 
